@@ -1,0 +1,185 @@
+<div class="config-page">
+  <header class="page-header">
+    <h1>Chat Client – Configuration</h1>
+  </header>
+
+  <!-- ==================== PROVIDERS ==================== -->
+  <section class="section">
+    <div class="section-header">
+      <h2>Providers</h2>
+      <button class="btn primary" (click)="openAddProvider()">+ Add Provider</button>
+    </div>
+
+    @if (providers().length === 0) {
+      <p class="empty">No providers configured yet.</p>
+    }
+
+    @for (provider of providers(); track provider.id) {
+      <div class="card provider-card">
+        <div class="card-header">
+          <strong>{{ provider.name }}</strong>
+          <div class="actions">
+            <button
+              class="btn small"
+              [disabled]="testingId() === provider.id"
+              (click)="testProvider(provider)">
+              {{ testingId() === provider.id ? 'Testing…' : 'Test' }}
+            </button>
+            <button
+              class="btn small"
+              [disabled]="fetchingId() === provider.id"
+              (click)="fetchModels(provider)">
+              {{ fetchingId() === provider.id ? 'Fetching…' : 'Fetch Models' }}
+            </button>
+            <button class="btn small danger" (click)="deleteProvider(provider.id)">
+              Delete
+            </button>
+          </div>
+        </div>
+
+        <div class="card-body">
+          <div><span class="label">Base URL:</span> {{ provider.baseUrl }}</div>
+          <div>
+            <span class="label">API Key:</span>
+            {{ provider.apiKey ? '••••••••••••' + provider.apiKey.slice(-6) : '— not set —' }}
+          </div>
+
+          @if (testResult()?.id === provider.id) {
+            <div class="test-result" [class.ok]="testResult()?.ok" [class.fail]="!testResult()?.ok">
+              {{ testResult()?.message }}
+            </div>
+          }
+        </div>
+      </div>
+    }
+  </section>
+
+  <!-- Add Provider Form -->
+  @if (showAddProvider()) {
+    <div class="modal-backdrop">
+      <div class="modal">
+        <h3>Add Provider</h3>
+
+        <label>
+          Name
+          <input [(ngModel)]="newProvider.name" />
+        </label>
+
+        <label>
+          Base URL
+          <input [(ngModel)]="newProvider.baseUrl" />
+        </label>
+
+        <label>
+          API Key *
+          <input type="password" [(ngModel)]="newProvider.apiKey" />
+        </label>
+
+        <div class="modal-actions">
+          <button class="btn" (click)="showAddProvider.set(false)">Cancel</button>
+          <button class="btn primary" (click)="saveProvider()">Save Provider</button>
+        </div>
+      </div>
+    </div>
+  }
+
+  <!-- ==================== MODELS / PRESETS ==================== -->
+  <section class="section">
+    <div class="section-header">
+      <h2>Available Models / Presets</h2>
+      <button class="btn primary" (click)="openAddPreset()" [disabled]="providers().length === 0">
+        + Add Preset
+      </button>
+    </div>
+
+    <div class="toolbar">
+      <input
+        type="search"
+        placeholder="Search models…"
+        [ngModel]="searchTerm()"
+        (ngModelChange)="searchTerm.set($event)"
+      />
+      <label class="checkbox">
+        <input type="checkbox" [ngModel]="showEnabledOnly()" (ngModelChange)="showEnabledOnly.set($event)" />
+        Enabled only
+      </label>
+    </div>
+
+    @if (filteredModels().length === 0) {
+      <p class="empty">No models yet. Fetch models from a provider or add a preset.</p>
+    } @else {
+      <table class="models-table">
+        <thead>
+        <tr>
+          <th style="width: 40px"></th>
+          <th>Display Name / Model ID</th>
+          <th>Type</th>
+          <th style="width: 90px">Actions</th>
+        </tr>
+        </thead>
+        <tbody>
+          @for (model of filteredModels(); track model.id) {
+            <tr>
+              <td>
+                <input
+                  type="checkbox"
+                  [checked]="model.enabled"
+                  (change)="toggleEnabled(model.id)"
+                />
+              </td>
+              <td>
+                <div class="model-name">{{ model.displayName }}</div>
+                <div class="model-id">{{ model.modelId }}</div>
+              </td>
+              <td>
+                <span class="badge" [class.preset]="model.type === 'preset'">
+                  {{ model.type === 'preset' ? 'Preset' : 'Fetched' }}
+                </span>
+              </td>
+              <td>
+                @if (model.type === 'preset') {
+                  <button class="btn small danger" (click)="deleteModel(model.id)">
+                    Delete
+                  </button>
+                }
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    }
+  </section>
+
+  <!-- Add Preset Form -->
+  @if (showAddPreset()) {
+    <div class="modal-backdrop">
+      <div class="modal">
+        <h3>Add Preset</h3>
+
+        <label>
+          Display Name *
+          <input [(ngModel)]="newPreset.displayName" placeholder="My Coding Assistant" />
+        </label>
+
+        <label>
+          Model ID *
+          <input [(ngModel)]="newPreset.modelId" placeholder="anthropic/claude-3.5-sonnet" />
+        </label>
+
+        <label>
+          Provider
+          <select [(ngModel)]="newPreset.providerId">
+            @for (p of providers(); track p.id) {
+              <option [value]="p.id">{{ p.name }}</option>
+            }
+          </select>
+        </label>
+
+        <div class="modal-actions">
+          <button class="btn" (click)="showAddPreset.set(false)">Cancel</button>
+          <button class="btn primary" (click)="savePreset()">Add Preset</button>
+        </div>
+      </div>
+    </div>
+  }
+</div>
