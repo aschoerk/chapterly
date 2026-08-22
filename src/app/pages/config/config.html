@@ -112,6 +112,7 @@
         <thead>
         <tr>
           <th style="width: 40px"></th>
+          <th>Provider</th>
           <th>Display Name / Model ID</th>
           <th>Type</th>
           <th style="width: 90px">Actions</th>
@@ -126,6 +127,9 @@
                   [checked]="model.enabled"
                   (change)="toggleEnabled(model.id)"
                 />
+              </td>
+              <td>
+                <span class="provider-name">{{ getProviderName(model.providerId) }}</span>
               </td>
               <td>
                 <div class="model-name">{{ model.displayName }}</div>
@@ -176,6 +180,12 @@
         </label>
 
         <div class="modal-actions">
+          <button
+            class="btn"
+            [disabled]="testingPreset()"
+            (click)="testPreset()">
+            {{ testingPreset() ? 'Testing…' : 'Test' }}
+          </button>
           <button class="btn" (click)="showAddPreset.set(false)">Cancel</button>
           <button class="btn primary" (click)="savePreset()">Add Preset</button>
         </div>

@@ -4,6 +4,8 @@
   "scripts": {
     "ng": "ng",
     "start": "ng serve",
+    "start:all": "concurrently -n PROXY,ANGULAR -c blue,green \"npm run proxy\" \"ng serve\"",
+    "proxy": "node ./chat-proxy/server.js",
     "build": "ng build",
     "watch": "ng build --watch --configuration development",
     "test": "ng test"
@@ -24,6 +26,7 @@
     "@angular/build": "^22.1.5",
     "@angular/cli": "^22.1.5",
     "@angular/compiler-cli": "^22.1.0",
+    "concurrently": "^10.0.5",
     "jsdom": "^28.0.0",
     "prettier": "^3.8.1",
     "typescript": "~6.0.2",

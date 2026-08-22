@@ -42,12 +42,15 @@ export class ConfigComponent {
     providerId: ''
   };
 
+  readonly testingPreset = signal(false);
+  readonly presetTestResult = signal<{ ok: boolean; message: string } | null>(null);
+
   // Filtered models
   readonly filteredModels = computed(() => {
     const term = this.searchTerm().toLowerCase().trim();
     const enabledOnly = this.showEnabledOnly();
 
-    return this.models().filter(m => {
+    let list = this.models().filter(m => {
       if (enabledOnly && !m.enabled) return false;
       if (!term) return true;
       return (
@@ -55,6 +58,21 @@ export class ConfigComponent {
         m.modelId.toLowerCase().includes(term)
       );
     });
+
+    // Sort: enabled first, then alphabetically by displayName
+    list = list.sort((a, b) => {
+      // Enabled models go to the top
+      if (a.enabled !== b.enabled) {
+        return a.enabled ? -1 : 1;
+      }
+
+      // Alphabetical (case-insensitive)
+      return a.displayName.localeCompare(b.displayName, undefined, {
+        sensitivity: 'base'
+      });
+    });
+
+    return list;
   });
 
   // ---------- Provider actions ----------
@@ -115,6 +133,29 @@ export class ConfigComponent {
     this.showAddPreset.set(true);
   }
 
+  async testPreset() {
+    if (!this.newPreset.modelId.trim() || !this.newPreset.providerId) {
+      this.presetTestResult.set({
+        ok: false,
+        message: 'Please enter a Model ID and select a provider first'
+      });
+      return;
+    }
+
+    const provider = this.providers().find(p => p.id === this.newPreset.providerId);
+    if (!provider) {
+      this.presetTestResult.set({ ok: false, message: 'Provider not found' });
+      return;
+    }
+
+    this.testingPreset.set(true);
+    this.presetTestResult.set(null);
+
+    const result = await this.settings.testModel(provider, this.newPreset.modelId.trim());
+    this.presetTestResult.set(result);
+    this.testingPreset.set(false);
+  }
+
   savePreset() {
     if (!this.newPreset.displayName.trim() || !this.newPreset.modelId.trim()) {
       alert('Display Name and Model ID are required');
@@ -139,5 +180,9 @@ export class ConfigComponent {
 
   toggleEnabled(id: string) {
     this.settings.toggleModelEnabled(id);
+  }
+
+  getProviderName(providerId: string): string {
+    return this.providers().find(p => p.id === providerId)?.name ?? 'Unknown';
   }
 }

@@ -2,6 +2,7 @@ import { Injectable, signal, computed } from '@angular/core';
 import { HttpClient, HttpHeaders } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import { AppSettings, ProviderConfig, ModelEntry } from '../models/chat-config';
+import {getProxyBaseUrl} from './proxy-config'
 
 const STORAGE_KEY = 'chat-client-settings';
 
@@ -159,7 +160,48 @@ export class SettingsService {
 
     this.save();
   }
+
+  async testModel(provider: ProviderConfig, modelId: string): Promise<{ ok: boolean; message: string }> {
+    try {
+      const proxyBase = await getProxyBaseUrl();
+      const headers = new HttpHeaders({
+        Authorization: `Bearer ${provider.apiKey}`,
+        'Content-Type': 'application/json',
+        'x-target-base': provider.baseUrl,
+        'HTTP-Referer': window.location.origin, // recommended by OpenRouter
+        'X-Title': 'Chat Client'
+      });
+      const body = {
+        model: modelId,
+        messages: [
+          { role: 'user', content: 'Hi' }
+        ],
+        max_tokens: 5          // very small – almost free
+      };
+
+      // Call the local proxy instead of the real provider
+      const response: any = await firstValueFrom(
+        this.http.post(`${proxyBase}/proxy/chat/completions`, body, { headers })
+      );
+
+      if (response?.choices?.length > 0) {
+        return { ok: true, message: `Model "${modelId}" works` };
+      }
+
+      return { ok: false, message: 'Unexpected response from model' };
+    } catch (err: any) {
+      const message =
+        err?.error?.error?.message ||
+        err?.error?.message ||
+        err.message ||
+        'Test failed';
+
+      return { ok: false, message };
+    }
+  }
 }
+
+
 
 // helper for inject
 import { inject } from '@angular/core';
