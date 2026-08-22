@@ -193,4 +193,6 @@ export class ConfigComponent {
   async goToChat() {
     await this.router.navigate(['/chat']);
   }
+
+
 }

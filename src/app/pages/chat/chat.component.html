@@ -33,6 +33,10 @@
     } @else {
       <div class="conversation">
 
+        @if (currentChatId()) {
+          <chat-title-editor></chat-title-editor>
+        }
+
         <!-- Optional title bar (if you added it) -->
         <!-- ... -->
 

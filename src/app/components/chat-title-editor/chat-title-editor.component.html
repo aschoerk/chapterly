@@ -1,0 +1,15 @@
+<div class="chat-title-editor">
+  @if (!editingTitle()) {
+    <h2 class="chat-title" (click)="startEditTitle()">
+      {{ currentChatTitle() }}
+    </h2>
+  } @else {
+    <input
+      [(ngModel)]="titleDraft"
+      (keyup.enter)="saveTitle()"
+      (keyup.esc)="cancelEditTitle()"
+      (blur)="saveTitle()"
+      class="title-input"
+    />
+  }
+</div>

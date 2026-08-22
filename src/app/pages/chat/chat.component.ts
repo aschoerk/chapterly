@@ -1,17 +1,18 @@
-import { Component, inject, OnInit, signal } from '@angular/core';
+import {Component, computed, inject, OnInit, signal} from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ChatService } from '../../core/chat.service';
 import { Chat, ChatNode } from '../../models/chat';
 import { SettingsService } from '../../core/settings.service';
 import { Router } from '@angular/router';
+import { ChatTitleEditorComponent } from '../../components/chat-title-editor/chat-title-editor.component';
 
 // inside the class:
 
 @Component({
   selector: 'app-chat',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, ChatTitleEditorComponent],
   templateUrl: './chat.component.html',
   styleUrl: './chat.component.css'
 })
@@ -540,4 +541,5 @@ export class ChatComponent implements OnInit {
       alert('Save failed: ' + (err?.message || err));
     }
   }
+
 }
