@@ -2,7 +2,11 @@ const express = require('express');
 const cors = require('cors');
 const proxyRoutes = require('./routes/proxy');
 const apiRoutes = require('./routes/api');
+const chatsRoutes = require('./routes/chats');
 require('./db');          // ← this initializes the database
+
+const swaggerUi = require('swagger-ui-express');
+const swaggerSpec = require('./swagger');
 
 function createApp() {
   const app = express();
@@ -31,6 +35,9 @@ function createApp() {
 
   // API routes
   app.use('/api', apiRoutes);
+  app.use('/api/chats', chatsRoutes);
+
+  app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
   app.get('/', (req, res) => {
     res.json({ status: 'ok', message: 'Chat server is running' });

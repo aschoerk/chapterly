@@ -6,7 +6,23 @@ const router = express.Router();
 
 // ---------- Providers ----------
 
-// GET /api/providers
+/**
+ * @openapi
+ * /api/providers:
+ *   get:
+ *     summary: List all providers
+ *     tags:
+ *       - Providers
+ *     responses:
+ *       200:
+ *         description: List of providers
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 $ref: '#/components/schemas/Provider'
+ */
 router.get('/providers', (req, res) => {
   const rows = db.prepare('SELECT * FROM providers ORDER BY created_at').all();
   res.json(rows.map(row => ({
@@ -19,7 +35,45 @@ router.get('/providers', (req, res) => {
   })));
 });
 
-// POST /api/providers
+/**
+ * @openapi
+ * /api/providers:
+ *   post:
+ *     summary: Create a new provider
+ *     tags:
+ *       - Providers
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [name, baseUrl, apiKey]
+ *             properties:
+ *               name:
+ *                 type: string
+ *                 example: OpenRouter
+ *               type:
+ *                 type: string
+ *                 example: openrouter
+ *               baseUrl:
+ *                 type: string
+ *                 example: https://openrouter.ai/api/v1
+ *               apiKey:
+ *                 type: string
+ *               enabled:
+ *                 type: boolean
+ *                 default: true
+ *     responses:
+ *       201:
+ *         description: Provider created
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Provider'
+ *       400:
+ *         description: Missing required fields
+ */
 router.post('/providers', (req, res) => {
   const { name, type, baseUrl, apiKey, enabled = true } = req.body;
 
@@ -37,7 +91,45 @@ router.post('/providers', (req, res) => {
   res.status(201).json({ id, name, type: type || 'custom', baseUrl, apiKey, enabled });
 });
 
-// PUT /api/providers/:id
+/**
+ * @openapi
+ * /api/providers/{id}:
+ *   put:
+ *     summary: Update a provider
+ *     tags:
+ *       - Providers
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               name:
+ *                 type: string
+ *               type:
+ *                 type: string
+ *               baseUrl:
+ *                 type: string
+ *               apiKey:
+ *                 type: string
+ *               enabled:
+ *                 type: boolean
+ *     responses:
+ *       200:
+ *         description: Provider updated
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Provider'
+ *       404:
+ *         description: Provider not found
+ */
 router.put('/providers/:id', (req, res) => {
   const { id } = req.params;
   const { name, type, baseUrl, apiKey, enabled } = req.body;
@@ -67,7 +159,25 @@ router.put('/providers/:id', (req, res) => {
   });
 });
 
-// DELETE /api/providers/:id
+/**
+ * @openapi
+ * /api/providers/{id}:
+ *   delete:
+ *     summary: Delete a provider
+ *     tags:
+ *       - Providers
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       204:
+ *         description: Provider deleted
+ *       404:
+ *         description: Provider not found
+ */
 router.delete('/providers/:id', (req, res) => {
   const result = db.prepare('DELETE FROM providers WHERE id = ?').run(req.params.id);
   if (result.changes === 0) {
@@ -78,7 +188,23 @@ router.delete('/providers/:id', (req, res) => {
 
 // ---------- Models ----------
 
-// GET /api/models
+/**
+ * @openapi
+ * /api/models:
+ *   get:
+ *     summary: List all models
+ *     tags:
+ *       - Models
+ *     responses:
+ *       200:
+ *         description: List of models
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 $ref: '#/components/schemas/Model'
+ */
 router.get('/models', (req, res) => {
   const rows = db.prepare('SELECT * FROM models ORDER BY enabled DESC, display_name').all();
   res.json(rows.map(row => ({
@@ -92,7 +218,46 @@ router.get('/models', (req, res) => {
   })));
 });
 
-// POST /api/models  (mainly for presets)
+/**
+ * @openapi
+ * /api/models:
+ *   post:
+ *     summary: Create a model / preset
+ *     tags:
+ *       - Models
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [displayName, modelId, providerId]
+ *             properties:
+ *               displayName:
+ *                 type: string
+ *               modelId:
+ *                 type: string
+ *               providerId:
+ *                 type: string
+ *               type:
+ *                 type: string
+ *                 enum: [fetched, preset, discontinued]
+ *                 default: preset
+ *               enabled:
+ *                 type: boolean
+ *                 default: true
+ *               contextLength:
+ *                 type: integer
+ *     responses:
+ *       201:
+ *         description: Model created
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Model'
+ *       400:
+ *         description: Missing required fields
+ */
 router.post('/models', (req, res) => {
   const { displayName, modelId, providerId, type = 'preset', enabled = true, contextLength } = req.body;
 
@@ -118,7 +283,25 @@ router.post('/models', (req, res) => {
   });
 });
 
-// DELETE /api/models/:id
+/**
+ * @openapi
+ * /api/models/{id}:
+ *   delete:
+ *     summary: Delete a model
+ *     tags:
+ *       - Models
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       204:
+ *         description: Model deleted
+ *       404:
+ *         description: Model not found
+ */
 router.delete('/models/:id', (req, res) => {
   const result = db.prepare('DELETE FROM models WHERE id = ?').run(req.params.id);
   if (result.changes === 0) {
@@ -127,7 +310,34 @@ router.delete('/models/:id', (req, res) => {
   res.status(204).end();
 });
 
-// PATCH /api/models/:id/toggle
+/**
+ * @openapi
+ * /api/models/{id}/toggle:
+ *   patch:
+ *     summary: Toggle enabled state of a model
+ *     tags:
+ *       - Models
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: New enabled state
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 id:
+ *                   type: string
+ *                 enabled:
+ *                   type: boolean
+ *       404:
+ *         description: Model not found
+ */
 router.patch('/models/:id/toggle', (req, res) => {
   const row = db.prepare('SELECT enabled FROM models WHERE id = ?').get(req.params.id);
   if (!row) {

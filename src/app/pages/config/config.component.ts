@@ -1,18 +1,20 @@
 import { Component, inject, signal, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { SettingsService } from '../../core/settings';
+import { SettingsService } from '../../core/settings.service';
 import { ProviderConfig, ModelEntry } from '../../models/chat-config';
+import { Router } from '@angular/router';
 
 @Component({
   selector: 'app-config',
   standalone: true,
   imports: [CommonModule, FormsModule],
-  templateUrl: './config.html',
-  styleUrl: './config.css'
+  templateUrl: './config.component.html',
+  styleUrl: './config.component.css'
 })
 export class ConfigComponent {
   private readonly settings = inject(SettingsService);
+  private readonly router = inject(Router);
 
   // Signals from service
   readonly providers = this.settings.providers;
@@ -186,5 +188,9 @@ export class ConfigComponent {
 
   getProviderName(providerId: string): string {
     return this.providers().find(p => p.id === providerId)?.name ?? 'Unknown';
+  }
+
+  async goToChat() {
+    await this.router.navigate(['/chat']);
   }
 }

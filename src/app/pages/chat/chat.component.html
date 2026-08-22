@@ -1,0 +1,240 @@
+<div class="chat-layout">
+
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <h2>Chats</h2>
+      <div class="header-actions">
+        <button class="btn" (click)="goToConfig()" title="Configuration">⚙</button>
+        <button class="btn primary" (click)="createChat()">+ New</button>
+      </div>
+    </div>
+
+    <div class="chat-list">
+      @for (chat of chats(); track chat.id) {
+        <div
+          class="chat-item"
+          [class.active]="chat.id === currentChatId()"
+          (click)="selectChat(chat)">
+          <span class="chat-title">{{ chat.title }}</span>
+          <button class="btn-icon" (click)="deleteChat(chat, $event)" title="Delete">×</button>
+        </div>
+      } @empty {
+        <p class="empty">No chats yet</p>
+      }
+    </div>
+  </aside>
+
+  <main class="main">
+    @if (!currentChatId()) {
+      <div class="placeholder">
+        <p>Select a chat or create a new one</p>
+      </div>
+    } @else {
+      <div class="conversation">
+
+        <!-- Optional title bar (if you added it) -->
+        <!-- ... -->
+
+        <div class="tree">
+          @for (node of getActivePath(); track node.id) {
+            <div
+              class="node"
+              [class.question-node]="node.type === 'question'"
+              [class.answer-node]="node.type === 'answer'">
+
+              <!-- Header -->
+              <div class="node-header">
+              <span class="badge"
+                    [class.question]="node.type === 'question'"
+                    [class.answer]="node.type === 'answer'">
+                {{ node.type === 'question' ? 'Q' : 'A' }}
+              </span>
+
+                @if (node.modelId) {
+                  <span class="meta">{{ node.modelId }}</span>
+                }
+
+                <span class="meta">v{{ node.version }}</span>
+
+                @if (node.type === 'answer') {
+                  <span class="meta">{{ node.content.length }} chars</span>
+                }
+
+                @if (getSiblings(node.parentId).length > 1) {
+                  <div class="branch-switcher inline">
+                    <button class="btn small" (click)="prevSibling(node.parentId)">‹</button>
+                    <span>{{ getSiblingIndex(node.parentId).current }} / {{ getSiblingIndex(node.parentId).total }}</span>
+                    <button class="btn small" (click)="nextSibling(node.parentId)">›</button>
+                  </div>
+                }
+              </div>
+
+              <!-- Content / editors -->
+              @if (editingContentNodeId() === node.id) {
+                <!-- Simple inline edit -->
+                <div class="inline-content-editor">
+                      <textarea rows="6"
+                                [ngModel]="contentDraft()"
+                                (ngModelChange)="contentDraft.set($event)"
+                                (keydown.control.enter)="saveInlineEdit(node)">
+                      </textarea>
+                  <div class="editor-actions">
+                    <button class="btn primary small" (click)="saveInlineEdit(node)">Save</button>
+                    <button class="btn small" (click)="cancelInlineEdit()">Cancel</button>
+                  </div>
+                </div>
+              } @else if (branchingNodeId() === node.id) {
+                <!-- Branch editor -->
+                <div class="inline-editor">
+                  <select [ngModel]="branchModelId()" (ngModelChange)="branchModelId.set($event)">
+                    @for (model of enabledModels(); track model.id) {
+                      <option [value]="model.modelId">{{ model.displayName }}</option>
+                    }
+                  </select>
+                  <textarea rows="4"
+                            [ngModel]="branchContent()"
+                            (ngModelChange)="branchContent.set($event)">
+                  </textarea>
+                  <div class="editor-actions">
+                    <button class="btn primary" (click)="submitBranch()">Send</button>
+                    <button class="btn" (click)="cancelBranch()">Cancel</button>
+                  </div>
+                </div>
+              } @else {
+                <!-- Normal view -->
+                <div class="node-content">{{ node.content }}</div>
+
+                <div class="node-actions">
+                  @if (node.type === 'answer') {
+                    <button class="btn small" (click)="startInlineEdit(node)">Edit</button>
+                  }
+                  @if (node.type === 'question') {
+                    <button class="btn small" (click)="startInlineEdit(node)">Edit</button>
+                    <button class="btn small" (click)="startBranchQuestion(node)">Edit branch</button>
+                    <button class="btn small danger" (click)="deleteNode(node)">Delete</button>
+                  }
+                </div>
+              }
+
+            </div>
+          }
+        </div>
+
+        <!-- Composer -->
+        <div class="composer">
+          <div class="composer-row">
+            <select [ngModel]="selectedModelId()" (ngModelChange)="selectedModelId.set($event)">
+              <option value="">Select model…</option>
+              @for (model of enabledModels(); track model.id) {
+                <option [value]="model.id">{{ model.displayName }}</option>
+              }
+            </select>
+          </div>
+
+          <textarea
+            rows="3"
+            placeholder="Write your question… (Ctrl+Enter to send)"
+            [ngModel]="newQuestion()"
+            (ngModelChange)="newQuestion.set($event)"
+            (keydown.control.enter)="addRootQuestion()">
+        </textarea>
+
+          <div class="composer-actions">
+            <span class="hint">Ctrl + Enter to send</span>
+            <button
+              class="btn primary"
+              [disabled]="isLoading() || !newQuestion().trim() || !selectedModelId()"
+              (click)="addRootQuestion()">
+              {{ isLoading() ? 'Sending…' : 'Send question' }}
+            </button>
+          </div>
+        </div>
+
+      </div>
+    }
+  </main>
+
+<!-- Recursive template for the tree -->
+<ng-template #nodeTemplate let-node let-depth="depth">
+  <div
+    class="node"
+    [class.question-node]="node.type === 'question'"
+    [class.answer-node]="node.type === 'answer'"
+    [style.marginLeft.px]="depth * 20">
+
+    <!-- Header -->
+    <div class="node-header">
+      <span class="badge" [class.question]="node.type === 'question'" [class.answer]="node.type === 'answer'">
+        {{ node.type === 'question' ? 'Q' : 'A' }}
+      </span>
+
+      @if (node.modelId) {
+        <span class="meta">{{ node.modelId }}</span>
+      }
+
+      <span class="meta">v{{ node.version }}</span>
+
+      @if (node.type === 'answer') {
+        <span class="meta">{{ node.content.length }} chars</span>
+      }
+    </div>
+
+    <!-- Content -->
+    <div class="node-content">{{ node.content }}</div>
+
+    <!-- Actions (only one set) -->
+    @if (editingNodeId() !== node.id) {
+      <div class="node-actions">
+        @if (node.type === 'answer') {
+          <button class="btn small" (click)="editAnswer(node)">Edit</button>
+        }
+
+        @if (node.type === 'question') {
+          <button class="btn small" (click)="startEditQuestion(node)">Edit</button>
+          <button class="btn small" (click)="startBranchQuestion(node)">Edit branch</button>
+          <button class="btn small danger" (click)="deleteNode(node)">Delete</button>
+        }
+      </div>
+    }
+
+    <!-- Inline editor (only when editing this question) -->
+    @if (editingNodeId() === node.id) {
+      <div class="inline-editor">
+        <select [ngModel]="editingModelId()" (ngModelChange)="editingModelId.set($event)">
+          @for (model of enabledModels(); track model.id) {
+            <option [value]="model.modelId">{{ model.displayName }}</option>
+          }
+        </select>
+
+        <textarea
+          rows="3"
+          [ngModel]="editingContent()"
+          (ngModelChange)="editingContent.set($event)">
+        </textarea>
+
+        <div class="editor-actions">
+          <button class="btn primary" (click)="submitEditedQuestion()">Send</button>
+          <button class="btn" (click)="cancelEditing()">Cancel</button>
+        </div>
+      </div>
+    }
+
+    <!-- Children of this node -->
+    @if (getSiblings(node.id).length > 0) {
+      @if (getSiblings(node.id).length > 1) {
+        <div class="branch-switcher">
+          <button class="btn small" (click)="prevSibling(node.id)">‹</button>
+          <span>{{ getSiblingIndex(node.id).current }} / {{ getSiblingIndex(node.id).total }}</span>
+          <button class="btn small" (click)="nextSibling(node.id)">›</button>
+        </div>
+      }
+
+      @if (getActiveSibling(node.id); as child) {
+        <ng-container
+          *ngTemplateOutlet="nodeTemplate; context: { $implicit: child, depth: depth + 1 }">
+        </ng-container>
+      }
+    }
+  </div>
+</ng-template>
