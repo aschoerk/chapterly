@@ -1,0 +1,17 @@
+{
+  "identifier": "default",
+  "description": "Capability for the main window",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    {
+      "identifier": "http:default",
+      "allow": [
+        { "url": "https://openrouter.ai/**" },
+        { "url": "https://api.novita.ai/**" },
+        { "url": "https://*.openai.com/**" },
+        { "url": "http://localhost:**" }
+      ]
+    }
+  ]
+}

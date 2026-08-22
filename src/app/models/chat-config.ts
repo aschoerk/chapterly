@@ -12,7 +12,7 @@ export interface ModelEntry {
   displayName: string;
   modelId: string;            // e.g. "anthropic/claude-3.5-sonnet"
   providerId: string;
-  type: 'fetched' | 'preset';
+  type: 'fetched' | 'preset' | 'discontinued';
   enabled: boolean;
   contextLength?: number;
 }

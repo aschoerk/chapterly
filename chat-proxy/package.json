@@ -10,9 +10,11 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "better-sqlite3": "^13.0.3",
     "cors": "^2.8.6",
     "express": "^5.2.1",
     "http-proxy-middleware": "^4.2.0",
-    "portfinder": "^1.0.38"
+    "portfinder": "^1.0.38",
+    "uuid": "^14.0.2"
   }
 }

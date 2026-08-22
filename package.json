@@ -4,11 +4,14 @@
   "scripts": {
     "ng": "ng",
     "start": "ng serve",
-    "start:all": "concurrently -n PROXY,ANGULAR -c blue,green \"npm run proxy\" \"ng serve\"",
+    "start:all": "concurrently -n PROXY,TAURI -c blue,green \"npm run proxy\" \"npm run tauri:dev\"",
     "proxy": "node ./chat-proxy/server.js",
     "build": "ng build",
     "watch": "ng build --watch --configuration development",
-    "test": "ng test"
+    "test": "ng test",
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build"
   },
   "private": true,
   "packageManager": "npm@10.9.8",
@@ -19,6 +22,7 @@
     "@angular/forms": "^22.1.0",
     "@angular/platform-browser": "^22.1.0",
     "@angular/router": "^22.1.0",
+    "@tauri-apps/plugin-http": "^2.5.9",
     "rxjs": "~7.8.0",
     "tslib": "^2.3.0"
   },
@@ -26,6 +30,7 @@
     "@angular/build": "^22.1.5",
     "@angular/cli": "^22.1.5",
     "@angular/compiler-cli": "^22.1.0",
+    "@tauri-apps/cli": "^2.11.4",
     "concurrently": "^10.0.5",
     "jsdom": "^28.0.0",
     "prettier": "^3.8.1",

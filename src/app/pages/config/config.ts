@@ -44,35 +44,34 @@ export class ConfigComponent {
 
   readonly testingPreset = signal(false);
   readonly presetTestResult = signal<{ ok: boolean; message: string } | null>(null);
-
-  // Filtered models
   readonly filteredModels = computed(() => {
     const term = this.searchTerm().toLowerCase().trim();
-    const enabledOnly = this.showEnabledOnly();
 
-    let list = this.models().filter(m => {
-      if (enabledOnly && !m.enabled) return false;
-      if (!term) return true;
-      return (
+    const allModels = this.models();
+
+    // 1. Enabled models – always visible, ignore search
+    const enabledModels = allModels
+      .filter(m => m.enabled)
+      .sort((a, b) =>
+        a.displayName.localeCompare(b.displayName, undefined, { sensitivity: 'base' })
+      );
+
+    // 2. Disabled models – apply search filter
+    let disabledModels = allModels.filter(m => !m.enabled);
+
+    if (term) {
+      disabledModels = disabledModels.filter(m =>
         m.displayName.toLowerCase().includes(term) ||
         m.modelId.toLowerCase().includes(term)
       );
-    });
+    }
 
-    // Sort: enabled first, then alphabetically by displayName
-    list = list.sort((a, b) => {
-      // Enabled models go to the top
-      if (a.enabled !== b.enabled) {
-        return a.enabled ? -1 : 1;
-      }
+    disabledModels = disabledModels.sort((a, b) =>
+      a.displayName.localeCompare(b.displayName, undefined, { sensitivity: 'base' })
+    );
 
-      // Alphabetical (case-insensitive)
-      return a.displayName.localeCompare(b.displayName, undefined, {
-        sensitivity: 'base'
-      });
-    });
-
-    return list;
+    // 3. Enabled first, then disabled
+    return [...enabledModels, ...disabledModels];
   });
 
   // ---------- Provider actions ----------
@@ -134,6 +133,9 @@ export class ConfigComponent {
   }
 
   async testPreset() {
+    console.log('Test button clicked');
+    console.log('Model ID:', this.newPreset.modelId);
+    console.log('Provider ID:', this.newPreset.providerId);
     if (!this.newPreset.modelId.trim() || !this.newPreset.providerId) {
       this.presetTestResult.set({
         ok: false,
@@ -178,8 +180,8 @@ export class ConfigComponent {
     this.settings.deleteModel(id);
   }
 
-  toggleEnabled(id: string) {
-    this.settings.toggleModelEnabled(id);
+  async toggleEnabled(id: string) {
+    await this.settings.toggleModelEnabled(id);
   }
 
   getProviderName(providerId: string): string {

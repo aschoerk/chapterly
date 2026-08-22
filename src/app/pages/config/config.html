@@ -179,6 +179,16 @@
           </select>
         </label>
 
+        <!-- Test result -->
+        @if (presetTestResult()) {
+          <div
+            class="test-result"
+            [class.ok]="presetTestResult()?.ok"
+            [class.fail]="!presetTestResult()?.ok">
+            {{ presetTestResult()?.message }}
+          </div>
+        }
+
         <div class="modal-actions">
           <button
             class="btn"

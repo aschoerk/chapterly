@@ -1,10 +1,10 @@
-import { Injectable, signal, computed } from '@angular/core';
-import { HttpClient, HttpHeaders } from '@angular/common/http';
+import { Injectable, signal, computed, inject } from '@angular/core';
+import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
-import { AppSettings, ProviderConfig, ModelEntry } from '../models/chat-config';
-import {getProxyBaseUrl} from './proxy-config'
+import { ProviderConfig, ModelEntry } from '../models/chat-config';
+import { getServerConfig } from './server-config';
 
-const STORAGE_KEY = 'chat-client-settings';
+const API_BASE = 'http://localhost:3000/api';   // we can make this dynamic later
 
 @Injectable({
   providedIn: 'root'
@@ -12,196 +12,216 @@ const STORAGE_KEY = 'chat-client-settings';
 export class SettingsService {
   private readonly http = inject(HttpClient);
 
-  // Internal state
-  private readonly _settings = signal<AppSettings>(this.loadFromStorage());
+  private readonly _providers = signal<ProviderConfig[]>([]);
+  private readonly _models = signal<ModelEntry[]>([]);
 
-  // Public readonly signals
-  readonly providers = computed(() => this._settings().providers);
-  readonly models = computed(() => this._settings().models);
+  readonly providers = computed(() => this._providers());
+  readonly models = computed(() => this._models());
   readonly enabledModels = computed(() =>
-    this._settings().models.filter(m => m.enabled)
+    this._models().filter(m => m.enabled)
   );
 
-  constructor() {}
-
-  // ---------- Persistence ----------
-  private loadFromStorage(): AppSettings {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) {
-        return JSON.parse(raw);
-      }
-    } catch {}
-    return { providers: [], models: [] };
+  constructor() {
+    this.loadAll();
   }
 
-  private save() {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(this._settings()));
+  private readonly serverConfig = getServerConfig();
+
+// Replace the old hardcoded constants with:
+  private get API_BASE() {
+    return this.serverConfig.apiBase;
+  }
+
+  private get PROXY_BASE() {
+    return this.serverConfig.proxyBase;
+  }
+
+  // ---------- Load data from the server ----------
+  async loadAll() {
+    try {
+      const [providers, models] = await Promise.all([
+        firstValueFrom(this.http.get<ProviderConfig[]>(`${API_BASE}/providers`)),
+        firstValueFrom(this.http.get<ModelEntry[]>(`${API_BASE}/models`))
+      ]);
+
+      this._providers.set(providers);
+      this._models.set(models);
+    } catch (err) {
+      console.error('Failed to load settings from server', err);
+    }
   }
 
   // ---------- Providers ----------
-  addProvider(provider: Omit<ProviderConfig, 'id'>) {
-    const newProvider: ProviderConfig = {
-      ...provider,
-      id: crypto.randomUUID()
-    };
-
-    this._settings.update(s => ({
-      ...s,
-      providers: [...s.providers, newProvider]
-    }));
-    this.save();
-    return newProvider;
+  async addProvider(provider: Omit<ProviderConfig, 'id'>): Promise<ProviderConfig> {
+    const created = await firstValueFrom(
+      this.http.post<ProviderConfig>(`${API_BASE}/providers`, provider)
+    );
+    this._providers.update(list => [...list, created]);
+    return created;
   }
 
-  updateProvider(id: string, changes: Partial<ProviderConfig>) {
-    this._settings.update(s => ({
-      ...s,
-      providers: s.providers.map(p =>
-        p.id === id ? { ...p, ...changes } : p
-      )
-    }));
-    this.save();
+  async updateProvider(id: string, changes: Partial<ProviderConfig>): Promise<void> {
+    const updated = await firstValueFrom(
+      this.http.put<ProviderConfig>(`${API_BASE}/providers/${id}`, changes)
+    );
+    this._providers.update(list =>
+      list.map(p => (p.id === id ? updated : p))
+    );
   }
 
-  deleteProvider(id: string) {
-    this._settings.update(s => ({
-      providers: s.providers.filter(p => p.id !== id),
-      models: s.models.filter(m => m.providerId !== id)
-    }));
-    this.save();
+  async deleteProvider(id: string): Promise<void> {
+    await firstValueFrom(this.http.delete(`${API_BASE}/providers/${id}`));
+    this._providers.update(list => list.filter(p => p.id !== id));
+    this._models.update(list => list.filter(m => m.providerId !== id));
   }
 
   // ---------- Models / Presets ----------
-  addPreset(displayName: string, modelId: string, providerId: string) {
-    const entry: ModelEntry = {
-      id: crypto.randomUUID(),
-      displayName,
-      modelId,
-      providerId,
-      type: 'preset',
-      enabled: true
-    };
-
-    this._settings.update(s => ({
-      ...s,
-      models: [...s.models, entry]
-    }));
-    this.save();
+  async addPreset(displayName: string, modelId: string, providerId: string): Promise<void> {
+    const created = await firstValueFrom(
+      this.http.post<ModelEntry>(`${API_BASE}/models`, {
+        displayName,
+        modelId,
+        providerId,
+        type: 'preset',
+        enabled: true
+      })
+    );
+    this._models.update(list => [...list, created]);
   }
 
-  deleteModel(id: string) {
-    this._settings.update(s => ({
-      ...s,
-      models: s.models.filter(m => m.id !== id)
-    }));
-    this.save();
+  async deleteModel(id: string): Promise<void> {
+    await firstValueFrom(this.http.delete(`${API_BASE}/models/${id}`));
+    this._models.update(list => list.filter(m => m.id !== id));
   }
 
-  toggleModelEnabled(id: string) {
-    this._settings.update(s => ({
-      ...s,
-      models: s.models.map(m =>
-        m.id === id ? { ...m, enabled: !m.enabled } : m
-      )
-    }));
-    this.save();
+  async toggleModelEnabled(id: string): Promise<void> {
+    const result = await firstValueFrom(
+      this.http.patch<{ id: string; enabled: boolean }>(`${API_BASE}/models/${id}/toggle`, {})
+    );
+    this._models.update(list =>
+      list.map(m => (m.id === id ? { ...m, enabled: result.enabled } : m))
+    );
   }
 
-  // ---------- OpenRouter specific ----------
+
   async testProvider(provider: ProviderConfig): Promise<{ ok: boolean; message: string }> {
     try {
-      const headers = new HttpHeaders({
-        Authorization: `Bearer ${provider.apiKey}`
-      });
-
-      await firstValueFrom(
-        this.http.get(`${provider.baseUrl}/models`, { headers })
+      const response = await firstValueFrom(
+        this.http.get(`${this.PROXY_BASE}/models`, {
+          headers: {
+            'Authorization': `Bearer ${provider.apiKey}`,
+            'x-target-base': provider.baseUrl
+          }
+        })
       );
 
       return { ok: true, message: 'Connection successful' };
     } catch (err: any) {
       return {
         ok: false,
-        message: err?.error?.error?.message || err.message || 'Connection failed'
+        message: err?.error?.error?.message || err?.message || 'Connection failed'
       };
     }
   }
 
-  async fetchModels(provider: ProviderConfig): Promise<void> {
-    const headers = new HttpHeaders({
-      Authorization: `Bearer ${provider.apiKey}`
-    });
-
-    const response: any = await firstValueFrom(
-      this.http.get(`${provider.baseUrl}/models`, { headers })
-    );
-
-    const fetched: ModelEntry[] = (response.data || []).map((m: any) => ({
-      id: crypto.randomUUID(),
-      displayName: m.name || m.id,
-      modelId: m.id,
-      providerId: provider.id,
-      type: 'fetched' as const,
-      enabled: false,
-      contextLength: m.context_length
-    }));
-
-    // Keep existing presets, replace old fetched models of this provider
-    this._settings.update(s => {
-      const presets = s.models.filter(
-        m => m.type === 'preset' || m.providerId !== provider.id
-      );
-      return {
-        ...s,
-        models: [...presets, ...fetched]
-      };
-    });
-
-    this.save();
-  }
-
   async testModel(provider: ProviderConfig, modelId: string): Promise<{ ok: boolean; message: string }> {
     try {
-      const proxyBase = await getProxyBaseUrl();
-      const headers = new HttpHeaders({
-        Authorization: `Bearer ${provider.apiKey}`,
-        'Content-Type': 'application/json',
-        'x-target-base': provider.baseUrl,
-        'HTTP-Referer': window.location.origin, // recommended by OpenRouter
-        'X-Title': 'Chat Client'
-      });
-      const body = {
-        model: modelId,
-        messages: [
-          { role: 'user', content: 'Hi' }
-        ],
-        max_tokens: 5          // very small – almost free
-      };
-
-      // Call the local proxy instead of the real provider
       const response: any = await firstValueFrom(
-        this.http.post(`${proxyBase}/proxy/chat/completions`, body, { headers })
+        this.http.post(`${this.PROXY_BASE}/chat/completions`, {
+          model: modelId,
+          messages: [{ role: 'user', content: 'Hi' }],
+          max_tokens: 5
+        }, {
+          headers: {
+            'Authorization': `Bearer ${provider.apiKey}`,
+            'Content-Type': 'application/json',
+            'x-target-base': provider.baseUrl,
+            'HTTP-Referer': 'https://chat-client.local',
+            'X-Title': 'Chat Client'
+          }
+        })
       );
 
       if (response?.choices?.length > 0) {
         return { ok: true, message: `Model "${modelId}" works` };
       }
-
       return { ok: false, message: 'Unexpected response from model' };
     } catch (err: any) {
-      const message =
-        err?.error?.error?.message ||
-        err?.error?.message ||
-        err.message ||
-        'Test failed';
+      return {
+        ok: false,
+        message: err?.error?.error?.message || err?.message || 'Test failed'
+      };
+    }
+  }
 
-      return { ok: false, message };
+  async fetchModels(provider: ProviderConfig): Promise<void> {
+    try {
+      // 1. Get current models of this provider from the local state
+      const currentModels = this._models().filter(m => m.providerId === provider.id);
+
+      // 2. Fetch the fresh list from the provider
+      const response: any = await firstValueFrom(
+        this.http.get(`${this.PROXY_BASE}/models`, {
+          headers: {
+            'Authorization': `Bearer ${provider.apiKey}`,
+            'x-target-base': provider.baseUrl
+          }
+        })
+      );
+
+      const freshList = (response.data || []).map((m: any) => ({
+        displayName: m.name || m.id,
+        modelId: m.id,
+        providerId: provider.id,
+        type: 'fetched' as const,
+        enabled: false,
+        contextLength: m.context_length
+      }));
+
+      const freshModelIds = new Set(freshList.map((m: any) => m.modelId));
+
+      // 3. Handle existing models
+      for (const existing of currentModels) {
+        // Never touch presets
+        if (existing.type === 'preset') {
+          continue;
+        }
+
+        const stillExists = freshModelIds.has(existing.modelId);
+
+        if (!stillExists) {
+          if (existing.enabled) {
+            // Mark as discontinued
+            await firstValueFrom(
+              this.http.put(`${this.API_BASE}/models/${existing.id}`, {
+                type: 'discontinued'
+              })
+            );
+          } else {
+            // Not enabled → delete
+            await firstValueFrom(
+              this.http.delete(`${this.API_BASE}/models/${existing.id}`)
+            );
+          }
+        }
+      }
+
+      // 4. Add models that are completely new
+      const existingModelIds = new Set(currentModels.map(m => m.modelId));
+      const newModels = freshList.filter((m: any) => !existingModelIds.has(m.modelId));
+
+      for (const model of newModels) {
+        await firstValueFrom(
+          this.http.post(`${this.API_BASE}/models`, model)
+        );
+      }
+
+      // 5. Reload everything from the server to have a clean state
+      await this.loadAll();
+
+    } catch (err: any) {
+      console.error('Failed to fetch models', err);
+      throw err;
     }
   }
 }
-
-
-
-// helper for inject
-import { inject } from '@angular/core';
