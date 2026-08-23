@@ -76,13 +76,11 @@ export class ChatComponent implements OnInit {
     const chatId = this.currentChatId();
     const content = this.newQuestion().trim();
     const selectedId = this.selectedModelId();
-
     if (!chatId || !content || !selectedId) return;
 
     const model = this.enabledModels().find(
       m => m.id === selectedId || m.modelId === selectedId
     );
-
     if (!model) {
       alert('Selected model not found');
       return;
@@ -99,10 +97,10 @@ export class ChatComponent implements OnInit {
 
     const leaf = this.getCurrentLeaf();
     const parentId = leaf ? leaf.id : null;
-
     this.isLoading.set(true);
 
     try {
+      // 1. Create the question node
       const questionNode = await this.chatService.addNode(chatId, {
         parentId: parentId,
         type: 'question',
@@ -121,25 +119,45 @@ export class ChatComponent implements OnInit {
       this.setActiveChild(parentId, questionNode.id);
       this.newQuestion.set('');
 
-      const contextMessages = this.buildContextMessages();
-      contextMessages.push({ role: 'user', content });
-
-      const answerText = await this.chatService.askLlm(
-        provider.baseUrl,
-        provider.apiKey,
-        model.modelId,
-        contextMessages
-      );
-
+      // 2. Create the answer node immediately (empty) so the UI can render it
       const answerNode = await this.chatService.addNode(chatId, {
         parentId: questionNode.id,
         type: 'answer',
-        content: answerText,
+        content: '',          // starts empty – will be filled by the stream
         modelId: model.modelId,
         providerId: model.providerId
       });
 
       this.setActiveChild(questionNode.id, answerNode.id);
+
+      // 3. Build context and start streaming
+      const contextMessages = this.buildContextMessages();
+      contextMessages.push({ role: 'user', content });
+
+      let accumulated = '';
+
+      await this.chatService.askLlm(
+        provider.baseUrl,
+        provider.apiKey,
+        model.modelId,
+        contextMessages,
+        (chunk: string) => {
+          accumulated += chunk;
+
+          // Optional but recommended: temporary live update in the local store
+          // so the UI shows the text growing without creating versions yet
+          this.chatService['_nodes']?.update?.(list =>
+            list.map(n =>
+              n.id === answerNode.id ? { ...n, content: accumulated } : n
+            )
+          );
+        }
+      );
+
+      // 4. Persist the final answer as a proper version (only once)
+      if (accumulated) {
+        await this.chatService.editAnswer(chatId, answerNode.id, accumulated);
+      }
     } catch (err: any) {
       console.error(err);
       alert('Failed to get answer: ' + (err?.message || err));

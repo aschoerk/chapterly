@@ -143,27 +143,70 @@ export class ChatService {
     providerBaseUrl: string,
     apiKey: string,
     modelId: string,
-    messages: { role: string; content: string }[]
+    messages: { role: string; content: string }[],
+    onChunk?: (chunk: string) => void
   ): Promise<string> {
     const config = getServerConfig();
 
-    const response: any = await firstValueFrom(
-      this.http.post(`${config.proxyBase}/chat/completions`, {
+    const response = await fetch(`${config.proxyBase}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+        'x-target-base': providerBaseUrl,
+        'HTTP-Referer': 'https://chat-client.local',
+        'X-Title': 'Chat Client'
+      },
+      body: JSON.stringify({
         model: modelId,
         messages,
-        temperature: 0.7
-      }, {
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-          'x-target-base': providerBaseUrl,
-          'HTTP-Referer': 'https://chat-client.local',
-          'X-Title': 'Chat Client'
-        }
+        temperature: 0.7,
+        stream: true
       })
-    );
+    });
 
-    return response?.choices?.[0]?.message?.content?.trim() || '(no response)';
+    if (!response.ok) {
+      const errText = await response.text();
+      throw new Error(`LLM request failed: ${response.status} ${errText}`);
+    }
+
+    if (!response.body) {
+      throw new Error('No response body for streaming');
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let fullContent = '';
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() ?? ''; // keep incomplete line
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed === 'data: [DONE]') continue;
+
+        if (trimmed.startsWith('data: ')) {
+          try {
+            const json = JSON.parse(trimmed.slice(6));
+            const delta = json.choices?.[0]?.delta?.content;
+            if (typeof delta === 'string' && delta.length > 0) {
+              fullContent += delta;
+              onChunk?.(delta);
+            }
+          } catch {
+            // ignore partial / malformed chunks
+          }
+        }
+      }
+    }
+
+    return fullContent.trim() || '(no response)';
   }
 
   async deleteNode(chatId: string, nodeId: string): Promise<void> {
@@ -194,4 +237,6 @@ export class ChatService {
       list.map(c => (c.id === id ? updated : c))
     );
   }
+
+
 }

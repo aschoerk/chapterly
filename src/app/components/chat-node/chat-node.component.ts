@@ -187,7 +187,7 @@ export class ChatNodeComponent {
 
     this.isLoading.set(true);
     try {
-      // Create the new branched question
+      // 1. Create the new branched question
       const newQuestion = await this.chatService.branchQuestion(
         chatId,
         node.id,
@@ -196,27 +196,47 @@ export class ChatNodeComponent {
         model.providerId
       );
 
-      // Make the new branch active
+      // Make the new branch active immediately
       this.activate.emit(newQuestion.id);
 
-      // Build context up to the parent of the original node, then the new content
-      const contextMessages = this.buildContextMessagesUpTo(node.parentId);
-      contextMessages.push({ role: 'user', content });
-
-      const answerText = await this.chatService.askLlm(
-        provider.baseUrl,
-        provider.apiKey,
-        model.modelId,
-        contextMessages
-      );
-
-      await this.chatService.addNode(chatId, {
+      // 2. Create empty answer node under the new question
+      //    so the UI already has a place that can grow with the stream
+      const answerNode = await this.chatService.addNode(chatId, {
         parentId: newQuestion.id,
         type: 'answer',
-        content: answerText,
+        content: '',
         modelId: model.modelId,
         providerId: model.providerId
       });
+
+      // 3. Build context and stream
+      const contextMessages = this.buildContextMessagesUpTo(node.parentId);
+      contextMessages.push({ role: 'user', content });
+
+      let accumulated = '';
+
+      await this.chatService.askLlm(
+        provider.baseUrl,
+        provider.apiKey,
+        model.modelId,
+        contextMessages,
+        (chunk: string) => {
+          accumulated += chunk;
+
+          // Temporary live update so the node content grows in the UI
+          // (the effect() in this component will re-render the markdown)
+          this.chatService['_nodes']?.update?.(list =>
+            list.map(n =>
+              n.id === answerNode.id ? { ...n, content: accumulated } : n
+            )
+          );
+        }
+      );
+
+      // 4. Persist the final answer as a proper version (only once)
+      if (accumulated) {
+        await this.chatService.editAnswer(chatId, answerNode.id, accumulated);
+      }
 
       this.cancelBranch();
     } catch (err: any) {

@@ -293,8 +293,8 @@ router.post('/:chatId/nodes', (req, res) => {
     providerId = null
   } = req.body;
 
-  if (!type || !content) {
-    return res.status(400).json({ error: 'type and content are required' });
+  if (!type) {
+    return res.status(400).json({ error: 'type is required' });
   }
   if (type !== 'question' && type !== 'answer') {
     return res.status(400).json({ error: 'type must be "question" or "answer"' });
