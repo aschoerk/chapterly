@@ -3,14 +3,11 @@
   "main": "electron/main.js",
   "version": "0.0.0",
   "scripts": {
-    "ng": "ng",
     "start": "ng serve",
+    "build": "ng build --output-path=electron/renderer",
     "electron:dev": "concurrently -k \"ng serve\" \"wait-on http://localhost:4200 && electron .\"",
-    "electron": "electron .",
-    "build": "ng build",
     "electron:build": "npm run build && electron-builder",
-    "watch": "ng build --watch --configuration development",
-    "test": "ng test"
+    "electron": "electron ."
   },
   "private": true,
   "packageManager": "npm@10.9.8",
@@ -22,16 +19,23 @@
     "@angular/platform-browser": "^22.1.0",
     "@angular/router": "^22.1.0",
     "@tauri-apps/plugin-http": "^2.5.9",
+    "better-sqlite3": "^13.0.3",
+    "cors": "^2.8.6",
     "dompurify": "^3.4.14",
+    "express": "^5.2.1",
+    "http-proxy-middleware": "^4.2.0",
     "marked": "^18.0.10",
+    "portfinder": "^1.0.38",
     "rxjs": "~7.8.0",
-    "tslib": "^2.3.0"
+    "swagger-jsdoc": "^6.3.0",
+    "swagger-ui-express": "^5.0.1",
+    "tslib": "^2.3.0",
+    "uuid": "^14.0.2"
   },
   "devDependencies": {
     "@angular/build": "^22.1.5",
     "@angular/cli": "^22.1.5",
     "@angular/compiler-cli": "^22.1.0",
-    "@tauri-apps/cli": "^2.11.4",
     "@types/dompurify": "^3.0.5",
     "concurrently": "^10.0.5",
     "electron": "^43.4.1",
@@ -41,5 +45,26 @@
     "typescript": "~6.0.2",
     "vitest": "^4.0.8",
     "wait-on": "^9.1.0"
+  },
+  "build": {
+    "appId": "de.aschoerk.chat",
+    "productName": "Chat Client",
+    "files": [
+      "electron/**/*",
+      "chat-server/**/*",
+      "dist/chat/**/*",
+      "package.json",
+      "node_modules/**/*"
+    ],
+    "asarUnpack": [
+      "**/node_modules/better-sqlite3/**/*",
+      "**/*.node"
+    ],
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "category": "Utility"
+    }
   }
 }

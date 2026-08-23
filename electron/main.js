@@ -1,75 +1,151 @@
 const { app, BrowserWindow } = require('electron');
 const path = require('path');
+const fs = require('fs');
 const net = require('net');
-const { createApp } = require('../chat-server/src/app');
 
-const PREFERRED_PORT = 3848;
-let mainWindow;
-let server;
-let actualPort;
+let mainWindow = null;
+let serverInstance = null;
 
-function findFreePort(startPort) {
-  return new Promise((resolve, reject) => {
-    const server = net.createServer();
+/**
+ * Finds a free port starting from the preferred one.
+ */
+function findFreePort(startPort = 3847) {
+  return new Promise((resolve) => {
+    const tester = net.createServer();
 
-    server.listen(startPort, () => {
-      const { port } = server.address();
-      server.close(() => resolve(port));
-    });
-
-    server.on('error', () => {
-      // Port is taken → try next one
+    tester.once('error', () => {
+      // Port is taken → try next
       resolve(findFreePort(startPort + 1));
     });
+
+    tester.once('listening', () => {
+      const { port } = tester.address();
+      tester.close(() => resolve(port));
+    });
+
+    tester.listen(startPort, '127.0.0.1');
   });
 }
 
+/**
+ * Starts the chat-server on a free port.
+ */
 async function startServer() {
-  const port = await findFreePort(PREFERRED_PORT);   // ← we decide the port here
+  const port = await findFreePort(3847);
 
+  // Important: set the port before requiring the server
   process.env.PORT = String(port);
 
-  const expressApp = createApp();          // ← only creates the Express app
-  server = expressApp.listen(port, () => { // ← we tell it which port to use
-    console.log(`✅ Chat server running on http://localhost:${port} started by electron`);
+  const { createApp } = require('../chat-server/src/app');
+  const expressApp = createApp();
+
+  const server = expressApp.listen(port, '127.0.0.1', () => {
+    console.log(`✅ Chat server running on http://localhost:${port} (started by Electron)`);
   });
 
-  return port;
+  return { port, server };
 }
 
+/**
+ * Creates the main application window.
+ */
 async function createWindow() {
-  const port = await startServer();
+  const { port, server } = await startServer();
+  serverInstance = server;
 
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 860,
+    show: true,                    // ← force visible immediately
+    autoHideMenuBar: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      additionalArguments: [`--server-port=${port}`]
-    }
+    },
   });
 
-  if (!app.isPackaged) {
-    mainWindow.loadURL(`http://localhost:4200?port=${port}`);
+  const isDev = !app.isPackaged;
+
+  if (isDev) {
+    // ---------- Development ----------
+    await mainWindow.loadURL(`http://localhost:4200?port=${port}`);
+    mainWindow.webContents.openDevTools({ mode: 'detach' });
   } else {
-    mainWindow.loadFile(
-      path.join(__dirname, '../dist/chat/browser/index.html'),
-      { query: { port: String(port) } }
-    );
+    // ---------- Production ----------
+    // Angular is built into: electron/renderer/
+    const indexPath = path.join(__dirname, 'renderer', 'browser', 'index.html');
+
+    if (!fs.existsSync(indexPath)) {
+      console.error('❌ index.html not found at:', indexPath);
+      app.quit();
+      return;
+    }
+
+    console.log('✅ Loading frontend from:', indexPath);
+
+    await mainWindow.loadFile(indexPath, {
+      query: { port: String(port) },
+    });
+  }
+
+  // Extra safety
+  mainWindow.once('ready-to-show', () => {
+    mainWindow.show();
+    mainWindow.focus();
+  });
+
+// Also force it after a short delay
+  setTimeout(() => {
+    if (mainWindow && !mainWindow.isVisible()) {
+      console.log('Window was not visible – forcing show()');
+      mainWindow.show();
+      mainWindow.focus();
+    }
+  }, 800);
+
+  mainWindow.on('closed', () => {
+    mainWindow = null;
+  });
+}
+
+// --------------------------------------------------
+// App lifecycle
+// --------------------------------------------------
+
+app.whenReady().then(createWindow);
+
+function cleanup() {
+  if (serverInstance) {
+    try {
+      serverInstance.close();
+      console.log('Chat server closed');
+    } catch (e) {
+      console.warn('Error closing server:', e);
+    }
+    serverInstance = null;
   }
 }
 
-app.whenReady().then(() => {
-  createWindow();
-
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
-  });
+app.on('window-all-closed', () => {
+  cleanup();
+  if (process.platform !== 'darwin') {
+    app.quit();
+  }
 });
 
-app.on('window-all-closed', () => {
-  if (server) server.close();
-  if (process.platform !== 'darwin') app.quit();
+app.on('before-quit', cleanup);
+app.on('will-quit', cleanup);
+
+app.on('activate', () => {
+  if (BrowserWindow.getAllWindows().length === 0) {
+    createWindow();
+  }
+});
+
+// Optional: clean shutdown
+app.on('before-quit', () => {
+  if (serverInstance) {
+    serverInstance.close();
+  }
 });
