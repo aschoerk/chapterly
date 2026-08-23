@@ -1,7 +1,8 @@
 {
   "name": "chat",
+  "version": "0.1.1",
+  "author": "Andreas Schörk",
   "main": "electron/main.js",
-  "version": "0.0.0",
   "scripts": {
     "start": "ng serve",
     "build": "ng build --output-path=electron/renderer",
