@@ -63,11 +63,22 @@ db.exec(`
 `);
 
 db.exec(`
+  CREATE TABLE IF NOT EXISTS projects (
+                                        id TEXT PRIMARY KEY,
+                                        name TEXT NOT NULL,
+                                        system_prompt TEXT DEFAULT '',
+                                        default_model_id TEXT,
+                                        created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+    );
+
   CREATE TABLE IF NOT EXISTS chats (
                                      id TEXT PRIMARY KEY,
                                      title TEXT NOT NULL,
+                                     project_id TEXT,
                                      created_at TEXT DEFAULT (datetime('now')),
-    updated_at TEXT DEFAULT (datetime('now'))
+    updated_at TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL
     );
 
   CREATE TABLE IF NOT EXISTS chat_nodes (
@@ -93,6 +104,17 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_chat_nodes_chat_id ON chat_nodes(chat_id);
   CREATE INDEX IF NOT EXISTS idx_chat_nodes_parent_id ON chat_nodes(parent_id);
 `);
+
+// Migration for existing DBs that already have chats without project_id
+try {
+  const cols = db.prepare(`PRAGMA table_info(chats)`).all().map(c => c.name);
+  if (!cols.includes('project_id')) {
+    db.exec(`ALTER TABLE chats ADD COLUMN project_id TEXT REFERENCES projects(id) ON DELETE SET NULL`);
+    console.log('Migrated chats table: added project_id');
+  }
+} catch (e) {
+  // ignore if already present or other issues
+}
 
 console.log(`📦 SQLite database ready: ${dbPath}`);
 

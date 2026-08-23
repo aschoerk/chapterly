@@ -3,6 +3,7 @@ const cors = require('cors');
 const proxyRoutes = require('./routes/proxy');
 const apiRoutes = require('./routes/api');
 const chatsRoutes = require('./routes/chats');
+const projectsRoutes = require('./routes/projects');
 require('./db');          // ← this initializes the database
 
 const swaggerUi = require('swagger-ui-express');
@@ -36,6 +37,7 @@ function createApp() {
   // API routes
   app.use('/api', apiRoutes);
   app.use('/api/chats', chatsRoutes);
+  app.use('/api/projects', projectsRoutes);
 
   app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 

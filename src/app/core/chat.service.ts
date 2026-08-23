@@ -1,7 +1,7 @@
 import { Injectable, signal, computed, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
-import { Chat, ChatNode, CreateNodeRequest } from '../models/chat';
+import { Chat, ChatNode, CreateNodeRequest, Project } from '../models/chat';
 import { getServerConfig } from './server-config';
 
 @Injectable({
@@ -13,11 +13,23 @@ export class ChatService {
 
   private readonly _chats = signal<Chat[]>([]);
   private readonly _nodes = signal<ChatNode[]>([]);
+  private readonly _projects = signal<Project[]>([]);
   private readonly _currentChatId = signal<string | null>(null);
 
   readonly chats = computed(() => this._chats());
   readonly nodes = computed(() => this._nodes());
   readonly currentChatId = computed(() => this._currentChatId());
+  readonly projects = computed(() => this._projects());
+  readonly chatsByProject = computed(() => {
+    const map = new Map<string | null, Chat[]>();
+    for (const chat of this._chats()) {
+      const key = chat.projectId ?? null;
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(chat);
+    }
+    return map;
+  });
+
 
   /** All nodes of the currently selected chat as a flat list */
   readonly currentNodes = computed(() => {
@@ -25,6 +37,66 @@ export class ChatService {
     if (!chatId) return [];
     return this._nodes().filter(n => n.chatId === chatId);
   });
+
+  // ---------- Projects ----------
+
+  async loadProjects(): Promise<void> {
+    const projects = await firstValueFrom(
+      this.http.get<Project[]>(`${this.config.apiBase}/projects`)
+    );
+    this._projects.set(projects);
+  }
+
+  async createProject(data: {
+    name: string;
+    systemPrompt?: string;
+    defaultModelId?: string | null;
+  }): Promise<Project> {
+    const project = await firstValueFrom(
+      this.http.post<Project>(`${this.config.apiBase}/projects`, data)
+    );
+    this._projects.update(list =>
+      [...list, project].sort((a, b) => a.name.localeCompare(b.name))
+    );
+    return project;
+  }
+
+  async updateProject(
+    id: string,
+    data: Partial<{
+      name: string;
+      systemPrompt: string;
+      defaultModelId: string | null;
+    }>
+  ): Promise<Project> {
+    const project = await firstValueFrom(
+      this.http.put<Project>(`${this.config.apiBase}/projects/${id}`, data)
+    );
+    this._projects.update(list =>
+      list
+        .map(p => (p.id === id ? project : p))
+        .sort((a, b) => a.name.localeCompare(b.name))
+    );
+    return project;
+  }
+
+  async deleteProject(id: string): Promise<void> {
+    await firstValueFrom(
+      this.http.delete(`${this.config.apiBase}/projects/${id}`)
+    );
+    this._projects.update(list => list.filter(p => p.id !== id));
+
+    // Locally clear projectId from chats that belonged to it
+    // (server already sets project_id = NULL via ON DELETE SET NULL)
+    this._chats.update(list =>
+      list.map(c => (c.projectId === id ? { ...c, projectId: null } : c))
+    );
+  }
+
+  getProject(id: string | null | undefined): Project | undefined {
+    if (!id) return undefined;
+    return this._projects().find(p => p.id === id);
+  }
 
   // ---------- Chats ----------
 
@@ -35,9 +107,9 @@ export class ChatService {
     this._chats.set(chats);
   }
 
-  async createChat(title = 'New Chat'): Promise<Chat> {
+  async createChat(title = 'New Chat', projectId: string | null = null): Promise<Chat> {
     const chat = await firstValueFrom(
-      this.http.post<Chat>(`${this.config.apiBase}/chats`, { title })
+      this.http.post<Chat>(`${this.config.apiBase}/chats`, { title, projectId })
     );
     this._chats.update(list => [chat, ...list]);
     return chat;

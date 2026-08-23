@@ -1,24 +1,161 @@
 <!-- Sidebar -->
 <aside class="sidebar">
   <div class="sidebar-header">
-    <h2>Chats</h2>
+    <h2>Projects</h2>
     <div class="header-actions">
       <button class="btn" (click)="goToConfig()" title="Configuration">⚙</button>
-      <button class="btn primary" (click)="createChat()">+ New</button>
+      <button class="btn primary" (click)="startCreateProject()" title="New Project">+ Project</button>
     </div>
   </div>
 
-  <div class="chat-list">
-    @for (chat of chats(); track chat.id) {
-      <div
-        class="chat-item"
-        [class.active]="chat.id === currentChatId()"
-        (click)="selectChat(chat)">
-        <span class="chat-title">{{ chat.title }}</span>
-        <button class="btn-icon" (click)="deleteChat(chat, $event)" title="Delete">×</button>
+  <!-- New project form -->
+  @if (showNewProject()) {
+    <div class="project-form">
+      <input
+        type="text"
+        placeholder="Project name"
+        [ngModel]="newProjectName()"
+        (ngModelChange)="newProjectName.set($event)"
+        (keydown.enter)="createProject()"
+        autofocus />
+      <textarea
+        rows="2"
+        placeholder="System prompt (applied to every chat in this project)"
+        [ngModel]="newProjectSystemPrompt()"
+        (ngModelChange)="newProjectSystemPrompt.set($event)">
+      </textarea>
+      <select
+        [ngModel]="newProjectDefaultModelId()"
+        (ngModelChange)="newProjectDefaultModelId.set($event || null)">
+        <option [ngValue]="null">No default model</option>
+        @for (model of enabledModels(); track model.id) {
+          <option [value]="model.id">{{ model.displayName }}</option>
+        }
+      </select>
+      <div class="form-actions">
+        <button class="btn" (click)="cancelCreateProject()">Cancel</button>
+        <button class="btn primary" [disabled]="!newProjectName().trim()" (click)="createProject()">
+          Create
+        </button>
+      </div>
+    </div>
+  }
+
+  <div class="project-list">
+    @for (project of projects(); track project.id) {
+      <div class="project-block" [class.expanded]="isExpanded(project.id)">
+
+        <!-- Project header -->
+        <div class="project-header">
+          <!-- Show / Hide chats button -->
+          <button
+            class="btn-icon expand-btn"
+            (click)="toggleExpanded(project.id, $event)"
+            [title]="isExpanded(project.id) ? 'Hide chats' : 'Show chats'">
+            {{ isExpanded(project.id) ? '▼' : '▶' }}
+          </button>
+
+          @if (editingProjectId() === project.id) {
+            <!-- Inline edit -->
+            <div class="project-edit" (click)="$event.stopPropagation()">
+              <input
+                type="text"
+                [ngModel]="editName()"
+                (ngModelChange)="editName.set($event)"
+                (keydown.enter)="saveProject()"
+                (keydown.escape)="cancelEditProject()" />
+              <textarea
+                rows="2"
+                placeholder="System prompt"
+                [ngModel]="editSystemPrompt()"
+                (ngModelChange)="editSystemPrompt.set($event)">
+              </textarea>
+              <select
+                [ngModel]="editDefaultModelId()"
+                (ngModelChange)="editDefaultModelId.set($event || null)">
+                <option [ngValue]="null">No default model</option>
+                @for (model of enabledModels(); track model.id) {
+                  <option [value]="model.id">{{ model.displayName }}</option>
+                }
+              </select>
+              <div class="form-actions">
+                <button class="btn" (click)="cancelEditProject()">Cancel</button>
+                <button class="btn primary" (click)="saveProject()">Save</button>
+              </div>
+            </div>
+          } @else {
+            <span class="project-name" (dblclick)="startEditProject(project, $event)">
+              {{ project.name }}
+            </span>
+
+            <div class="project-actions">
+              <!-- New chat under this project -->
+              <button
+                class="btn-icon"
+                (click)="createChatForProject(project, $event)"
+                title="New chat in this project">+</button>
+
+              <button
+                class="btn-icon"
+                (click)="startEditProject(project, $event)"
+                title="Edit project">✎</button>
+
+              <button
+                class="btn-icon"
+                (click)="deleteProject(project, $event)"
+                title="Delete project">×</button>
+            </div>
+          }
+        </div>
+
+        <!-- Chats of this project (shown / hidden by the button above) -->
+        @if (isExpanded(project.id)) {
+          <div class="chat-list">
+            @for (chat of getChatsForProject(project.id); track chat.id) {
+              <div
+                class="chat-item"
+                [class.active]="chat.id === currentChatId()"
+                (click)="selectChat(chat)">
+                <span class="chat-title">{{ chat.title }}</span>
+                <button class="btn-icon" (click)="deleteChat(chat, $event)" title="Delete">×</button>
+              </div>
+            } @empty {
+              <p class="empty">No chats yet</p>
+            }
+          </div>
+        }
       </div>
     } @empty {
-      <p class="empty">No chats yet</p>
+      <p class="empty">No projects yet. Create one to organize your chats.</p>
+    }
+
+    <!-- Unassigned chats (legacy / chats without project) -->
+    @if (getChatsForProject(null).length > 0) {
+      <div class="project-block unassigned">
+        <div class="project-header">
+          <button
+            class="btn-icon expand-btn"
+            (click)="toggleExpanded('__unassigned__', $event)"
+            [title]="isExpanded('__unassigned__') ? 'Hide chats' : 'Show chats'">
+            {{ isExpanded('__unassigned__') ? '▼' : '▶' }}
+          </button>
+          <span class="project-name">Unassigned</span>
+        </div>
+
+        @if (isExpanded('__unassigned__')) {
+          <div class="chat-list">
+            @for (chat of getChatsForProject(null); track chat.id) {
+              <div
+                class="chat-item"
+                [class.active]="chat.id === currentChatId()"
+                (click)="selectChat(chat)">
+                <span class="chat-title">{{ chat.title }}</span>
+                <button class="btn-icon" (click)="deleteChat(chat, $event)" title="Delete">×</button>
+              </div>
+            }
+          </div>
+        }
+      </div>
     }
   </div>
 </aside>

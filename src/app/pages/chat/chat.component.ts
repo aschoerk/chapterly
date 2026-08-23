@@ -183,12 +183,27 @@ export class ChatComponent implements OnInit {
     return current;
   }
 
+
+
   /**
    * Builds the OpenAI-style messages array for the current active branch,
    * up to (but not including) a new question we are about to add.
    */
-  buildContextMessages(): { role: 'user' | 'assistant'; content: string }[] {
-    const messages: { role: 'user' | 'assistant'; content: string }[] = [];
+  buildContextMessages(): { role: 'system' | 'user' | 'assistant'; content: string }[] {
+    const messages: { role: 'system' | 'user' | 'assistant'; content: string }[] = [];
+
+    // Prepend project system prompt if present
+    const chatId = this.currentChatId();
+    if (chatId) {
+      const chat = this.chats().find(c => c.id === chatId);
+      if (chat?.projectId) {
+        const project = this.chatService.getProject(chat.projectId);
+        if (project?.systemPrompt?.trim()) {
+          messages.push({ role: 'system', content: project.systemPrompt.trim() });
+        }
+      }
+    }
+
     let current: ChatNode | null = this.getActiveSibling(null);
 
     while (current) {

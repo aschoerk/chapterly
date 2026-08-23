@@ -1,8 +1,18 @@
 export type NodeType = 'question' | 'answer';
 
+export interface Project {
+  id: string;
+  name: string;
+  systemPrompt: string;
+  defaultModelId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface Chat {
   id: string;
   title: string;
+  projectId?: string | null;
   created_at: string;
   updated_at: string;
 }

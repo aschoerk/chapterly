@@ -38,10 +38,18 @@ const router = express.Router();
  *                     format: date-time
  */
 router.get('/', (req, res) => {
-  const rows = db.prepare(`
-    SELECT * FROM chats ORDER BY updated_at DESC
-  `).all();
-  res.json(rows);
+  const { projectId } = req.query;
+  let rows;
+  if (projectId) {
+    rows = db.prepare(`
+      SELECT * FROM chats WHERE project_id = ? ORDER BY updated_at DESC
+    `).all(projectId);
+  } else {
+    rows = db.prepare(`
+      SELECT * FROM chats ORDER BY updated_at DESC
+    `).all();
+  }
+  res.json(rows.map(mapChat));
 });
 
 /**
@@ -84,13 +92,13 @@ router.get('/', (req, res) => {
  *                   format: date-time
  */
 router.post('/', (req, res) => {
-  const { title = 'New Chat' } = req.body;
+  const { title = 'New Chat', projectId = null } = req.body;
   const id = uuidv4();
   db.prepare(`
-    INSERT INTO chats (id, title) VALUES (?, ?)
-  `).run(id, title);
+    INSERT INTO chats (id, title, project_id) VALUES (?, ?, ?)
+  `).run(id, title, projectId || null);
   const chat = db.prepare('SELECT * FROM chats WHERE id = ?').get(id);
-  res.status(201).json(chat);
+  res.status(201).json(mapChat(chat));
 });
 
 /**
@@ -141,7 +149,7 @@ router.post('/', (req, res) => {
 router.get('/:id', (req, res) => {
   const chat = db.prepare('SELECT * FROM chats WHERE id = ?').get(req.params.id);
   if (!chat) return res.status(404).json({ error: 'Chat not found' });
-  res.json(chat);
+  res.json(mapChat(chat));
 });
 
 /**
@@ -569,10 +577,23 @@ router.patch('/:id', (req, res) => {
   }
 
   const chat = db.prepare('SELECT * FROM chats WHERE id = ?').get(req.params.id);
-  res.json(chat);
+  res.json(mapChat(chat));
 });
 
+
+
 // Helper
+
+function mapChat(row) {
+  return {
+    id: row.id,
+    title: row.title,
+    projectId: row.project_id || null,
+    created_at: row.created_at,
+    updated_at: row.updated_at
+  };
+}
+
 function mapNode(row) {
   return {
     id: row.id,
