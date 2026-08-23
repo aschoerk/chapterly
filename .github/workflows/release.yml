@@ -3,14 +3,22 @@ name: Release
 on:
   push:
     tags:
-      - 'v*'   # triggers on tags like v0.1.0, v1.0.0, etc.
+      - 'v*'   # e.g. v0.1.0, v1.2.3
 
 permissions:
-  contents: write   # needed to create releases
+  contents: write
 
 jobs:
   release:
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux
+          - os: windows-latest
+            platform: windows
+
+    runs-on: ${{ matrix.os }}
 
     steps:
       - name: Checkout
@@ -29,14 +37,20 @@ jobs:
         run: npm run electron:build
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Optional: reduce noise
+          ELECTRON_BUILDER_CACHE: ${{ runner.temp }}/electron-builder-cache
 
-      - name: Upload AppImage to GitHub Release
+      - name: Upload artifacts to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
             dist/*.AppImage
             dist/*.deb
             dist/*.rpm
+            dist/*.exe
+            dist/*.msi
+            dist/*-portable.exe
           generate_release_notes: true
+          fail_on_unmatched_files: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

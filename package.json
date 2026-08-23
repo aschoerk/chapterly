@@ -1,6 +1,6 @@
 {
   "name": "chat",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "author": "Andreas Schörk",
   "main": "electron/main.js",
   "scripts": {
@@ -66,6 +66,13 @@
         "AppImage"
       ],
       "category": "Utility"
+    },
+    "win": {
+      "target": ["nsis"]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
     }
   }
 }
