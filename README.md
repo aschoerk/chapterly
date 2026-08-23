@@ -1,59 +1,149 @@
-# ChatComponent
+# Chat Client
 
-This project was generated using [Angular CLI](https://github.com/angular/angular-cli) version 22.1.5.
+A desktop chat client for Large Language Models focused on **recreating and managing multi-version conversation threads**.
 
-## Development server
+The application lets you explore different answer versions, branch conversations, and keep a clear history of how a discussion evolved.
 
-To start a local development server, run:
+---
 
-```bash
-ng serve
-```
+## Intentions
 
-Once the server is running, open your browser and navigate to `http://localhost:4200/`. The application will automatically reload whenever you modify any of the source files.
+- Provide a clean interface for chatting with different LLM providers
+- Treat conversation threads as first-class citizens (including multiple versions of answers)
+- Keep all chat data local (SQLite)
+- Work as a real desktop application (currently distributed as AppImage)
 
-## Code scaffolding
+The Angular frontend talks exclusively to a local **chat-server**.  
+The chat-server is responsible for:
 
-Angular CLI includes powerful code scaffolding tools. To generate a new component, run:
+- Storing chats and message versions in SQLite
+- Proxying requests to LLM providers
+- Exposing a simple REST API used by the Angular client
 
-```bash
-ng generate component component-name
-```
+---
 
-For a complete list of available schematics (such as `components`, `directives`, or `pipes`), run:
+## Download & Run
 
-```bash
-ng generate --help
-```
+### AppImage (Linux)
 
-## Building
-
-To build the project run:
-
-```bash
-ng build
-```
-
-This will compile your project and store the build artifacts in the `dist/` directory. By default, the production build optimizes your application for performance and speed.
-
-## Running unit tests
-
-To execute unit tests with the [Vitest](https://vitest.dev/) test runner, use the following command:
+1. Go to the [Releases](https://github.com/aschoerk/chat/releases) page
+2. Download the latest `.AppImage`
+3. Make it executable and start it:
 
 ```bash
-ng test
+chmod +x Chat\ Client-*.AppImage
+./Chat\ Client-*.AppImage
 ```
 
-## Running end-to-end tests
+The application starts its own local server automatically.  
+Your chat data is stored in:
 
-For end-to-end (e2e) testing, run:
+```
+~/.config/chat/data/chat.db
+```
+
+---
+
+## Development
+
+### Prerequisites
+
+- Node.js 22+
+- npm
+
+### Setup
 
 ```bash
-ng e2e
+git clone https://github.com/aschoerk/chat.git
+cd chat
+npm install
 ```
 
-Angular CLI does not come with an end-to-end testing framework by default. You can choose one that suits your needs.
+### Run in development mode
 
-## Additional Resources
+```bash
+npm run electron:dev
+```
 
-For more information on using the Angular CLI, including detailed command references, visit the [Angular CLI Overview and Command Reference](https://angular.dev/tools/cli) page.
+This starts:
+
+- the Angular development server (`ng serve`)
+- the Electron shell
+- the local chat-server
+
+### Build a production AppImage
+
+```bash
+npm run electron:build
+```
+
+The resulting AppImage can be found in the `dist/` folder.
+
+---
+
+## Architecture
+
+```
+┌─────────────────────┐
+│   Angular Frontend  │
+│  (Electron window)  │
+└──────────┬──────────┘
+           │ HTTP
+           ▼
+┌─────────────────────┐
+│    chat-server      │
+│  (Express + API)    │
+└──────────┬──────────┘
+           │
+           ▼
+┌─────────────────────┐
+│      SQLite         │
+│  (chat history &    │
+│   message versions) │
+└─────────────────────┘
+```
+
+- The **Angular client** never talks directly to LLM providers.
+- All communication goes through the **chat-server**.
+- The chat-server uses **SQLite** to store chats, nodes, and version history.
+
+---
+
+## How to extend the project
+
+### Adding a new API endpoint
+
+1. Add the route in `chat-server/src/routes/`
+2. Register it in `chat-server/src/app.js`
+3. Call it from an Angular service
+
+### Changing the database schema
+
+Edit `chat-server/src/db.js`.  
+The tables are created with `CREATE TABLE IF NOT EXISTS`, so you can extend them carefully.
+
+### Adding a new LLM provider
+
+The proxy layer lives in `chat-server/src/routes/proxy.js`.  
+You can extend the provider handling there and expose the new provider through the existing API.
+
+### UI changes
+
+The Angular application lives under `src/`.  
+Main chat-related components are located in `src/app/pages/chat/`.
+
+---
+
+## Scripts
+
+| Command                  | Description                          |
+|--------------------------|--------------------------------------|
+| `npm run electron:dev`   | Start development mode               |
+| `npm run build`          | Build the Angular frontend           |
+| `npm run electron:build` | Build the production AppImage        |
+
+---
+
+## License
+
+This project is licensed under the **Apache License 2.0**.
