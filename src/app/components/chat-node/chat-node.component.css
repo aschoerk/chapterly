@@ -123,3 +123,112 @@
   background-color: var(--scrollbar-thumb, #666);
   border-radius: 4px;
 }
+
+.node {
+  margin-bottom: 1rem;
+  border-left: 3px solid transparent;
+  padding-left: 0.75rem;
+}
+
+.question-node {
+  border-left-color: #3b82f6;
+}
+
+.answer-node {
+  border-left-color: #22c55e;
+  background: #f8fafc;
+  padding: 0.6rem 0.75rem;
+  border-radius: 0 6px 6px 0;
+}
+
+.node-header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+  margin-bottom: 0.35rem;
+  font-size: 0.8rem;
+  color: #64748b;
+}
+
+.node-content {
+  white-space: pre-wrap;      /* keep newlines and spaces from the model */
+  word-break: break-word;
+  line-height: 1.55;
+  margin-bottom: 0.4rem;
+}
+
+.node-actions {
+  display: flex;
+  gap: 0.4rem;
+  margin-top: 0.25rem;
+}
+
+/* ==========================================================================
+   Buttons
+   ========================================================================== */
+.btn {
+  padding: 0.5rem 1rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-input-border);
+  background: white;
+  cursor: pointer;
+}
+
+.btn.primary {
+  background: var(--color-primary);
+  color: white;
+  border-color: var(--color-primary);
+}
+
+.btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.btn.small {
+  padding: 0.15rem 0.5rem;
+  font-size: 0.78rem;
+}
+
+.btn.danger {
+  color: #b91c1c;
+  border-color: #fca5a5;
+}
+
+.stop-btn {
+  margin-left: auto;          /* pushes it to the right side of the header */
+  font-weight: 600;
+}
+
+.empty-answer {
+  color: #94a3b8;
+  font-size: 0.9rem;
+  padding: 0.25rem 0;
+}
+
+/* ===== Thinking indicator ===== */
+.thinking {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  color: #64748b;
+  font-style: italic;
+  padding: 0.35rem 0;
+}
+
+.spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid #cbd5e1;
+  border-top-color: #3b82f6;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

@@ -46,81 +46,7 @@
   overflow: hidden;
 }
 
-/* ==========================================================================
-   Sidebar
-   ========================================================================== */
-.sidebar {
-  width: 260px;
-  border-right: 1px solid var(--color-border);
-  display: flex;
-  flex-direction: column;
-  background: var(--color-bg-sidebar);
-}
 
-.sidebar-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 0.75rem 1rem;
-  border-bottom: 1px solid var(--color-border);
-  min-height: 52px;
-  box-sizing: border-box;
-}
-
-.sidebar-header h2 {
-  margin: 0;
-  font-size: 1.1rem;
-  line-height: 1;
-}
-
-.header-actions {
-  display: flex;
-  gap: 0.5rem;
-  align-items: center;
-}
-
-.header-actions .btn.primary {
-  background: #2563eb;
-  color: white;
-}
-
-.header-actions .btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  height: 32px;
-  padding: 0 0.7rem;
-  font-size: 0.85rem;
-  line-height: 1;
-  white-space: nowrap;
-}
-
-.chat-list {
-  flex: 1;
-  overflow-y: auto;
-}
-
-.chat-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: var(--space-md) var(--space-lg);
-  cursor: pointer;
-}
-
-.chat-item:hover {
-  background: var(--color-bg-hover);
-}
-
-.chat-item.active {
-  background: var(--color-bg-active);
-}
-
-.chat-title {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 
 .btn-icon {
   background: none;
@@ -154,94 +80,9 @@
   padding: var(--space-xl);
 }
 
-.node {
-  margin-bottom: 1rem;
-  border-left: 3px solid transparent;
-  padding-left: 0.75rem;
-}
 
-.question-node {
-  border-left-color: #3b82f6;
-}
 
-.answer-node {
-  border-left-color: #22c55e;
-  background: #f8fafc;
-  padding: 0.6rem 0.75rem;
-  border-radius: 0 6px 6px 0;
-}
 
-.node-header {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem;
-  align-items: center;
-  margin-bottom: 0.35rem;
-  font-size: 0.8rem;
-  color: #64748b;
-}
-
-.node-content {
-  white-space: pre-wrap;      /* keep newlines and spaces from the model */
-  word-break: break-word;
-  line-height: 1.55;
-  margin-bottom: 0.4rem;
-}
-
-.inline-content-editor {
-  margin: 0.4rem 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.inline-content-editor textarea {
-  width: 100%;
-  padding: 0.6rem 0.75rem;
-  border: 1px solid #93c5fd;
-  border-radius: 6px;
-  font: inherit;
-  line-height: 1.5;
-  resize: vertical;
-  min-height: 120px;
-  background: #f8fafc;
-}
-
-.inline-content-editor .editor-actions {
-  display: flex;
-  gap: 0.4rem;
-}
-
-.node-actions {
-  display: flex;
-  gap: 0.4rem;
-  margin-top: 0.25rem;
-}
-
-.inline-editor {
-  margin-top: 0.5rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  padding: 0.75rem;
-  background: #f8fafc;
-  border-radius: 6px;
-  border: 1px solid #e2e8f0;
-}
-
-.inline-editor textarea {
-  width: 100%;
-  padding: 0.5rem;
-  border: 1px solid #ccc;
-  border-radius: 6px;
-  font: inherit;
-  resize: vertical;
-}
-
-.editor-actions {
-  display: flex;
-  gap: 0.5rem;
-}
 
 /* ==========================================================================
    Badges & Tags

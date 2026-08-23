@@ -21,6 +21,15 @@
       <span class="meta">{{ node().content.length }} chars</span>
     }
 
+    <!-- Stop button – always on top while generating -->
+    @if (chatService.isGenerating(node().id)) {
+      <button class="btn small danger stop-btn"
+              type="button"
+              (click)="stopGeneration()">
+        Stop
+      </button>
+    }
+
     @if (hasSiblings) {
       <div class="branch-switcher inline">
         <button class="btn small" (click)="prevSibling()" type="button" [disabled]="isLoading()">‹</button>
@@ -100,16 +109,34 @@
       </div>
     </div>
   } @else {
-    <div class="node-content" [innerHTML]="renderedHtml()"></div>
+    <!-- Stop button while this node is generating -->
+    @if (node().type === 'answer' && chatService.isGenerating(node().id) && !node().content?.trim()) {
+      <div class="node-content thinking">
+        <span class="spinner"></span>
+        <span>Thinking…</span>
+      </div>
+    } @else if (node().content?.trim()) {
+      <div class="node-content" [innerHTML]="renderedHtml()"></div>
+    } @else {
+      <!-- empty after stop with no content -->
+      <div class="node-content empty-answer">
+        <em>Generation stopped</em>
+      </div>
+    }
 
     <div class="node-actions">
-      @if (node().type === 'answer') {
-        <button class="btn small" (click)="startInlineEdit()" type="button">Edit</button>
+
+      <!-- Copy button for both types -->
+      <button class="btn small" (click)="copyContent()" type="button" title="Copy to clipboard">
+        {{ copied() ? 'Copied!' : 'Copy' }}
+
+      </button>      @if (node().type === 'answer') {
+        <button class="btn small" (click)="startInlineEdit()" type="button" title="Edit content, changes chat context">Edit</button>
       }
       @if (node().type === 'question') {
-        <button class="btn small" (click)="startInlineEdit()" type="button">Edit</button>
-        <button class="btn small" (click)="startBranch()" type="button">Edit branch</button>
-        <button class="btn small danger" (click)="deleteNode()" type="button">Delete</button>
+        <button class="btn small" (click)="startInlineEdit()" type="button" title="Edit content, changes chat context">Edit</button>
+        <button class="btn small" (click)="startBranch()" type="button" title="Edit and create a new branch">Branch</button>
+        <button class="btn small danger" (click)="deleteNode()" type="button" title="Delete nodes from here to leave">Delete</button>
       }
     </div>
   }

@@ -1,29 +1,7 @@
 <div class="chat-layout">
 
   <!-- Sidebar -->
-  <aside class="sidebar">
-    <div class="sidebar-header">
-      <h2>Chats</h2>
-      <div class="header-actions">
-        <button class="btn" (click)="goToConfig()" title="Configuration">⚙</button>
-        <button class="btn primary" (click)="createChat()">+ New</button>
-      </div>
-    </div>
-
-    <div class="chat-list">
-      @for (chat of chats(); track chat.id) {
-        <div
-          class="chat-item"
-          [class.active]="chat.id === currentChatId()"
-          (click)="selectChat(chat)">
-          <span class="chat-title">{{ chat.title }}</span>
-          <button class="btn-icon" (click)="deleteChat(chat, $event)" title="Delete">×</button>
-        </div>
-      } @empty {
-        <p class="empty">No chats yet</p>
-      }
-    </div>
-  </aside>
+  <side-bar></side-bar>
 
   <main class="main">
     @if (!currentChatId()) {
@@ -50,7 +28,7 @@
         <!-- Composer -->
         <div class="composer">
           <div class="composer-row">
-            <select [ngModel]="selectedModelId()" (ngModelChange)="selectedModelId.set($event)">
+            <select [ngModel]="selectedModelId()" (ngModelChange)="setSelectedModelId($event)">
               <option value="">Select model…</option>
               @for (model of enabledModels(); track model.id) {
                 <option [value]="model.id">{{ model.displayName }}</option>

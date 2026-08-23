@@ -2,24 +2,26 @@ import { Component, inject, OnInit, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ChatService } from '../../core/chat.service';
+import { LastModelService } from '../../core/last-model.service';
 import { Chat, ChatNode } from '../../models/chat';
 import { SettingsService } from '../../core/settings.service';
 import { Router } from '@angular/router';
 import { ChatTitleEditorComponent } from '../../components/chat-title-editor/chat-title-editor.component';
 import { ChatNodeComponent } from '../../components/chat-node/chat-node.component';
+import {SideBarComponent} from '../../components/side-bar/side-bar.component';
 
 @Component({
   selector: 'app-chat',
   standalone: true,
-  imports: [CommonModule, FormsModule, ChatTitleEditorComponent, ChatNodeComponent],
+  imports: [CommonModule, FormsModule, ChatTitleEditorComponent, ChatNodeComponent, SideBarComponent],
   templateUrl: './chat.component.html',
   styleUrl: './chat.component.css'
 })
 export class ChatComponent implements OnInit {
   private readonly chatService = inject(ChatService);
   private readonly settings = inject(SettingsService);
+  private readonly lastModelService = inject(LastModelService);
   private readonly router = inject(Router);
-  private readonly LAST_MODEL_KEY = 'chat.lastUsedModelId';
 
   readonly chats = this.chatService.chats;
   readonly currentChatId = this.chatService.currentChatId;
@@ -29,43 +31,13 @@ export class ChatComponent implements OnInit {
   readonly activeChild = signal<Record<string, string>>({});
 
   readonly newQuestion = signal('');
-  readonly selectedModelId = signal<string>('');
   readonly isLoading = signal(false);
-  readonly lastUsedModelId = signal<string>('');
 
   readonly enabledModels = this.settings.enabledModels;
 
   async ngOnInit() {
-    this.loadLastUsedModel();
     await this.chatService.loadChats();
     await this.settings.loadAll();
-  }
-
-  async createChat() {
-    const chat = await this.chatService.createChat();
-    await this.chatService.selectChat(chat.id);
-
-    if (this.lastUsedModelId()) {
-      this.selectedModelId.set(this.lastUsedModelId());
-    } else {
-      this.selectedModelId.set('');
-    }
-  }
-
-  async selectChat(chat: Chat) {
-    await this.chatService.selectChat(chat.id);
-    this.setLastUsedModel();
-  }
-
-  async deleteChat(chat: Chat, event: Event) {
-    event.stopPropagation();
-    if (confirm(`Delete chat "${chat.title}"?`)) {
-      await this.chatService.deleteChat(chat.id);
-    }
-  }
-
-  async goToConfig() {
-    await this.router.navigate(['/config']);
   }
 
   // ------------------------------------------------------------------
@@ -75,7 +47,7 @@ export class ChatComponent implements OnInit {
   async addRootQuestion() {
     const chatId = this.currentChatId();
     const content = this.newQuestion().trim();
-    const selectedId = this.selectedModelId();
+    const selectedId = this.lastModelService.selectedModelId();
     if (!chatId || !content || !selectedId) return;
 
     const model = this.enabledModels().find(
@@ -86,8 +58,8 @@ export class ChatComponent implements OnInit {
       return;
     }
 
-    this.saveLastUsedModel(model.id);
-    this.selectedModelId.set(model.id);
+    this.lastModelService.saveLastUsedModel(model.id);
+    this.lastModelService.setSelectedModel(model.id);
 
     const provider = this.settings.providers().find(p => p.id === model.providerId);
     if (!provider) {
@@ -102,13 +74,14 @@ export class ChatComponent implements OnInit {
     try {
       // 1. Create the question node
       const questionNode = await this.chatService.addNode(chatId, {
-        parentId: parentId,
+        parentId,
         type: 'question',
         content,
         modelId: model.modelId,
         providerId: model.providerId
       });
 
+      // Auto-title for new chats
       if (parentId === null) {
         const firstLine = content.split('\n')[0].trim().slice(0, 80);
         if (firstLine) {
@@ -119,45 +92,32 @@ export class ChatComponent implements OnInit {
       this.setActiveChild(parentId, questionNode.id);
       this.newQuestion.set('');
 
-      // 2. Create the answer node immediately (empty) so the UI can render it
-      const answerNode = await this.chatService.addNode(chatId, {
-        parentId: questionNode.id,
-        type: 'answer',
-        content: '',          // starts empty – will be filled by the stream
-        modelId: model.modelId,
-        providerId: model.providerId
-      });
+      // 2. Make the new answer the active child (so it appears in the path)
+      //    The actual answer node is created inside streamAnswer
+      //    We need its id → so we temporarily set it after creation.
+      //    For simplicity we can let streamAnswer return the answer node id as well,
+      //    or just rely on the path updating via the nodes signal.
 
-      this.setActiveChild(questionNode.id, answerNode.id);
-
-      // 3. Build context and start streaming
+      // Build context
       const contextMessages = this.buildContextMessages();
       contextMessages.push({ role: 'user', content });
 
-      let accumulated = '';
-
-      await this.chatService.askLlm(
-        provider.baseUrl,
-        provider.apiKey,
-        model.modelId,
-        contextMessages,
-        (chunk: string) => {
-          accumulated += chunk;
-
-          // Optional but recommended: temporary live update in the local store
-          // so the UI shows the text growing without creating versions yet
-          this.chatService['_nodes']?.update?.(list =>
-            list.map(n =>
-              n.id === answerNode.id ? { ...n, content: accumulated } : n
-            )
-          );
-        }
+      // 3. Shared streaming logic
+      await this.chatService.streamAnswer(
+        chatId,
+        questionNode.id,
+        provider,
+        model,
+        contextMessages
       );
 
-      // 4. Persist the final answer as a proper version (only once)
-      if (accumulated) {
-        await this.chatService.editAnswer(chatId, answerNode.id, accumulated);
+      // After streaming we can set the active child to the latest answer
+      // (optional – depends on how getActivePath works)
+      const answers = this.chatService.getChildren(questionNode.id);
+      if (answers.length > 0) {
+        this.setActiveChild(questionNode.id, answers[answers.length - 1].id);
       }
+
     } catch (err: any) {
       console.error(err);
       alert('Failed to get answer: ' + (err?.message || err));
@@ -242,36 +202,12 @@ export class ChatComponent implements OnInit {
     return messages;
   }
 
-  // ------------------------------------------------------------------
-  // Last-used model persistence
-  // ------------------------------------------------------------------
 
-  private setLastUsedModel() {
-    const nodes = this.nodes();
-    const lastQuestion = [...nodes]
-      .filter(n => n.type === 'question' && n.modelId)
-      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
-
-    if (!lastQuestion?.modelId) return;
-
-    const model = this.enabledModels().find(
-      m => m.modelId === lastQuestion.modelId || m.id === lastQuestion.modelId
-    );
-
-    const id = model ? model.id : lastQuestion.modelId;
-    this.selectedModelId.set(id);
-    this.saveLastUsedModel(id);
+  protected selectedModelId() {
+    return this.lastModelService.selectedModelId;
   }
 
-  private loadLastUsedModel() {
-    const saved = localStorage.getItem(this.LAST_MODEL_KEY);
-    if (saved) {
-      this.lastUsedModelId.set(saved);
-    }
-  }
-
-  private saveLastUsedModel(modelId: string) {
-    this.lastUsedModelId.set(modelId);
-    localStorage.setItem(this.LAST_MODEL_KEY, modelId);
+  protected setSelectedModelId($event: any) {
+    this.lastModelService.setSelectedModel($event);
   }
 }

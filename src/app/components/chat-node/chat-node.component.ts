@@ -17,9 +17,9 @@ import { MarkdownService} from '../../core/markdown.service';
   styleUrl: './chat-node.component.css'
 })
 export class ChatNodeComponent {
-  private readonly chatService = inject(ChatService);
   private readonly settings = inject(SettingsService);
   public readonly  markdownService = inject(MarkdownService);
+  readonly chatService = inject(ChatService);
 
   /** The node this component renders */
   readonly node = input.required<ChatNode>();
@@ -188,6 +188,7 @@ export class ChatNodeComponent {
     this.isLoading.set(true);
     try {
       // 1. Create the new branched question
+      // 1. Create the new branched question
       const newQuestion = await this.chatService.branchQuestion(
         chatId,
         node.id,
@@ -196,49 +197,23 @@ export class ChatNodeComponent {
         model.providerId
       );
 
-      // Make the new branch active immediately
+      // 2. Activate immediately (while this component is still alive)
       this.activate.emit(newQuestion.id);
 
-      // 2. Create empty answer node under the new question
-      //    so the UI already has a place that can grow with the stream
-      const answerNode = await this.chatService.addNode(chatId, {
-        parentId: newQuestion.id,
-        type: 'answer',
-        content: '',
-        modelId: model.modelId,
-        providerId: model.providerId
-      });
+      // 3. Close the editor UI early
+      this.cancelBranch();
 
-      // 3. Build context and stream
+      // 4. Now do the long-running work
       const contextMessages = this.buildContextMessagesUpTo(node.parentId);
       contextMessages.push({ role: 'user', content });
 
-      let accumulated = '';
-
-      await this.chatService.askLlm(
-        provider.baseUrl,
-        provider.apiKey,
-        model.modelId,
-        contextMessages,
-        (chunk: string) => {
-          accumulated += chunk;
-
-          // Temporary live update so the node content grows in the UI
-          // (the effect() in this component will re-render the markdown)
-          this.chatService['_nodes']?.update?.(list =>
-            list.map(n =>
-              n.id === answerNode.id ? { ...n, content: accumulated } : n
-            )
-          );
-        }
+      await this.chatService.streamAnswer(
+        chatId,
+        newQuestion.id,
+        provider,
+        model,
+        contextMessages
       );
-
-      // 4. Persist the final answer as a proper version (only once)
-      if (accumulated) {
-        await this.chatService.editAnswer(chatId, answerNode.id, accumulated);
-      }
-
-      this.cancelBranch();
     } catch (err: any) {
       console.error(err);
       alert('Failed: ' + (err?.message || err));
@@ -316,5 +291,47 @@ export class ChatNodeComponent {
 
   updateRendered(content: string): void {
     this.renderedHtml.set(this.markdownService.toHtml(content ?? ''));
+  }
+
+  readonly copied = signal(false);
+  private copyTimeout: any = null;
+
+  async copyContent(): Promise<void> {
+    const content = this.node().content ?? '';
+
+    try {
+      await navigator.clipboard.writeText(content);
+
+      this.copied.set(true);
+
+      // Reset the button text after 1.5 seconds
+      clearTimeout(this.copyTimeout);
+      this.copyTimeout = setTimeout(() => {
+        this.copied.set(false);
+      }, 1500);
+    } catch (err) {
+      console.error('Failed to copy:', err);
+
+      // Fallback for older environments
+      const textarea = document.createElement('textarea');
+      textarea.value = content;
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.select();
+      try {
+        document.execCommand('copy');
+        this.copied.set(true);
+        clearTimeout(this.copyTimeout);
+        this.copyTimeout = setTimeout(() => this.copied.set(false), 1500);
+      } catch (e) {
+        alert('Copy failed');
+      }
+      document.body.removeChild(textarea);
+    }
+  }
+
+  stopGeneration(): void {
+    this.chatService.stopGeneration();
   }
 }

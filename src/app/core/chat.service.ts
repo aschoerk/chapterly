@@ -144,7 +144,8 @@ export class ChatService {
     apiKey: string,
     modelId: string,
     messages: { role: string; content: string }[],
-    onChunk?: (chunk: string) => void
+    onChunk?: (chunk: string) => void,
+    signal?: AbortSignal
   ): Promise<string> {
     const config = getServerConfig();
 
@@ -162,7 +163,8 @@ export class ChatService {
         messages,
         temperature: 0.7,
         stream: true
-      })
+      }),
+      signal                               // ← allows cancellation
     });
 
     if (!response.ok) {
@@ -179,34 +181,111 @@ export class ChatService {
     let fullContent = '';
     let buffer = '';
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
+    try {
+      while (true) {
+        // This will throw if the signal is aborted
+        const { done, value } = await reader.read();
+        if (done) break;
 
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() ?? ''; // keep incomplete line
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
 
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed || trimmed === 'data: [DONE]') continue;
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed || trimmed === 'data: [DONE]') continue;
 
-        if (trimmed.startsWith('data: ')) {
-          try {
-            const json = JSON.parse(trimmed.slice(6));
-            const delta = json.choices?.[0]?.delta?.content;
-            if (typeof delta === 'string' && delta.length > 0) {
-              fullContent += delta;
-              onChunk?.(delta);
+          if (trimmed.startsWith('data: ')) {
+            try {
+              const json = JSON.parse(trimmed.slice(6));
+              const delta = json.choices?.[0]?.delta?.content;
+              if (typeof delta === 'string' && delta.length > 0) {
+                fullContent += delta;
+                onChunk?.(delta);
+              }
+            } catch {
+              // ignore partial / malformed chunks
             }
-          } catch {
-            // ignore partial / malformed chunks
           }
         }
+      }
+    } catch (err: any) {
+      // AbortError is expected when the user clicks Stop
+      if (err?.name === 'AbortError') {
+        // Return whatever we have received so far
+        return fullContent.trim();
+      }
+      throw err;
+    } finally {
+      // Make sure the reader is released
+      try {
+        reader.releaseLock();
+      } catch {
+        // ignore
       }
     }
 
     return fullContent.trim() || '(no response)';
+  }
+
+  /**
+   * Creates an empty answer node under the given question and streams the LLM response into it.
+   * Supports cancellation via the generation AbortController.
+   * Returns the final (or partial) content that was written.
+   */
+  async streamAnswer(
+    chatId: string,
+    questionNodeId: string,
+    provider: { baseUrl: string; apiKey: string },
+    model: { modelId: string; providerId: string },
+    messages: { role: string; content: string }[],
+    onChunk?: (chunk: string) => void
+  ): Promise<ChatNode> {
+
+    // 1. Create empty answer node
+    const answerNode = await this.addNode(chatId, {
+      parentId: questionNodeId,
+      type: 'answer',
+      content: '',
+      modelId: model.modelId,
+      providerId: model.providerId
+    });
+
+    // 2. Start generation tracking (for Stop button + thinking indicator)
+    const signal = this.startGeneration(answerNode.id);
+
+    let accumulated = '';
+
+    try {
+      accumulated = await this.askLlm(
+        provider.baseUrl,
+        provider.apiKey,
+        model.modelId,
+        messages,
+        (chunk: string) => {
+          accumulated += chunk;
+
+          // Live update in the local store
+          this._nodes?.update?.(list =>
+            list.map(n =>
+              n.id === answerNode.id ? { ...n, content: accumulated } : n
+            )
+          );
+
+          onChunk?.(chunk);
+        },
+        signal
+      );
+
+      // 3. Persist final / partial answer
+      if (accumulated.trim()) {
+        await this.editAnswer(chatId, answerNode.id, accumulated);
+      }
+
+      return answerNode;
+    } finally {
+      this.stopGeneration();
+    }
   }
 
   async deleteNode(chatId: string, nodeId: string): Promise<void> {
@@ -236,6 +315,30 @@ export class ChatService {
     this._chats.update(list =>
       list.map(c => (c.id === id ? updated : c))
     );
+  }
+
+  // Currently generating answer
+  readonly generatingNodeId = signal<string | null>(null);
+
+  private currentAbortController: AbortController | null = null;
+
+  startGeneration(nodeId: string): AbortSignal {
+    this.stopGeneration(); // cancel any previous one
+    this.currentAbortController = new AbortController();
+    this.generatingNodeId.set(nodeId);
+    return this.currentAbortController.signal;
+  }
+
+  stopGeneration(): void {
+    if (this.currentAbortController) {
+      this.currentAbortController.abort();
+      this.currentAbortController = null;
+    }
+    this.generatingNodeId.set(null);
+  }
+
+  isGenerating(nodeId: string): boolean {
+    return this.generatingNodeId() === nodeId;
   }
 
 
