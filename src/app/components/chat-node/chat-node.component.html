@@ -1,0 +1,117 @@
+<div
+  class="node"
+  [class.question-node]="node().type === 'question'"
+  [class.answer-node]="node().type === 'answer'">
+
+  <!-- Header -->
+  <div class="node-header">
+    <span class="badge"
+          [class.question]="node().type === 'question'"
+          [class.answer]="node().type === 'answer'">
+      {{ node().type === 'question' ? 'Q' : 'A' }}
+    </span>
+
+    @if (node().modelId) {
+      <span class="meta">{{ node().modelId }}</span>
+    }
+
+    <span class="meta">v{{ node().version }}</span>
+
+    @if (node().type === 'answer') {
+      <span class="meta">{{ node().content.length }} chars</span>
+    }
+
+    @if (hasSiblings) {
+      <div class="branch-switcher inline">
+        <button class="btn small" (click)="prevSibling()" type="button" [disabled]="isLoading()">‹</button>
+        <span>{{ siblingIndex.current }} / {{ siblingIndex.total }}</span>
+        <button class="btn small" (click)="nextSibling()" type="button" [disabled]="isLoading()">›</button>
+      </div>
+    }
+  </div>
+
+  <!-- Content / editors -->
+  @if (isContentEditing() || isBranching()) {
+    <!-- Backdrop -->
+    <div class="edit-backdrop" (click)="isBranching() ? cancelBranch() : cancelInlineEdit()"></div>
+
+    <!-- Centered editor -->
+    <div class="inline-content-editor" [class.with-preview]="showPreview()">
+
+      <!-- Toolbar -->
+      <div class="editor-toolbar">
+        @if (isBranching()) {
+          <select class="model-select"
+                  [ngModel]="branchModelId()"
+                  (ngModelChange)="branchModelId.set($event)"
+                  [disabled]="isLoading()">
+            @for (model of enabledModels(); track model.id) {
+              <option [value]="model.modelId">{{ model.displayName }}</option>
+            }
+          </select>
+        }
+
+        <button class="btn small"
+                type="button"
+                (click)="showPreview.set(!showPreview())"
+                [class.active]="showPreview()">
+          {{ showPreview() ? 'Hide Preview' : 'Show Preview' }}
+        </button>
+      </div>
+
+      <!-- Body: textarea (left) + preview (right) -->
+      <div class="editor-body">
+      <textarea #editArea
+                class="editor-textarea"
+                [ngModel]="isBranching() ? branchContent() : contentDraft()"
+                (ngModelChange)="isBranching() ? branchContent.set($event) : contentDraft.set($event)"
+                (input)="resizeTextarea()"
+                (keydown.control.enter)="isBranching() ? submitBranch() : saveInlineEdit()"
+                [disabled]="isLoading()"
+                rows="8">
+      </textarea>
+
+        @if (showPreview()) {
+          <div class="editor-preview markdown-body"
+               [innerHTML]="markdownService.toHtml(isBranching() ? branchContent() : contentDraft())">
+          </div>
+        }
+      </div>
+
+      <!-- Actions -->
+      <div class="editor-actions">
+        <button class="btn primary small"
+                type="button"
+                [disabled]="isLoading() || (isBranching() && !branchContent().trim())"
+                (click)="isBranching() ? submitBranch() : saveInlineEdit()">
+          @if (isLoading()) {
+            {{ isBranching() ? 'Sending…' : 'Saving…' }}
+          } @else {
+            {{ isBranching() ? 'Send' : 'Save' }}
+          }
+        </button>
+
+        <button class="btn small"
+                type="button"
+                [disabled]="isLoading()"
+                (click)="isBranching() ? cancelBranch() : cancelInlineEdit()">
+          Cancel
+        </button>
+      </div>
+    </div>
+  } @else {
+    <div class="node-content" [innerHTML]="renderedHtml()"></div>
+
+    <div class="node-actions">
+      @if (node().type === 'answer') {
+        <button class="btn small" (click)="startInlineEdit()" type="button">Edit</button>
+      }
+      @if (node().type === 'question') {
+        <button class="btn small" (click)="startInlineEdit()" type="button">Edit</button>
+        <button class="btn small" (click)="startBranch()" type="button">Edit branch</button>
+        <button class="btn small danger" (click)="deleteNode()" type="button">Delete</button>
+      }
+    </div>
+  }
+
+</div>
