@@ -1,13 +1,12 @@
 const { createApp } = require('./src/app');
-const portfinder = require('portfinder');
 
 (async () => {
+  console.log('>>> Starting chat-server, PID:', process.pid);
   const app = createApp();
 
-  portfinder.basePort = 3000;
-  const PORT = await portfinder.getPortPromise();
+  const PORT = process.env.PORT || 3847;
 
   app.listen(PORT, () => {
-    console.log(`✅ Chat server running on http://localhost:${PORT}`);
+    console.log(`✅ Chat server running on http://localhost:${PORT} started by server.js`);
   });
 })();

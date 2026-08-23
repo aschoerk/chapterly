@@ -4,7 +4,7 @@ import { firstValueFrom } from 'rxjs';
 import { ProviderConfig, ModelEntry } from '../models/chat-config';
 import { getServerConfig } from './server-config';
 
-const API_BASE = 'http://localhost:3000/api';   // we can make this dynamic later
+const API_BASE = 'http://localhost:3847/api';   // we can make this dynamic later
 
 @Injectable({
   providedIn: 'root'

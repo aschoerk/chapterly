@@ -3,8 +3,6 @@ export interface ServerConfig {
   proxyBase: string;
 }
 
-const DEFAULT_PORT = 3000;
-
 /**
  * Returns the base URLs for the Node server.
  * Later we can make this smarter (read from a config file, environment, etc.).
@@ -12,7 +10,8 @@ const DEFAULT_PORT = 3000;
 export function getServerConfig(): ServerConfig {
   // For now we use a fixed port.
   // Later you can replace this with a dynamic discovery or environment variable.
-  const port = DEFAULT_PORT;
+
+  const port = getServerPort();
 
   const base = `http://localhost:${port}`;
 
@@ -20,4 +19,15 @@ export function getServerConfig(): ServerConfig {
     apiBase: `${base}/api`,
     proxyBase: `${base}/proxy`
   };
+}
+
+// Example service
+export function getServerPort(): number {
+  // 1. Try query parameter
+  const params = new URLSearchParams(window.location.search);
+  const fromQuery = params.get('port');
+  if (fromQuery) return Number(fromQuery);
+
+  // 2. Fallback
+  return 3847;
 }

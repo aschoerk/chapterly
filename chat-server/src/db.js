@@ -2,8 +2,29 @@ const Database = require('better-sqlite3');
 const path = require('path');
 const fs = require('fs');
 
-// Store the database next to the server (or in a data folder)
-const dataDir = path.join(__dirname, '..', 'data');
+/**
+ * Returns a stable directory for the database.
+ * - Under Electron → uses the userData folder (survives updates)
+ * - In normal Node development → uses chat-server/data
+ */
+function getDataDir() {
+  // Running inside Electron?
+  if (process.versions.electron) {
+    try {
+      const { app } = require('electron');
+      // This path is writable and survives app updates
+      return path.join(app.getPath('userData'), 'data');
+    } catch (err) {
+      console.warn('Could not get Electron userData path, falling back to local data dir');
+    }
+  }
+
+  // Fallback for development / pure Node
+  return path.join(__dirname, '..', 'data');
+}
+
+const dataDir = getDataDir();
+
 if (!fs.existsSync(dataDir)) {
   fs.mkdirSync(dataDir, { recursive: true });
 }
@@ -11,47 +32,49 @@ if (!fs.existsSync(dataDir)) {
 const dbPath = path.join(dataDir, 'chat.db');
 const db = new Database(dbPath);
 
-// Enable WAL mode for better performance
+// Better performance and less locking issues
 db.pragma('journal_mode = WAL');
+db.pragma('foreign_keys = ON');
 
-// Create tables if they don't exist
+// ---------- Schema ----------
+
 db.exec(`
   CREATE TABLE IF NOT EXISTS providers (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    type TEXT NOT NULL,
-    base_url TEXT NOT NULL,
-    api_key TEXT NOT NULL,
-    enabled INTEGER DEFAULT 1,
-    created_at TEXT DEFAULT (datetime('now'))
-  );
+                                         id TEXT PRIMARY KEY,
+                                         name TEXT NOT NULL,
+                                         type TEXT NOT NULL,
+                                         base_url TEXT NOT NULL,
+                                         api_key TEXT NOT NULL,
+                                         enabled INTEGER DEFAULT 1,
+                                         created_at TEXT DEFAULT (datetime('now'))
+    );
 
   CREATE TABLE IF NOT EXISTS models (
-    id TEXT PRIMARY KEY,
-    display_name TEXT NOT NULL,
-    model_id TEXT NOT NULL,
-    provider_id TEXT NOT NULL,
-    type TEXT NOT NULL,          -- 'fetched' | 'preset' | 'discontinued'
-    enabled INTEGER DEFAULT 1,
-    context_length INTEGER,
-    created_at TEXT DEFAULT (datetime('now')),
+                                      id TEXT PRIMARY KEY,
+                                      display_name TEXT NOT NULL,
+                                      model_id TEXT NOT NULL,
+                                      provider_id TEXT NOT NULL,
+                                      type TEXT NOT NULL,          -- 'fetched' | 'preset' | 'discontinued'
+                                      enabled INTEGER DEFAULT 1,
+                                      context_length INTEGER,
+                                      created_at TEXT DEFAULT (datetime('now')),
     FOREIGN KEY (provider_id) REFERENCES providers(id) ON DELETE CASCADE
-  );
+    );
 `);
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS chats (
-    id TEXT PRIMARY KEY,
-    title TEXT NOT NULL,
-    created_at TEXT DEFAULT (datetime('now')),
+                                     id TEXT PRIMARY KEY,
+                                     title TEXT NOT NULL,
+                                     created_at TEXT DEFAULT (datetime('now')),
     updated_at TEXT DEFAULT (datetime('now'))
-  );
+    );
 
   CREATE TABLE IF NOT EXISTS chat_nodes (
-    id TEXT PRIMARY KEY,
-    chat_id TEXT NOT NULL,
-    parent_id TEXT,
-    type TEXT NOT NULL CHECK(type IN ('question', 'answer')),
+                                          id TEXT PRIMARY KEY,
+                                          chat_id TEXT NOT NULL,
+                                          parent_id TEXT,
+                                          type TEXT NOT NULL CHECK(type IN ('question', 'answer')),
     content TEXT NOT NULL,
     model_id TEXT,
     provider_id TEXT,
@@ -65,7 +88,7 @@ db.exec(`
     FOREIGN KEY (chat_id) REFERENCES chats(id) ON DELETE CASCADE,
     FOREIGN KEY (parent_id) REFERENCES chat_nodes(id) ON DELETE CASCADE,
     FOREIGN KEY (previous_version_id) REFERENCES chat_nodes(id)
-  );
+    );
 
   CREATE INDEX IF NOT EXISTS idx_chat_nodes_chat_id ON chat_nodes(chat_id);
   CREATE INDEX IF NOT EXISTS idx_chat_nodes_parent_id ON chat_nodes(parent_id);
