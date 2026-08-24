@@ -1,75 +1,188 @@
-/* ==========================================================================
-   Sidebar
-   ========================================================================== */
 .sidebar {
-  width: 260px;
-  border-right: 1px solid var(--color-border);
+  width: 290px;
+  min-width: 260px;
+  border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
-  background: var(--color-bg-sidebar);
+  background: var(--bg-sidebar);
+  font-size: 0.9rem;
 }
 
 .sidebar-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 0.75rem 1rem;
-  border-bottom: 1px solid var(--color-border);
-  min-height: 52px;
-  box-sizing: border-box;
-}
-
-.sidebar-header h2 {
-  margin: 0;
-  font-size: 1.1rem;
-  line-height: 1;
+  padding: 0.85rem 1rem;
+  border-bottom: 1px solid var(--border);
 }
 
 .header-actions {
   display: flex;
-  gap: 0.5rem;
+  gap: 0.35rem;
   align-items: center;
 }
 
-.header-actions .btn.primary {
-  background: #2563eb;
-  color: white;
+.sidebar-search {
+  padding: 0.6rem 0.85rem 0.4rem;
 }
 
-.header-actions .btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  height: 32px;
-  padding: 0 0.7rem;
+.sidebar-search input {
+  width: 100%;
+  padding: 0.4rem 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-input);
+  color: var(--text);
   font-size: 0.85rem;
-  line-height: 1;
+}
+
+.project-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0.4rem 0;
+}
+
+.project-block {
+  margin-bottom: 0.15rem;
+}
+
+.project-header {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.35rem 0.6rem 0.35rem 0.4rem;
+  border-radius: 6px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.project-header:hover {
+  background: var(--bg-hover);
+}
+
+.project-header:hover .project-actions {
+  opacity: 1;
+}
+
+.project-name {
+  flex: 1;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+.project-actions {
+  display: flex;
+  gap: 0.1rem;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.expand-btn .chevron {
+  transition: transform 0.15s ease;
+}
+.expand-btn .chevron.open {
+  transform: rotate(90deg);
+}
+
 .chat-list {
-  flex: 1;
-  overflow-y: auto;
+  padding-left: 1.1rem;
+  margin-bottom: 0.3rem;
 }
 
 .chat-item {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  padding: var(--space-md) var(--space-lg);
+  gap: 0.35rem;
+  padding: 0.32rem 0.55rem;
+  margin: 1px 0.4rem 1px 0;
+  border-radius: 5px;
   cursor: pointer;
+  position: relative;
 }
 
 .chat-item:hover {
-  background: var(--color-bg-hover);
+  background: var(--bg-hover);
+}
+
+.chat-item:hover .btn-icon {
+  opacity: 1;
 }
 
 .chat-item.active {
-  background: var(--color-bg-active);
+  background: var(--bg-active);
+  color: var(--text-active);
+}
+
+.chat-item.active::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 4px;
+  bottom: 4px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--accent);
 }
 
 .chat-title {
+  flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-size: 0.875rem;
+}
+
+/* Buttons */
+.btn-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  opacity: 0.7;
+  transition: all 0.12s ease;
+}
+
+.btn-icon:hover {
+  background: var(--bg-hover-strong);
+  color: var(--text);
+  opacity: 1;
+}
+
+.btn-icon.danger:hover {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.12);
+}
+
+.btn.primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  height: 30px;
+  padding: 0 0.7rem;
+  font-size: 0.82rem;
+  font-weight: 500;
+  border-radius: 6px;
+  background: var(--accent);
+  color: white;
+  border: none;
+  cursor: pointer;
+}
+
+.btn.primary:hover {
+  filter: brightness(1.08);
+}
+
+.empty {
+  padding: 0.6rem 1rem;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  font-style: italic;
 }

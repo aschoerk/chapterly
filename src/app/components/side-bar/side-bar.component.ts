@@ -1,4 +1,4 @@
-import { Component, inject, signal, OnInit } from '@angular/core';
+import {Component, inject, signal, OnInit, computed} from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ChatService } from '../../core/chat.service';
@@ -26,6 +26,7 @@ export class SideBarComponent implements OnInit {
   readonly currentChatId = this.chatService.currentChatId;
   readonly chatsByProject = this.chatService.chatsByProject;
   readonly enabledModels = this.settings.enabledModels;
+  readonly searchQuery = signal('');
 
   /** projectId → expanded (persisted in localStorage) */
   readonly expanded = signal<Record<string, boolean>>({});
@@ -41,6 +42,15 @@ export class SideBarComponent implements OnInit {
   readonly editName = signal('');
   readonly editSystemPrompt = signal('');
   readonly editDefaultModelId = signal<string | null>(null);
+
+  filteredProjects = computed(() => {
+    const q = this.searchQuery().trim().toLowerCase();
+    if (!q) return this.projects();
+    return this.projects().filter(p =>
+      p.name.toLowerCase().includes(q) ||
+      this.getChatsForProject(p.id).some(c => c.title.toLowerCase().includes(q))
+    );
+  });
 
   async ngOnInit() {
     await Promise.all([
