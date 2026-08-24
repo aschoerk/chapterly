@@ -183,6 +183,18 @@ export class ChatComponent implements OnInit {
     return current;
   }
 
+  scrollToNode(nodeId: string) {
+    const el = document.querySelector(`[data-node-id="${nodeId}"]`);
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }
+
+  getSiblingIndex(node: ChatNode): number {
+    const siblings = this.getSiblings(node.parentId);
+    const idx = siblings.findIndex(s => s.id === node.id);
+    return idx >= 0 ? idx + 1 : 1;
+  }
 
 
   /**
@@ -224,5 +236,9 @@ export class ChatComponent implements OnInit {
 
   protected setSelectedModelId($event: any) {
     this.lastModelService.setSelectedModel($event);
+  }
+
+  protected isNearViewport(id: string) {
+
   }
 }

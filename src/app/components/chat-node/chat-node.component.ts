@@ -256,6 +256,7 @@ export class ChatNodeComponent {
     this.activate.emit(next.id);
   }
 
+
   /**
    * Builds OpenAI-style messages from root down to the given parentId (inclusive).
    * Relies on ChatService.getPathToNode if available.

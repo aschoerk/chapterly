@@ -1,1 +1,24 @@
 /* You can add global styles to this file, and also import other style files */
+
+/* Tighter reading rhythm for chat nodes */
+.node-content p {
+  margin: 0.3em 0;
+}
+
+.node-content p:first-child {
+  margin-top: 0;
+}
+
+.node-content p:last-child {
+  margin-bottom: 0;
+}
+
+.node-content ul,
+.node-content ol {
+  margin: 0.35em 0;
+  padding-left: 1.35em;
+}
+
+.node-content li {
+  margin: 0.12em 0;
+}

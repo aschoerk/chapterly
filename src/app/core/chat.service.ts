@@ -38,6 +38,17 @@ export class ChatService {
     return this._nodes().filter(n => n.chatId === chatId);
   });
 
+  scrollToNode(nodeId: string) {
+    const el = document.querySelector(`[data-node-id="${nodeId}"]`) as HTMLElement | null;
+    if (!el) return;
+
+    el.scrollIntoView({
+      behavior: 'smooth',
+      block: 'start',
+      inline: 'nearest'
+    });
+  }
+
   // ---------- Projects ----------
 
   async loadProjects(): Promise<void> {

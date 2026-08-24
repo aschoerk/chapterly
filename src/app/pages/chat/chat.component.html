@@ -13,6 +13,35 @@
 
         @if (currentChatId()) {
           <chat-title-editor></chat-title-editor>
+          @if (currentChatId() && getActivePath().length > 0) {
+            <div class="node-nav-bar">
+              <div class="nav-path">
+                @for (node of getActivePath(); track node.id; let i = $index) {
+                  <button
+                    class="nav-node"
+                    [class.question]="node.type === 'question'"
+                    [class.answer]="node.type === 'answer'"
+                    [class.active]="isNearViewport(node.id)"
+                    (click)="scrollToNode(node.id)"
+                    [title]="node.content.slice(0, 120)">
+
+                    <span class="nav-badge">{{ node.type === 'question' ? 'Q' : 'A' }}</span>
+
+                    <!-- Branch indicator when siblings exist -->
+                    @if (getSiblings(node.parentId).length > 1) {
+                      <span class="nav-branch-count">
+              {{ getSiblingIndex(node) }} / {{ getSiblings(node.parentId).length }}
+            </span>
+                    }
+                  </button>
+
+                  @if (i < getActivePath().length - 1) {
+                    <span class="nav-separator">›</span>
+                  }
+                }
+              </div>
+            </div>
+          }
         }
 
         <div class="tree">
