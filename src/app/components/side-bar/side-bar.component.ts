@@ -193,4 +193,8 @@ export class SideBarComponent implements OnInit {
   async goToConfig() {
     await this.router.navigate(['/config']);
   }
+
+  async goToImport() {
+    await this.router.navigate(['/import']);
+  }
 }
