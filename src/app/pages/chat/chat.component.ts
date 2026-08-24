@@ -238,6 +238,7 @@ export class ChatComponent implements OnInit {
     this.lastModelService.setSelectedModel($event);
   }
 
+
   protected isNearViewport(id: string) {
 
   }

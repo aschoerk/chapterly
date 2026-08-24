@@ -207,4 +207,9 @@ export class SideBarComponent implements OnInit {
   async goToImport() {
     await this.router.navigate(['/import']);
   }
+
+  goToPersonas() {
+    this.router.navigate(['/personas']);
+  }
+
 }

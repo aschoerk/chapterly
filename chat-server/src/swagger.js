@@ -6,11 +6,11 @@ const options = {
     info: {
       title: 'Chat Server API',
       version: '1.0.0',
-      description: 'API for the Chat Client (providers, models, chats, nodes)'
+      description: 'API for the Chat Client (providers, models, chats, nodes, projects, personas)'
     },
     servers: [
       {
-        url: 'http://localhost:3000',
+        url: 'http://localhost:3847',
         description: 'Local development server'
       }
     ],
@@ -18,7 +18,9 @@ const options = {
       { name: 'Providers', description: 'AI provider configuration' },
       { name: 'Models', description: 'Available models and presets' },
       { name: 'Chats', description: 'Chat management' },
-      { name: 'Nodes', description: 'Chat nodes (questions & answers)' }
+      { name: 'Nodes', description: 'Chat nodes (questions & answers)' },
+      { name: 'Projects', description: 'Project / workspace management' },
+      { name: 'Personas', description: 'Reusable personas / characters for chats' }
     ],
     components: {
       schemas: {
@@ -169,6 +171,41 @@ const options = {
             error: {
               type: 'string',
               example: 'Chat not found'
+            }
+          }
+        },
+        Persona: {
+          type: 'object',
+          properties: {
+            id: {
+              type: 'string',
+              format: 'uuid',
+              example: '550e8400-e29b-41d4-a716-446655440000'
+            },
+            name: {
+              type: 'string',
+              example: 'Dr. Elena Voss'
+            },
+            shortName: {
+              type: 'string',
+              example: 'Elena'
+            },
+            description: {
+              type: 'string',
+              example: 'A brilliant but emotionally distant quantum physicist who slowly opens up...'
+            },
+            avatar: {
+              type: 'string',
+              description: 'URL or data URL for the persona avatar',
+              example: 'https://example.com/avatars/elena.png'
+            },
+            createdAt: {
+              type: 'string',
+              format: 'date-time'
+            },
+            updatedAt: {
+              type: 'string',
+              format: 'date-time'
             }
           }
         }

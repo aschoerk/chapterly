@@ -72,6 +72,16 @@ db.exec(`
     updated_at TEXT DEFAULT (datetime('now'))
     );
 
+    CREATE TABLE IF NOT EXISTS personas (
+                                        id TEXT PRIMARY KEY,
+                                        name TEXT NOT NULL,
+                                        short_name TEXT NOT NULL,
+                                        description TEXT DEFAULT '',
+                                        avatar TEXT DEFAULT '',
+                                        created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+    );
+
   CREATE TABLE IF NOT EXISTS chats (
                                      id TEXT PRIMARY KEY,
                                      title TEXT NOT NULL,

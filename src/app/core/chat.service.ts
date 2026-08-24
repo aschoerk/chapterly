@@ -1,7 +1,7 @@
 import { Injectable, signal, computed, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
-import { Chat, ChatNode, CreateNodeRequest, Project } from '../models/chat';
+import { Chat, ChatNode, CreateNodeRequest, Project, Persona } from '../models/chat';
 import { getServerConfig } from './server-config';
 
 @Injectable({
@@ -14,12 +14,14 @@ export class ChatService {
   private readonly _chats = signal<Chat[]>([]);
   private readonly _nodes = signal<ChatNode[]>([]);
   private readonly _projects = signal<Project[]>([]);
+  private readonly _personas = signal<Persona[]>([]);
   private readonly _currentChatId = signal<string | null>(null);
 
   readonly chats = computed(() => this._chats());
   readonly nodes = computed(() => this._nodes());
   readonly currentChatId = computed(() => this._currentChatId());
   readonly projects = computed(() => this._projects());
+  readonly personas = computed(() => this._personas());
   readonly chatsByProject = computed(() => {
     const map = new Map<string | null, Chat[]>();
     for (const chat of this._chats()) {
@@ -424,5 +426,59 @@ export class ChatService {
     return this.generatingNodeId() === nodeId;
   }
 
+// ---------- Personas ----------
 
+  async loadPersonas(): Promise<void> {
+    const personas = await firstValueFrom(
+      this.http.get<Persona[]>(`${this.config.apiBase}/personas`)
+    );
+    this._personas.set(personas);
+  }
+
+  async createPersona(data: {
+    name: string;
+    shortName: string;
+    description?: string;
+    avatar?: string;
+  }): Promise<Persona> {
+    const persona = await firstValueFrom(
+      this.http.post<Persona>(`${this.config.apiBase}/personas`, data)
+    );
+    this._personas.update(list =>
+      [...list, persona].sort((a, b) => a.name.localeCompare(b.name))
+    );
+    return persona;
+  }
+
+  async updatePersona(
+    id: string,
+    data: Partial<{
+      name: string;
+      shortName: string;
+      description: string;
+      avatar: string;
+    }>
+  ): Promise<Persona> {
+    const persona = await firstValueFrom(
+      this.http.put<Persona>(`${this.config.apiBase}/personas/${id}`, data)
+    );
+    this._personas.update(list =>
+      list
+        .map(p => (p.id === id ? persona : p))
+        .sort((a, b) => a.name.localeCompare(b.name))
+    );
+    return persona;
+  }
+
+  async deletePersona(id: string): Promise<void> {
+    await firstValueFrom(
+      this.http.delete(`${this.config.apiBase}/personas/${id}`)
+    );
+    this._personas.update(list => list.filter(p => p.id !== id));
+  }
+
+  getPersona(id: string | null | undefined): Persona | undefined {
+    if (!id) return undefined;
+    return this._personas().find(p => p.id === id);
+  }
 }

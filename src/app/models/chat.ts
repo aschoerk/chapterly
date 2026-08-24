@@ -41,3 +41,13 @@ export interface CreateNodeRequest {
   modelId?: string;
   providerId?: string;
 }
+
+export interface Persona {
+  id: string;
+  name: string;
+  shortName: string;
+  description: string;
+  avatar: string;
+  createdAt: string;
+  updatedAt: string;
+}

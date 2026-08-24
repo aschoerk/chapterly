@@ -1,0 +1,153 @@
+<div class="personas-page" (click)="closeMenu()">
+  <header class="page-header">
+    <div class="header-left">
+      <button class="btn" (click)="goToChat()">← Chats</button>
+      <h1>Personas</h1>
+    </div>
+    <button class="btn primary" (click)="openCreate()">+ New Persona</button>
+  </header>
+
+  <div class="toolbar">
+    <input
+      type="search"
+      placeholder="Search personas…"
+      [ngModel]="searchTerm()"
+      (ngModelChange)="searchTerm.set($event)"
+    />
+  </div>
+
+  @if (error() && !showForm()) {
+    <div class="error-banner">{{ error() }}</div>
+  }
+
+  @if (filteredPersonas().length === 0 && !showForm()) {
+    <p class="empty">
+      @if (searchTerm()) {
+        No personas match your search.
+      } @else {
+        No personas yet. Create one to use as a character / system voice in chats.
+      }
+    </p>
+  }
+
+  <div class="persona-grid">
+    @for (persona of filteredPersonas(); track trackById($index, persona)) {
+      <article class="persona-card">
+        <div class="card-image">
+          @if (persona.avatar) {
+            <img [src]="persona.avatar" [alt]="persona.name" />
+          } @else {
+            <div class="avatar-placeholder">
+              {{ persona.shortName.charAt(0).toUpperCase() }}
+            </div>
+          }
+
+          <button
+            class="menu-btn"
+            type="button"
+            (click)="toggleMenu(persona.id, $event)"
+            title="Actions"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+              <circle cx="12" cy="5" r="2"/>
+              <circle cx="12" cy="12" r="2"/>
+              <circle cx="12" cy="19" r="2"/>
+            </svg>
+          </button>
+
+          @if (openMenuId() === persona.id) {
+            <div class="card-menu" (click)="$event.stopPropagation()">
+              <button type="button" (click)="openEdit(persona); closeMenu()">Edit</button>
+              <button type="button" class="danger" (click)="deletePersona(persona); closeMenu()">Delete</button>
+            </div>
+          }
+        </div>
+
+        <div class="card-body">
+          <h3 class="name">{{ persona.name }}</h3>
+          <p class="description">
+            {{ persona.description || ('@' + persona.shortName) }}
+          </p>
+        </div>
+      </article>
+    }
+  </div>
+
+  <!-- Create / Edit Modal -->
+  @if (showForm()) {
+    <div class="modal-backdrop" (click)="closeForm()">
+      <div class="modal" (click)="$event.stopPropagation()">
+        <h3>{{ editingId() ? 'Edit Persona' : 'New Persona' }}</h3>
+
+        @if (error()) {
+          <div class="error-banner">{{ error() }}</div>
+        }
+
+        <label>
+          Name *
+          <input
+            [(ngModel)]="form.name"
+            placeholder="e.g. Dr. Elena Voss"
+            autofocus
+          />
+        </label>
+
+        <label>
+          Short Name *
+          <input
+            [(ngModel)]="form.shortName"
+            placeholder="e.g. Elena"
+          />
+        </label>
+
+        <label>
+          Description
+          <textarea
+            [(ngModel)]="form.description"
+            rows="5"
+            placeholder="Personality, background, speaking style, system-prompt style text…"
+          ></textarea>
+        </label>
+
+        <div class="avatar-section">
+          <label>Avatar</label>
+          <div class="avatar-row">
+            @if (form.avatar) {
+              <img [src]="form.avatar" class="avatar preview" alt="preview" />
+            } @else {
+              <div class="avatar preview placeholder">?</div>
+            }
+            <div class="avatar-controls">
+              <label class="btn small file-btn">
+                Choose image…
+                <input
+                  type="file"
+                  accept="image/*"
+                  (change)="onAvatarSelected($event)"
+                  hidden
+                />
+              </label>
+              @if (form.avatar) {
+                <button type="button" class="btn small" (click)="clearAvatar()">
+                  Remove
+                </button>
+              }
+            </div>
+          </div>
+          <p class="hint">Images are stored as data URLs (keep under ~800 KB).</p>
+        </div>
+
+        <div class="modal-actions">
+          <button class="btn" (click)="closeForm()" [disabled]="saving()">Cancel</button>
+          <button
+            class="btn primary"
+            (click)="save()"
+            [disabled]="saving()"
+          >
+            {{ saving() ? 'Saving…' : (editingId() ? 'Save changes' : 'Create') }}
+          </button>
+        </div>
+      </div>
+    </div>
+  }
+</div>

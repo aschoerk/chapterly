@@ -4,6 +4,8 @@ const proxyRoutes = require('./routes/proxy');
 const apiRoutes = require('./routes/api');
 const chatsRoutes = require('./routes/chats');
 const projectsRoutes = require('./routes/projects');
+const personasRoutes = require('./routes/personas');
+// ...
 require('./db');          // ← this initializes the database
 
 const swaggerUi = require('swagger-ui-express');
@@ -14,10 +16,7 @@ function createApp() {
 
   app.use(cors({
     origin: [
-      'http://localhost:4200',
-      'tauri://localhost',
-      'https://tauri.localhost',
-      'http://tauri.localhost'
+      'http://localhost:4200'
     ],
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
     allowedHeaders: [
@@ -38,6 +37,7 @@ function createApp() {
   app.use('/api', apiRoutes);
   app.use('/api/chats', chatsRoutes);
   app.use('/api/projects', projectsRoutes);
+  app.use('/api/personas', personasRoutes);
 
   app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
