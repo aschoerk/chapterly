@@ -367,3 +367,15 @@
     grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
   }
 }
+
+.current-badge {
+  position: absolute;
+  bottom: 0.5rem;
+  left: 0.5rem;
+  background: #2563eb;
+  color: white;
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 0.15rem 0.45rem;
+  border-radius: 6px;
+}

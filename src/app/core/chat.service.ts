@@ -16,12 +16,21 @@ export class ChatService {
   private readonly _projects = signal<Project[]>([]);
   private readonly _personas = signal<Persona[]>([]);
   private readonly _currentChatId = signal<string | null>(null);
+  private readonly CURRENT_PERSONA_KEY = 'chat-client.currentPersonaId';
+  private readonly _currentPersonaId = signal<string | null>(null);
 
   readonly chats = computed(() => this._chats());
   readonly nodes = computed(() => this._nodes());
   readonly currentChatId = computed(() => this._currentChatId());
   readonly projects = computed(() => this._projects());
   readonly personas = computed(() => this._personas());
+  readonly currentPersonaId = computed(() => this._currentPersonaId());
+  readonly currentPersona = computed(() => this.getPersona(this._currentPersonaId()));
+
+  constructor() {
+    this.loadCurrentPersonaId();   // ← critical line
+  }
+
   readonly chatsByProject = computed(() => {
     const map = new Map<string | null, Chat[]>();
     for (const chat of this._chats()) {
@@ -480,10 +489,39 @@ export class ChatService {
       this.http.delete(`${this.config.apiBase}/personas/${id}`)
     );
     this._personas.update(list => list.filter(p => p.id !== id));
+
+    if (this._currentPersonaId() === id) {
+      this.setCurrentPersona(null);
+    }
   }
 
   getPersona(id: string | null | undefined): Persona | undefined {
     if (!id) return undefined;
     return this._personas().find(p => p.id === id);
+  }
+
+  // Call once (e.g. in constructor or a private init)
+  private loadCurrentPersonaId() {
+    try {
+      const id = localStorage.getItem(this.CURRENT_PERSONA_KEY);
+      if (id) {
+        this._currentPersonaId.set(id);
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  setCurrentPersona(id: string | null): void {
+    this._currentPersonaId.set(id);
+    try {
+      if (id) {
+        localStorage.setItem(this.CURRENT_PERSONA_KEY, id);
+      } else {
+        localStorage.removeItem(this.CURRENT_PERSONA_KEY);
+      }
+    } catch {
+      // ignore
+    }
   }
 }

@@ -27,6 +27,7 @@ export class SideBarComponent implements OnInit {
   readonly chatsByProject = this.chatService.chatsByProject;
   readonly enabledModels = this.settings.enabledModels;
   readonly searchQuery = signal('');
+  readonly currentPersona = this.chatService.currentPersona;
 
   /** projectId → expanded (persisted in localStorage) */
   readonly expanded = signal<Record<string, boolean>>({});
@@ -56,6 +57,7 @@ export class SideBarComponent implements OnInit {
     await Promise.all([
       this.chatService.loadProjects(),
       this.chatService.loadChats(),
+      this.chatService.loadPersonas(),
       this.settings.loadAll()
     ]);
     this.loadExpandedState();

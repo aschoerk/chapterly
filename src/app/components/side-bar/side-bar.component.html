@@ -1,6 +1,23 @@
 <aside class="sidebar">
   <div class="sidebar-header">
-    <h2>Chats</h2>
+    <div class="header-left">
+      @if (currentPersona(); as persona) {
+        <div
+          class="current-persona-avatar"
+          (click)="goToPersonas()"
+          [title]="persona.name + ' (current persona)'"
+        >
+          @if (persona.avatar) {
+            <img [src]="persona.avatar" [alt]="persona.name" />
+          } @else {
+            <div class="avatar-placeholder">
+              {{ persona.shortName.charAt(0).toUpperCase() }}
+            </div>
+          }
+        </div>
+      }
+      <h2>Chats</h2>
+    </div>
     <div class="header-actions">
       <button class="btn-icon" (click)="goToImport()" title="Import JSON">
         <!-- import icon -->

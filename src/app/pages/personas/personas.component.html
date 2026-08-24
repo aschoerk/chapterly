@@ -58,6 +58,7 @@
           @if (openMenuId() === persona.id) {
             <div class="card-menu" (click)="$event.stopPropagation()">
               <button type="button" (click)="openEdit(persona); closeMenu()">Edit</button>
+              <button type="button" (click)="setAsCurrent(persona)">Set as current</button>
               <button type="button" class="danger" (click)="deletePersona(persona); closeMenu()">Delete</button>
             </div>
           }
@@ -65,6 +66,9 @@
 
         <div class="card-body">
           <h3 class="name">{{ persona.name }}</h3>
+          @if (isCurrent(persona)) {
+            <span class="current-badge">Current</span>
+          }
           <p class="description">
             {{ persona.description || ('@' + persona.shortName) }}
           </p>

@@ -184,4 +184,17 @@ export class PersonasComponent implements OnInit {
   trackById(_: number, p: Persona) {
     return p.id;
   }
+
+  isCurrent(persona: Persona): boolean {
+    return this.chatService.currentPersonaId() === persona.id;
+  }
+
+  setAsCurrent(persona: Persona): void {
+    this.chatService.setCurrentPersona(persona.id);
+    this.closeMenu();
+  }
+
+  clearCurrent(): void {
+    this.chatService.setCurrentPersona(null);
+  }
 }
