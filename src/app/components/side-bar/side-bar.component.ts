@@ -92,33 +92,6 @@ export class SideBarComponent implements OnInit {
 
   // ---------- Project CRUD ----------
 
-  startCreateProject() {
-    this.showNewProject.set(true);
-    this.newProjectName.set('');
-    this.newProjectSystemPrompt.set('');
-    this.newProjectDefaultModelId.set(null);
-  }
-
-  cancelCreateProject() {
-    this.showNewProject.set(false);
-  }
-
-  async createProject() {
-    const name = this.newProjectName().trim();
-    if (!name) return;
-
-    const project = await this.chatService.createProject({
-      name,
-      systemPrompt: this.newProjectSystemPrompt(),
-      defaultModelId: this.newProjectDefaultModelId()
-    });
-
-    // new projects start expanded
-    this.expanded.update(m => ({ ...m, [project.id]: true }));
-    this.persistExpanded();
-    this.showNewProject.set(false);
-  }
-
   startEditProject(project: Project, event?: Event) {
     event?.stopPropagation();
     this.editingProjectId.set(project.id);
@@ -208,8 +181,11 @@ export class SideBarComponent implements OnInit {
     await this.router.navigate(['/import']);
   }
 
-  goToPersonas() {
+  async goToPersonas() {
     this.router.navigate(['/personas']);
   }
 
+  async goToProjects() {
+    await this.router.navigate(['/projects']);
+  }
 }

@@ -174,6 +174,55 @@ const options = {
             }
           }
         },
+        Project: {
+          type: 'object',
+          properties: {
+            id: {
+              type: 'string',
+              format: 'uuid',
+              example: '550e8400-e29b-41d4-a716-446655440000'
+            },
+            name: {
+              type: 'string',
+              example: 'Roleplay Research'
+            },
+            greeting: {
+              type: 'string',
+              example: 'Hi'
+            },
+            systemPrompt: {
+              type: 'string',
+              example: 'You are a helpful research assistant focused on narrative structure.'
+            },
+            defaultModelId: {
+              type: 'string',
+              nullable: true,
+              description: 'Optional default model id for chats in this project'
+            },
+            avatar: {
+              type: 'string',
+              description: 'URL or data URL for the project avatar',
+              example: 'https://example.com/avatars/project.png'
+            },
+            personaIds: {
+              type: 'array',
+              description: 'IDs of personas linked to this project',
+              items: {
+                type: 'string',
+                format: 'uuid'
+              },
+              example: ['550e8400-e29b-41d4-a716-446655440001']
+            },
+            createdAt: {
+              type: 'string',
+              format: 'date-time'
+            },
+            updatedAt: {
+              type: 'string',
+              format: 'date-time'
+            }
+          }
+        },
         Persona: {
           type: 'object',
           properties: {

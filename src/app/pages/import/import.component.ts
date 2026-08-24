@@ -470,6 +470,7 @@ export class ImportComponent {
         this.importProgress.set('Creating project…');
         const project = await this.chatService.createProject({
           name,
+          greeting: '',
           systemPrompt: this.newProjectSystemPrompt().trim() || result.systemPrompt || undefined
         });
         projectId = project.id;

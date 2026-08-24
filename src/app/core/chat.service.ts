@@ -32,7 +32,6 @@ export class ChatService {
     return map;
   });
 
-
   /** All nodes of the currently selected chat as a flat list */
   readonly currentNodes = computed(() => {
     const chatId = this._currentChatId();
@@ -62,8 +61,11 @@ export class ChatService {
 
   async createProject(data: {
     name: string;
+    greeting: string;
     systemPrompt?: string;
     defaultModelId?: string | null;
+    avatar?: string;
+    personaIds?: string[];
   }): Promise<Project> {
     const project = await firstValueFrom(
       this.http.post<Project>(`${this.config.apiBase}/projects`, data)
@@ -78,8 +80,11 @@ export class ChatService {
     id: string,
     data: Partial<{
       name: string;
+      greeting: string;
       systemPrompt: string;
       defaultModelId: string | null;
+      avatar: string;
+      personaIds: string[];
     }>
   ): Promise<Project> {
     const project = await firstValueFrom(
@@ -426,7 +431,7 @@ export class ChatService {
     return this.generatingNodeId() === nodeId;
   }
 
-// ---------- Personas ----------
+  // ---------- Personas ----------
 
   async loadPersonas(): Promise<void> {
     const personas = await firstValueFrom(

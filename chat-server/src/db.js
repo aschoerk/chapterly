@@ -66,8 +66,11 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS projects (
                                         id TEXT PRIMARY KEY,
                                         name TEXT NOT NULL,
+                                        greeting TEXT NOT NULL,
                                         system_prompt TEXT DEFAULT '',
                                         default_model_id TEXT,
+                                        avatar TEXT DEFAULT '',
+                                        persona_ids TEXT DEFAULT '[]',
                                         created_at TEXT DEFAULT (datetime('now')),
     updated_at TEXT DEFAULT (datetime('now'))
     );
@@ -115,12 +118,12 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_chat_nodes_parent_id ON chat_nodes(parent_id);
 `);
 
-// Migration for existing DBs that already have chats without project_id
+
 try {
-  const cols = db.prepare(`PRAGMA table_info(chats)`).all().map(c => c.name);
-  if (!cols.includes('project_id')) {
-    db.exec(`ALTER TABLE chats ADD COLUMN project_id TEXT REFERENCES projects(id) ON DELETE SET NULL`);
-    console.log('Migrated chats table: added project_id');
+  const projectCols = db.prepare(`PRAGMA table_info(projects)`).all().map(c => c.name);
+  if (!projectCols.includes('greeting')) {
+    db.exec(`ALTER TABLE projects ADD COLUMN greeting TEXT DEFAULT ''`);
+    console.log('Migrated projects table: added greeting');
   }
 } catch (e) {
   // ignore if already present or other issues

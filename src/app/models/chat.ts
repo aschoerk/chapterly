@@ -3,8 +3,11 @@ export type NodeType = 'question' | 'answer';
 export interface Project {
   id: string;
   name: string;
+  greeting: string;
   systemPrompt: string;
   defaultModelId: string | null;
+  avatar: string;
+  personaIds: string[];
   createdAt: string;
   updatedAt: string;
 }
