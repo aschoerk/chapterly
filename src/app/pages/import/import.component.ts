@@ -22,6 +22,24 @@ export interface ParseResult {
   unknownBlockTypes: string[];      // unique list across the whole file
 }
 
+export interface CopilotEntry {
+  name: string;
+  prompt: string;
+  description?: string;
+  id?: string;
+}
+
+export interface ParseResult {
+  title: string;
+  systemPrompt: string | null;
+  turns: ParsedTurn[];
+  format: string;
+  warnings: string[];
+  unknownBlockTypes: string[];
+  kind?: 'chat' | 'copilots';          // ← new
+  copilots?: CopilotEntry[];           // ← new
+}
+
 @Component({
   selector: 'app-import',
   standalone: true,
@@ -152,6 +170,13 @@ export class ImportComponent {
   private detectAndParse(data: any): ParseResult {
     const warnings: string[] = [];
 
+    // --- NEW: Copilots / system-prompt collection ---
+    if (Array.isArray(data) && data.length > 0 &&
+      typeof data[0]?.name === 'string' &&
+      typeof data[0]?.prompt === 'string') {
+      return this.parseCopilots(data, warnings);
+    }
+
     if (data && Array.isArray(data.messages) && data.messages[0]?.contentParts) {
       return this.parseGrokSession(data, warnings);
     }
@@ -174,6 +199,36 @@ export class ImportComponent {
 
     warnings.push('Unknown structure – attempted best-effort extraction of any role/content pairs.');
     return this.parseFallback(data, warnings);
+  }
+
+  private parseCopilots(data: any[], warnings: string[]): ParseResult {
+    const copilots: CopilotEntry[] = [];
+
+    for (const item of data) {
+      if (item && typeof item.name === 'string' && typeof item.prompt === 'string') {
+        copilots.push({
+          name: item.name.trim(),
+          prompt: item.prompt,
+          description: (item.description || '').trim() || undefined,
+          id: item.id
+        });
+      }
+    }
+
+    if (copilots.length === 0) {
+      warnings.push('No valid name/prompt pairs found.');
+    }
+
+    return {
+      title: `Copilots Collection (${copilots.length})`,
+      systemPrompt: null,
+      turns: [],
+      format: 'Copilots / System Prompts',
+      warnings,
+      unknownBlockTypes: [],
+      kind: 'copilots',
+      copilots
+    };
   }
 
   private parseGrokSession(data: any, warnings: string[]): ParseResult {
@@ -449,6 +504,10 @@ export class ImportComponent {
       return;
     }
 
+    if (result.kind === 'copilots') {
+      return this.doImportCopilots(result);
+    }
+
     this.isImporting.set(true);
     this.importError.set(null);
     this.importSuccess.set(null);
@@ -525,6 +584,43 @@ export class ImportComponent {
         this.router.navigate(['/chat']);
       }, 1200);
 
+    } catch (err: any) {
+      console.error(err);
+      this.importError.set('Import failed: ' + (err.message || err));
+      this.importProgress.set('');
+    } finally {
+      this.isImporting.set(false);
+    }
+  }
+
+  private async doImportCopilots(result: ParseResult) {
+    const list = result.copilots ?? [];
+    if (list.length === 0) {
+      this.importError.set('No copilots to import.');
+      return;
+    }
+
+    this.isImporting.set(true);
+    this.importError.set(null);
+    this.importSuccess.set(null);
+
+    let created = 0;
+    try {
+      for (const entry of list) {
+        this.importProgress.set(`Creating project “${entry.name}”…`);
+        await this.chatService.createProject({
+          name: entry.name,
+          greeting: entry.description || '',
+          systemPrompt: entry.prompt
+        });
+        created++;
+      }
+
+      this.importSuccess.set(`Successfully created ${created} project(s).`);
+      this.importProgress.set('');
+
+      // optional: navigate to projects list
+      setTimeout(() => this.router.navigate(['/projects']), 1200);
     } catch (err: any) {
       console.error(err);
       this.importError.set('Import failed: ' + (err.message || err));

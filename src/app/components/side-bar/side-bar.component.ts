@@ -32,12 +32,6 @@ export class SideBarComponent implements OnInit {
   /** projectId → expanded (persisted in localStorage) */
   readonly expanded = signal<Record<string, boolean>>({});
 
-  // --- New project form ---
-  readonly showNewProject = signal(false);
-  readonly newProjectName = signal('');
-  readonly newProjectSystemPrompt = signal('');
-  readonly newProjectDefaultModelId = signal<string | null>(null);
-
   // --- Inline edit project ---
   readonly editingProjectId = signal<string | null>(null);
   readonly editName = signal('');
@@ -143,7 +137,60 @@ export class SideBarComponent implements OnInit {
     const chat = await this.chatService.createChat(title, project.id);
     await this.chatService.selectChat(chat.id);
 
-    // Apply project's default model
+    // ---------- 1. Build System-node content ----------
+    const parts: string[] = [];
+
+    // Project system prompt
+    if (project.systemPrompt?.trim()) {
+      parts.push(project.systemPrompt.trim());
+    }
+
+    // Every persona that belongs to the project → NPC
+    for (const personaId of project.personaIds ?? []) {
+      const persona = this.chatService.getPersona(personaId);
+      if (persona) {
+        parts.push(`npc is ${persona.name}`);
+        if (persona.description?.trim()) {
+          parts.push(persona.description.trim());
+        }
+      }
+    }
+
+    // Currently selected persona → {{user}}
+    const userPersona = this.currentPersona();
+    if (userPersona) {
+      parts.push(`{{user}} is ${userPersona.name}`);
+      if (userPersona.description?.trim()) {
+        parts.push(userPersona.description.trim());
+      }
+    }
+
+    const systemContent = parts.join('\n\n').trim();
+
+    // ---------- 2. Create the System node (root question) ----------
+    let systemNodeId: string | null = null;
+
+    if (systemContent) {
+      const systemNode = await this.chatService.addNode(chat.id, {
+        parentId: null,
+        type: 'question',
+        content: systemContent
+      });
+      systemNodeId = systemNode.id;
+    }
+
+    // ---------- 3. Optional greeting → first answer node ----------
+    if (project.greeting?.trim()) {
+      const greetingContent = `Situation:\n${project.greeting.trim()}`;
+
+      await this.chatService.addNode(chat.id, {
+        parentId: systemNodeId,          // child of System node when present
+        type: 'answer',
+        content: greetingContent
+      });
+    }
+
+    // ---------- 4. Apply project's default model (unchanged) ----------
     if (project.defaultModelId) {
       this.lastModelService.setSelectedModel(project.defaultModelId);
       this.lastModelService.saveLastUsedModel(project.defaultModelId);
