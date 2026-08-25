@@ -265,3 +265,17 @@ CSS.reassign-dropdown {
   color: #6b7280;
   background: linear-gradient(145deg, #f3f4f6, #e5e7eb);
 }
+
+.sidebar-topic-filter {
+  padding: 0.5rem 0.85rem 0.15rem;
+}
+
+.sidebar-topic-filter select {
+  width: 100%;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-input);
+  color: var(--text);
+  font-size: 0.85rem;
+}

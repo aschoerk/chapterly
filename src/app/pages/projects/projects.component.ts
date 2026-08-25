@@ -167,7 +167,12 @@ export class ProjectsComponent implements OnInit {
       if (this.editingId()) {
         await this.chatService.updateProject(this.editingId()!, payload);
       } else {
-        await this.chatService.createProject(payload);
+        const created = await this.chatService.createProject(payload);
+        // if a concrete topic is selected, attach the project to it
+        const topicId = this.selectedTopicId();
+        if (topicId && topicId !== 'all' && topicId !== 'unassigned') {
+          await this.chatService.addProjectToTopic(topicId, created.id);
+        }
       }
       this.closeForm();
     } catch (e: any) {

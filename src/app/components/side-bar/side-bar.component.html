@@ -49,6 +49,19 @@
     </div>
   </div>
 
+
+  <!-- Topic filter (NEW) -->
+  <div class="sidebar-topic-filter">
+    <select
+      [ngModel]="selectedTopicId()"
+      (ngModelChange)="selectTopicFilter($event)">
+      <option value="all">All topics</option>
+      @for (t of topics(); track t.id) {
+        <option [value]="t.id">{{ t.name }}</option>
+      }
+    </select>
+  </div>
+
   <!-- Search -->
   <div class="sidebar-search">
     <input
@@ -197,8 +210,34 @@
                 [class.active]="chat.id === currentChatId()"
                 (click)="selectChat(chat)">
                 <span class="chat-title">{{ chat.title }}</span>
-                <button class="btn-icon" (click)="deleteChat(chat, $event)" title="Delete">×</button>
+                <!-- Reassign button -->
+                <button
+                  class="btn-icon"
+                  (click)="toggleReassign(chat.id, $event)"
+                  title="Move to another project">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M17 11l-5-5-5 5M17 18l-5-5-5 5"/>
+                  </svg>
+                </button>
+
+                <button class="btn-icon danger" (click)="deleteChat(chat, $event)" title="Delete">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                  </svg>
+                </button>
               </div>
+              @if (reassigningChatId() === chat.id) {
+                <div class="reassign-dropdown" (click)="$event.stopPropagation()">
+                  <select
+                    class="reassign-select"
+                    (change)="onReassign(chat, $any($event.target).value || null)">
+                    <option value="">— Unassigned —</option>
+                    @for (p of filteredProjects(); track p.id) {
+                      <option [value]="p.id">{{ p.name }}</option>
+                    }
+                  </select>
+                </div>
+              }
             }
           </div>
         }

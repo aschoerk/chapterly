@@ -28,6 +28,8 @@ export class SideBarComponent implements OnInit {
   readonly enabledModels = this.settings.enabledModels;
   readonly searchQuery = signal('');
   readonly currentPersona = this.chatService.currentPersona;
+  // ---------- Topic filter ----------
+  readonly topics = this.chatService.topics;
 
   /** projectId → expanded (persisted in localStorage) */
   readonly expanded = signal<Record<string, boolean>>({});
@@ -43,11 +45,31 @@ export class SideBarComponent implements OnInit {
   /** which chat is currently showing the reassign dropdown */
   readonly reassigningChatId = signal<string | null>(null);
 
-  /** Projects after search filter + optional age sort */
+  /** 'all' | topic-id */
+  readonly selectedTopicId = signal<string>('all');
+
+  selectTopicFilter(id: string) {
+    this.selectedTopicId.set(id || 'all');
+  }
+
+// replace the existing filteredProjects computed with this version
   filteredProjects = computed(() => {
     const q = this.searchQuery().trim().toLowerCase();
+    const topicId = this.selectedTopicId();
     let list = this.projects();
 
+    // 1. Topic filter
+    if (topicId && topicId !== 'all') {
+      const topic = this.topics().find(t => t.id === topicId);
+      if (topic) {
+        const idSet = new Set(topic.projectIds);
+        list = list.filter(p => idSet.has(p.id));
+      } else {
+        list = [];
+      }
+    }
+
+    // 2. Text filter
     if (q) {
       list = list.filter(p =>
         p.name.toLowerCase().includes(q) ||
@@ -55,15 +77,14 @@ export class SideBarComponent implements OnInit {
       );
     }
 
+    // 3. Sort
     if (this.sortByNewest()) {
-      // youngest project first (use updatedAt, fall back to createdAt)
       list = [...list].sort((a, b) => {
         const ta = new Date(a.updatedAt || a.createdAt).getTime();
         const tb = new Date(b.updatedAt || b.createdAt).getTime();
         return tb - ta;
       });
     } else {
-      // original alphabetical order
       list = [...list].sort((a, b) => a.name.localeCompare(b.name));
     }
 
@@ -75,6 +96,7 @@ export class SideBarComponent implements OnInit {
       this.chatService.loadProjects(),
       this.chatService.loadChats(),
       this.chatService.loadPersonas(),
+      this.chatService.loadTopics(),
       this.settings.loadAll()
     ]);
     this.loadExpandedState();
@@ -187,6 +209,8 @@ export class SideBarComponent implements OnInit {
   otherProjects(currentProjectId: string | null): Project[] {
     return this.projects().filter(p => p.id !== currentProjectId);
   }
+
+
 
   // ---------- Chats under a project ----------
 
