@@ -1,362 +1,119 @@
-<div class="import-page">
-  <header class="page-header">
-    <div class="header-left">
-      <button class="btn" (click)="goToChat()">← Chats</button>
-      <button class="btn" (click)="goToConfig()">Config</button>
-      <h1>Import JSON</h1>
+<!-- src/app/pages/import/import.component.html -->
+
+<!-- ========== Drop zone ========== -->
+<section
+  class="drop-zone"
+  [class.dragging]="isDragging()"
+  (dragover)="onDragOver($event)"
+  (dragleave)="onDragLeave($event)"
+  (drop)="onDrop($event)">
+
+  <div class="drop-content">
+    <p class="drop-title">Drop JSON file(s) here</p>
+    <p class="drop-hint">
+      Copilots → Projects immediately &nbsp;|&nbsp; Sessions → review list
+    </p>
+    <label class="btn primary file-label">
+      Choose file(s)
+      <input
+        type="file"
+        accept=".json,application/json"
+        multiple
+        (change)="onFileSelected($event)"
+        hidden />
+    </label>
+  </div>
+</section>
+
+<!-- ========== Progress / errors ========== -->
+@if (progress()) {
+  <div class="alert info">{{ progress() }}</div>
+}
+@if (globalError()) {
+  <div class="alert fail">{{ globalError() }}</div>
+}
+
+<!-- ========== Pending sessions (interactive review) ========== -->
+@if (pendingSessions().length) {
+  <section class="section">
+    <div class="section-header">
+      <h2>Sessions to import</h2>
+      <span class="badge">{{ pendingSessions().length }}</span>
     </div>
-  </header>
 
-  <!-- Drop zone -->
-  <section
-    class="drop-zone"
-    [class.dragging]="isDragging()"
-    (dragover)="onDragOver($event)"
-    (dragleave)="onDragLeave($event)"
-    (drop)="onDrop($event)">
+    <div class="pending-list">
+      @for (s of pendingSessions(); track s.id) {
+        <div class="pending-item">
+          <div class="pending-main">
+            <div class="pending-title">{{ s.result.title }}</div>
+            <div class="pending-meta">
+              {{ s.fileName }} · {{ s.result.format }} · {{ s.result.turns.length }} turns
+            </div>
+          </div>
 
-    <div class="drop-content">
-      <p class="drop-title">Drop a JSON file here</p>
-      <p class="drop-hint">or</p>
-      <label class="btn primary file-label">
-        Choose file
-        <input
-          type="file"
-          accept=".json,application/json"
-          (change)="onFileSelected($event)"
-          hidden />
-      </label>
+          <label class="project-select">
+            Project
+            <select
+              [ngModel]="s.selectedProjectId"
+              (ngModelChange)="setSessionProject(s.id, $event)">
+              @for (opt of orderedProjectsFor(s.result.title); track opt.id ?? 'unknown') {
+                <option [ngValue]="opt.id">{{ opt.label }}</option>
+              }
+            </select>
+          </label>
 
-      @if (selectedFileName()) {
-        <p class="file-name">Selected: <strong>{{ selectedFileName() }}</strong></p>
+          <button
+            class="btn danger small"
+            (click)="removeSession(s.id)"
+            [disabled]="isImporting()"
+            title="Remove from import list">
+            Remove
+          </button>
+        </div>
       }
     </div>
+
+    <div class="actions-bar">
+      <button
+        class="btn"
+        (click)="pendingSessions.set([])"
+        [disabled]="isImporting()">
+        Clear list
+      </button>
+      <button
+        class="btn primary"
+        (click)="importPendingSessions()"
+        [disabled]="isImporting() || pendingSessions().length === 0">
+        {{ isImporting() ? 'Importing…' : 'Import all remaining sessions' }}
+      </button>
+    </div>
   </section>
+}
 
-  <!-- Errors / success -->
-  @if (importError()) {
-    <div class="alert fail">{{ importError() }}</div>
-  }
-  @if (importSuccess()) {
-    <div class="alert ok">{{ importSuccess() }}</div>
-  }
-  @if (importProgress()) {
-    <div class="alert info">{{ importProgress() }}</div>
-  }
+<!-- ========== Finished imports (copilots + completed sessions) ========== -->
+@if (summaries().length) {
+  <section class="section">
+    <h2>Import result</h2>
 
-  <!-- Preview -->
-  @if (parseResult(); as result) {
-    <!-- Preview -->
-    @if (parseResult(); as result) {
-      <section class="section">
-        <div class="section-header">
-          <h2>Preview</h2>
-          <span class="badge">{{ result.format }}</span>
-        </div>
-
-        <div class="meta">
-          <div><span class="label">Title:</span> {{ result.title }}</div>
-          @if (result.systemPrompt) {
-            <div>
-              <span class="label">System prompt:</span>
-              <span class="system-preview">{{ result.systemPrompt | slice:0:180 }}{{ result.systemPrompt.length > 180 ? '…' : '' }}</span>
-            </div>
+    <ul class="summary-list">
+      @for (s of summaries(); track s.fileName + s.title) {
+        <li [class.error]="!!s.error">
+          <strong>{{ s.fileName }}</strong>
+          – {{ s.kind === 'copilots' ? 'Projects' : 'Chat' }}:
+          “{{ s.title }}”
+          → {{ s.created }}
+          {{ s.kind === 'copilots' ? 'project(s)' : 'node(s)' }}
+          @if (s.error) {
+            <span class="err"> ({{ s.error }})</span>
           }
-          <div><span class="label">Turns:</span> {{ result.turns.length }}</div>
-        </div>
+        </li>
+      }
+    </ul>
 
-        <!-- Unknown block types -->
-        @if (result.unknownBlockTypes.length) {
-          <div class="unknown-blocks">
-            <span class="label">Unknown content block types found:</span>
-            @for (t of result.unknownBlockTypes; track t) {
-              <span class="block-badge">{{ t }}</span>
-            }
-          </div>
-        }
-
-        @if (result.warnings.length) {
-          <ul class="warnings">
-            @for (w of result.warnings; track w) {
-              <li>{{ w }}</li>
-            }
-          </ul>
-        }
-
-        <!-- ===== Project selection / creation ===== -->
-        <div class="project-box">
-          <h3>Target Project</h3>
-
-          <div class="project-mode">
-            <label class="radio">
-              <input type="radio" name="projectMode" value="existing"
-                     [ngModel]="projectMode()" (ngModelChange)="projectMode.set($event)" />
-              Use existing project
-            </label>
-            <label class="radio">
-              <input type="radio" name="projectMode" value="new"
-                     [ngModel]="projectMode()" (ngModelChange)="projectMode.set($event)" />
-              Create new project
-            </label>
-            <label class="radio">
-              <input type="radio" name="projectMode" value="none"
-                     [ngModel]="projectMode()" (ngModelChange)="projectMode.set($event)" />
-              No project (unassigned)
-            </label>
-          </div>
-
-          @if (projectMode() === 'existing') {
-            <label class="full">
-              Select project
-              <select [ngModel]="selectedProjectId()" (ngModelChange)="selectedProjectId.set($event)">
-                <option [ngValue]="null">— choose —</option>
-                @for (p of projects(); track p.id) {
-                  <option [ngValue]="p.id">{{ p.name }}</option>
-                }
-              </select>
-            </label>
-          }
-
-          @if (projectMode() === 'new') {
-            <label class="full">
-              Project name *
-              <input type="text"
-                     [ngModel]="newProjectName()"
-                     (ngModelChange)="newProjectName.set($event)"
-                     placeholder="Name for the new project" />
-            </label>
-            <label class="full">
-              System prompt (optional)
-              <textarea rows="3"
-                        [ngModel]="newProjectSystemPrompt()"
-                        (ngModelChange)="newProjectSystemPrompt.set($event)"
-                        placeholder="Will be used as the project system prompt"></textarea>
-            </label>
-          }
-        </div>
-
-        <!-- Extra options -->
-        <div class="options">
-          <label class="checkbox">
-            <input type="checkbox"
-                   [ngModel]="includeSystemAsFirstNode()"
-                   (ngModelChange)="includeSystemAsFirstNode.set($event)" />
-            Also import system message as first node
-          </label>
-
-          <label class="checkbox">
-            <input type="checkbox"
-                   [ngModel]="includeReasoning()"
-                   (ngModelChange)="includeReasoning.set($event)" />
-            Include reasoning blocks (Grok format)
-          </label>
-        </div>
-
-        <!-- Mapping legend -->
-        <div class="mapping-legend">
-          <span class="legend-item user">user / USER → <strong>question</strong></span>
-          <span class="legend-item assistant">assistant → <strong>answer</strong></span>
-          <span class="legend-item system">system → project prompt (or first node)</span>
-        </div>
-
-        <!-- Turn list -->
-        <div class="turns">
-          @for (turn of result.turns; track turn.originalIndex) {
-            <div class="turn"
-                 [class.user]="turn.mappedType === 'question'"
-                 [class.assistant]="turn.mappedType === 'answer'"
-                 [class.system]="turn.mappedType === 'system'"
-                 [class.ignored]="turn.mappedType === 'ignored'">
-
-              <div class="turn-meta">
-                <span class="original-role">{{ turn.role }}</span>
-                <span class="arrow">→</span>
-                <span class="mapped-type">{{ turn.mappedType }}</span>
-              </div>
-
-              <div class="turn-content">
-                {{ turn.content | slice:0:320 }}{{ turn.content.length > 320 ? '…' : '' }}
-              </div>
-
-              @if (turn.unknownBlocks.length) {
-                <div class="turn-unknown">
-                  unknown blocks:
-                  @for (b of turn.unknownBlocks; track b) {
-                    <span class="block-badge small">{{ b }}</span>
-                  }
-                </div>
-              }
-            </div>
-          } @empty {
-            <p class="empty">No turns extracted.</p>
-          }
-        </div>
-
-        <div class="actions-bar">
-          <button class="btn" (click)="resetState()" [disabled]="isImporting()">Clear</button>
-          <button
-            class="btn primary"
-            [disabled]="isImporting() || !hasPreview()"
-            (click)="doImport()">
-            {{ isImporting() ? 'Importing…' : 'Import as new chat' }}
-          </button>
-        </div>
-      </section>
-    } @else {
-      <section class="section">
-        <div class="section-header">
-          <h2>Preview</h2>
-          <span class="badge">{{ result.format }}</span>
-        </div>
-
-        <div class="meta">
-          <div><span class="label">Title:</span> {{ result.title }}</div>
-          @if (result.systemPrompt) {
-            <div>
-              <span class="label">System prompt:</span>
-              <span class="system-preview">{{ result.systemPrompt | slice:0:180 }}{{ result.systemPrompt.length > 180 ? '…' : '' }}</span>
-            </div>
-          }
-          <div><span class="label">Turns:</span> {{ result.turns.length }}</div>
-        </div>
-
-        <!-- Unknown block types -->
-        @if (result.unknownBlockTypes.length) {
-          <div class="unknown-blocks">
-            <span class="label">Unknown content block types found:</span>
-            @for (t of result.unknownBlockTypes; track t) {
-              <span class="block-badge">{{ t }}</span>
-            }
-          </div>
-        }
-
-        @if (result.warnings.length) {
-          <ul class="warnings">
-            @for (w of result.warnings; track w) {
-              <li>{{ w }}</li>
-            }
-          </ul>
-        }
-
-        <!-- ===== Project selection / creation ===== -->
-        <div class="project-box">
-          <h3>Target Project</h3>
-
-          <div class="project-mode">
-            <label class="radio">
-              <input type="radio" name="projectMode" value="existing"
-                     [ngModel]="projectMode()" (ngModelChange)="projectMode.set($event)" />
-              Use existing project
-            </label>
-            <label class="radio">
-              <input type="radio" name="projectMode" value="new"
-                     [ngModel]="projectMode()" (ngModelChange)="projectMode.set($event)" />
-              Create new project
-            </label>
-            <label class="radio">
-              <input type="radio" name="projectMode" value="none"
-                     [ngModel]="projectMode()" (ngModelChange)="projectMode.set($event)" />
-              No project (unassigned)
-            </label>
-          </div>
-
-          @if (projectMode() === 'existing') {
-            <label class="full">
-              Select project
-              <select [ngModel]="selectedProjectId()" (ngModelChange)="selectedProjectId.set($event)">
-                <option [ngValue]="null">— choose —</option>
-                @for (p of projects(); track p.id) {
-                  <option [ngValue]="p.id">{{ p.name }}</option>
-                }
-              </select>
-            </label>
-          }
-
-          @if (projectMode() === 'new') {
-            <label class="full">
-              Project name *
-              <input type="text"
-                     [ngModel]="newProjectName()"
-                     (ngModelChange)="newProjectName.set($event)"
-                     placeholder="Name for the new project" />
-            </label>
-            <label class="full">
-              System prompt (optional)
-              <textarea rows="3"
-                        [ngModel]="newProjectSystemPrompt()"
-                        (ngModelChange)="newProjectSystemPrompt.set($event)"
-                        placeholder="Will be used as the project system prompt"></textarea>
-            </label>
-          }
-        </div>
-
-        <!-- Extra options -->
-        <div class="options">
-          <label class="checkbox">
-            <input type="checkbox"
-                   [ngModel]="includeSystemAsFirstNode()"
-                   (ngModelChange)="includeSystemAsFirstNode.set($event)" />
-            Also import system message as first node
-          </label>
-
-          <label class="checkbox">
-            <input type="checkbox"
-                   [ngModel]="includeReasoning()"
-                   (ngModelChange)="includeReasoning.set($event)" />
-            Include reasoning blocks (Grok format)
-          </label>
-        </div>
-
-        <!-- Mapping legend -->
-        <div class="mapping-legend">
-          <span class="legend-item user">user / USER → <strong>question</strong></span>
-          <span class="legend-item assistant">assistant → <strong>answer</strong></span>
-          <span class="legend-item system">system → project prompt (or first node)</span>
-        </div>
-
-        <!-- Turn list -->
-        <div class="turns">
-          @for (turn of result.turns; track turn.originalIndex) {
-            <div class="turn"
-                 [class.user]="turn.mappedType === 'question'"
-                 [class.assistant]="turn.mappedType === 'answer'"
-                 [class.system]="turn.mappedType === 'system'"
-                 [class.ignored]="turn.mappedType === 'ignored'">
-
-              <div class="turn-meta">
-                <span class="original-role">{{ turn.role }}</span>
-                <span class="arrow">→</span>
-                <span class="mapped-type">{{ turn.mappedType }}</span>
-              </div>
-
-              <div class="turn-content">
-                {{ turn.content | slice:0:320 }}{{ turn.content.length > 320 ? '…' : '' }}
-              </div>
-
-              @if (turn.unknownBlocks.length) {
-                <div class="turn-unknown">
-                  unknown blocks:
-                  @for (b of turn.unknownBlocks; track b) {
-                    <span class="block-badge small">{{ b }}</span>
-                  }
-                </div>
-              }
-            </div>
-          } @empty {
-            <p class="empty">No turns extracted.</p>
-          }
-        </div>
-
-        <div class="actions-bar">
-          <button class="btn" (click)="resetState()" [disabled]="isImporting()">Clear</button>
-          <button
-            class="btn primary"
-            [disabled]="isImporting() || !hasPreview()"
-            (click)="doImport()">
-            {{ isImporting() ? 'Importing…' : 'Import as new chat' }}
-          </button>
-        </div>
-      </section>
-    }
-  }
-</div>
+    <div class="actions-bar">
+      <button class="btn" (click)="clear()">Clear</button>
+      <button class="btn primary" (click)="goToProjects()">Go to Projects</button>
+      <button class="btn" (click)="goToChat()">Go to Chat</button>
+    </div>
+  </section>
+}

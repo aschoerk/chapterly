@@ -563,21 +563,37 @@ router.delete('/:chatId/nodes/:nodeId', (req, res) => {
 
 // PATCH /api/chats/:id
 router.patch('/:id', (req, res) => {
-  const { title } = req.body;
-  if (!title || !title.trim()) {
-    return res.status(400).json({ error: 'title is required' });
-  }
+  const { title, projectId } = req.body;
+  const id = req.params.id;
 
-  const result = db.prepare(`
-    UPDATE chats SET title = ?, updated_at = datetime('now') WHERE id = ?
-  `).run(title.trim(), req.params.id);
-
-  if (result.changes === 0) {
+  const chat = db.prepare('SELECT * FROM chats WHERE id = ?').get(id);
+  if (!chat) {
     return res.status(404).json({ error: 'Chat not found' });
   }
 
-  const chat = db.prepare('SELECT * FROM chats WHERE id = ?').get(req.params.id);
-  res.json(mapChat(chat));
+  // only update title when a non-empty string is provided
+  const newTitle =
+    typeof title === 'string' && title.trim() !== ''
+      ? title.trim()
+      : chat.title;
+
+  // projectId is updated only when the key is present in the body
+  // (allows explicit null = unassign)
+  const newProjectId =
+    projectId !== undefined
+      ? (projectId === null || projectId === '' ? null : projectId)
+      : chat.project_id;
+
+  db.prepare(`
+    UPDATE chats
+    SET title      = ?,
+        project_id = ?,
+        updated_at = datetime('now')
+    WHERE id = ?
+  `).run(newTitle, newProjectId, id);
+
+  const updated = db.prepare('SELECT * FROM chats WHERE id = ?').get(id);
+  res.json(mapChat(updated));
 });
 
 

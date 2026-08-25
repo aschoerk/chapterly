@@ -37,14 +37,37 @@ export class SideBarComponent implements OnInit {
   readonly editName = signal('');
   readonly editSystemPrompt = signal('');
   readonly editDefaultModelId = signal<string | null>(null);
+  /** true = youngest (most recently updated) on top */
+  readonly sortByNewest = signal(true);
 
+  /** which chat is currently showing the reassign dropdown */
+  readonly reassigningChatId = signal<string | null>(null);
+
+  /** Projects after search filter + optional age sort */
   filteredProjects = computed(() => {
     const q = this.searchQuery().trim().toLowerCase();
-    if (!q) return this.projects();
-    return this.projects().filter(p =>
-      p.name.toLowerCase().includes(q) ||
-      this.getChatsForProject(p.id).some(c => c.title.toLowerCase().includes(q))
-    );
+    let list = this.projects();
+
+    if (q) {
+      list = list.filter(p =>
+        p.name.toLowerCase().includes(q) ||
+        this.getChatsForProject(p.id).some(c => c.title.toLowerCase().includes(q))
+      );
+    }
+
+    if (this.sortByNewest()) {
+      // youngest project first (use updatedAt, fall back to createdAt)
+      list = [...list].sort((a, b) => {
+        const ta = new Date(a.updatedAt || a.createdAt).getTime();
+        const tb = new Date(b.updatedAt || b.createdAt).getTime();
+        return tb - ta;
+      });
+    } else {
+      // original alphabetical order
+      list = [...list].sort((a, b) => a.name.localeCompare(b.name));
+    }
+
+    return list;
   });
 
   async ngOnInit() {
@@ -86,6 +109,11 @@ export class SideBarComponent implements OnInit {
     this.persistExpanded();
   }
 
+  toggleSortByNewest(event?: Event) {
+    event?.stopPropagation();
+    this.sortByNewest.update(v => !v);
+  }
+
   // ---------- Project CRUD ----------
 
   startEditProject(project: Project, event?: Event) {
@@ -116,15 +144,48 @@ export class SideBarComponent implements OnInit {
 
   async deleteProject(project: Project, event: Event) {
     event.stopPropagation();
-    if (!confirm(`Delete project "${project.name}"?\nChats will become unassigned.`)) return;
 
-    await this.chatService.deleteProject(project.id);
+    const chatCount = this.getChatsForProject(project.id).length;
+
+    const msg = chatCount === 0
+      ? `Delete project “${project.name}”?`
+      : `Project “${project.name}” contains ${chatCount} chat(s).\n\n` +
+      `OK = delete project AND all its chats\n` +
+      `Cancel = abort`;
+
+    if (!confirm(msg)) return;
+
+    // if there are chats we treat “OK” as cascade-delete
+    const deleteChats = chatCount > 0;
+    await this.chatService.deleteProject(project.id, deleteChats);
+
     this.expanded.update(m => {
       const next = { ...m };
       delete next[project.id];
       return next;
     });
     this.persistExpanded();
+  }
+
+  toggleReassign(chatId: string, event: Event) {
+    event.stopPropagation();
+    this.reassigningChatId.update(id => (id === chatId ? null : chatId));
+  }
+
+  async onReassign(chat: Chat, newProjectId: string | null) {
+    await this.chatService.reassignChat(chat.id, newProjectId);
+    this.reassigningChatId.set(null);
+  }
+
+  async unassignChat(chat: Chat, event: Event) {
+    event.stopPropagation();
+    if (chat.projectId == null) return;           // already unassigned
+    await this.chatService.reassignChat(chat.id, null);
+  }
+
+  /** projects for the dropdown (current project excluded) */
+  otherProjects(currentProjectId: string | null): Project[] {
+    return this.projects().filter(p => p.id !== currentProjectId);
   }
 
   // ---------- Chats under a project ----------
@@ -218,8 +279,30 @@ export class SideBarComponent implements OnInit {
     }
   }
 
+  collapseAll(event?: Event) {
+    event?.stopPropagation();
+
+    const next: Record<string, boolean> = {};
+    for (const p of this.projects()) {
+      next[p.id] = false;          // false = collapsed
+    }
+    this.expanded.set(next);
+    this.persistExpanded();
+  }
+
+  /** Chats of a project, optionally sorted by age */
   getChatsForProject(projectId: string | null): Chat[] {
-    return this.chatsByProject().get(projectId) || [];
+    const chats = this.chatsByProject().get(projectId) || [];
+
+    if (!this.sortByNewest()) {
+      return chats;
+    }
+
+    return [...chats].sort((a, b) => {
+      const ta = new Date(a.updated_at || a.created_at).getTime();
+      const tb = new Date(b.updated_at || b.created_at).getTime();
+      return tb - ta;          // youngest first
+    });
   }
 
   async goToConfig() {

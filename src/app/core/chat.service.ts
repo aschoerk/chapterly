@@ -107,17 +107,22 @@ export class ChatService {
     return project;
   }
 
-  async deleteProject(id: string): Promise<void> {
-    await firstValueFrom(
-      this.http.delete(`${this.config.apiBase}/projects/${id}`)
-    );
+  async deleteProject(id: string, deleteChats = false): Promise<void> {
+    const url = deleteChats
+      ? `${this.config.apiBase}/projects/${id}?deleteChats=true`
+      : `${this.config.apiBase}/projects/${id}`;
+
+    await firstValueFrom(this.http.delete(url));
+
     this._projects.update(list => list.filter(p => p.id !== id));
 
-    // Locally clear projectId from chats that belonged to it
-    // (server already sets project_id = NULL via ON DELETE SET NULL)
-    this._chats.update(list =>
-      list.map(c => (c.projectId === id ? { ...c, projectId: null } : c))
-    );
+    if (deleteChats) {
+      this._chats.update(list => list.filter(c => c.projectId !== id));
+    } else {
+      this._chats.update(list =>
+        list.map(c => (c.projectId === id ? { ...c, projectId: null } : c))
+      );
+    }
   }
 
   getProject(id: string | null | undefined): Project | undefined {
@@ -152,6 +157,16 @@ export class ChatService {
       this._currentChatId.set(null);
       this._nodes.set([]);
     }
+  }
+
+  async reassignChat(chatId: string, projectId: string | null): Promise<Chat> {
+    const chat = await firstValueFrom(
+      this.http.patch<Chat>(`${this.config.apiBase}/chats/${chatId}`, { projectId })
+    );
+    this._chats.update(list =>
+      list.map(c => (c.id === chatId ? chat : c))
+    );
+    return chat;
   }
 
   async selectChat(chatId: string): Promise<void> {

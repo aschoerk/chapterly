@@ -281,11 +281,16 @@ router.put('/:id', (req, res) => {
  *               $ref: '#/components/schemas/Error'
  */
 router.delete('/:id', (req, res) => {
+  const deleteChats = req.query.deleteChats === 'true';
+
+  if (deleteChats) {
+    db.prepare('DELETE FROM chats WHERE project_id = ?').run(req.params.id);
+  }
+
   const result = db.prepare('DELETE FROM projects WHERE id = ?').run(req.params.id);
   if (result.changes === 0) {
     return res.status(404).json({ error: 'Project not found' });
   }
-  // chats.project_id becomes NULL due to ON DELETE SET NULL
   res.status(204).end();
 });
 
