@@ -4,7 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import { ChatService } from '../../core/chat.service';
 import { SettingsService } from '../../core/settings.service';
-import { Project, Persona } from '../../models/chat';
+import { Project, Persona, Topic } from '../../models/chat';
 
 @Component({
   selector: 'app-projects',
@@ -21,6 +21,16 @@ export class ProjectsComponent implements OnInit {
   readonly projects = this.chatService.projects;
   readonly personas = this.chatService.personas;
   readonly enabledModels = this.settings.enabledModels;
+  readonly topics = this.chatService.topics;          // already loaded via ChatService
+// ============================================================
+// Topic form state
+// ============================================================
+
+  readonly showTopicForm = signal(false);
+  readonly editingTopicId = signal<string | null>(null);
+  readonly topicSaving = signal(false);
+  readonly topicError = signal<string | null>(null);
+
 
   readonly searchTerm = signal('');
   readonly showForm = signal(false);
@@ -28,6 +38,15 @@ export class ProjectsComponent implements OnInit {
   readonly saving = signal(false);
   readonly error = signal<string | null>(null);
   readonly openMenuId = signal<string | null>(null);
+  /** Currently selected filter in the left column */
+  readonly selectedTopicId = signal<string | 'all' | 'unassigned'>('all');
+
+  // form fields
+  readonly topicName = signal('');
+  readonly topicDescription = signal('');
+  readonly topicIcon = signal('');
+  readonly topicDefaultModelId = signal<string | null>(null);
+  readonly topicDefaultSystemPrompt = signal('');
 
   form = {
     name: '',
@@ -213,4 +232,220 @@ export class ProjectsComponent implements OnInit {
   trackById(_: number, p: Project) {
     return p.id;
   }
+
+  /** Returns true when the icon is an image (data-URL or http) */
+  isImageIcon(icon: string | null | undefined): boolean {
+    if (!icon) return false;
+    return icon.startsWith('data:image/') || icon.startsWith('http');
+  }
+
+  /** Topics sorted alphabetically */
+  readonly sortedTopics = computed(() =>
+    [...this.topics()].sort((a, b) => a.name.localeCompare(b.name))
+  );
+
+  /** Projects visible on the right side according to the current filter */
+  readonly visibleProjects = computed(() => {
+    const all = this.projects();
+    const sel = this.selectedTopicId();
+
+    if (sel === 'all') return all;
+
+    if (sel === 'unassigned') {
+      // projects that appear in zero topics
+      const assignedIds = new Set(
+        this.topics().flatMap(t => t.projectIds)
+      );
+      return all.filter(p => !assignedIds.has(p.id));
+    }
+
+    // concrete topic
+    const topic = this.topics().find(t => t.id === sel);
+    if (!topic) return [];
+    const idSet = new Set(topic.projectIds);
+    return all.filter(p => idSet.has(p.id));
+  });
+
+// ============================================================
+// Open / Close
+// ============================================================
+
+  openCreateTopic() {
+    this.editingTopicId.set(null);
+    this.topicName.set('');
+    this.topicDescription.set('');
+    this.topicIcon.set('');
+    this.topicDefaultModelId.set(null);
+    this.topicDefaultSystemPrompt.set('');
+    this.topicError.set(null);
+    this.showTopicForm.set(true);
+  }
+
+  openEditTopic(topic: Topic) {
+    this.editingTopicId.set(topic.id);
+    this.topicName.set(topic.name);
+    this.topicDescription.set(topic.description || '');
+    this.topicIcon.set(topic.icon || '');
+    this.topicDefaultModelId.set(topic.defaultModelId);
+    this.topicDefaultSystemPrompt.set(topic.defaultSystemPrompt || '');
+    this.topicError.set(null);
+    this.showTopicForm.set(true);
+  }
+
+  closeTopicForm() {
+    this.showTopicForm.set(false);
+    this.editingTopicId.set(null);
+    this.topicError.set(null);
+  }
+
+// ============================================================
+// Save (Create or Update)
+// ============================================================
+
+  async saveTopic() {
+    const name = this.topicName().trim();
+    if (!name) {
+      this.topicError.set('Name is required');
+      return;
+    }
+
+    this.topicSaving.set(true);
+    this.topicError.set(null);
+
+    try {
+      const payload = {
+        name,
+        description: this.topicDescription().trim(),
+        icon: this.topicIcon().trim(),
+        defaultModelId: this.topicDefaultModelId(),
+        defaultSystemPrompt: this.topicDefaultSystemPrompt().trim()
+      };
+
+      const editingId = this.editingTopicId();
+
+      if (editingId) {
+        // ---------- UPDATE ----------
+        await this.chatService.updateTopic(editingId, payload);
+      } else {
+        // ---------- CREATE ----------
+        const created = await this.chatService.createTopic(payload);
+        // optionally select the newly created topic
+        this.selectedTopicId.set(created.id);
+      }
+
+      this.closeTopicForm();
+    } catch (err: any) {
+      console.error(err);
+      this.topicError.set(err?.error?.error || err?.message || 'Save failed');
+    } finally {
+      this.topicSaving.set(false);
+    }
+  }
+
+// ============================================================
+// Delete
+// ============================================================
+
+  async deleteTopic(topic: Topic, event?: Event) {
+    event?.stopPropagation();
+
+    const projectCount = topic.projectIds?.length ?? 0;
+    const msg = projectCount > 0
+      ? `Delete topic “${topic.name}”?\nIt currently contains ${projectCount} project(s).\nProjects themselves will NOT be deleted.`
+      : `Delete topic “${topic.name}”?`;
+
+    if (!confirm(msg)) return;
+
+    try {
+      await this.chatService.deleteTopic(topic.id);
+
+      // if we were filtering by this topic, fall back to "All"
+      if (this.selectedTopicId() === topic.id) {
+        this.selectedTopicId.set('all');
+      }
+    } catch (err: any) {
+      console.error(err);
+      alert('Could not delete topic: ' + (err?.message || err));
+    }
+  }
+
+// ============================================================
+// Membership helpers (already sketched earlier, complete versions)
+// ============================================================
+
+  async addProjectToCurrentTopic(projectId: string) {
+    const topicId = this.selectedTopicId();
+    if (topicId === 'all' || topicId === 'unassigned') return;
+
+    try {
+      await this.chatService.addProjectToTopic(topicId, projectId);
+    } catch (err: any) {
+      console.error(err);
+      alert('Could not add project to topic');
+    }
+  }
+
+  async removeProjectFromCurrentTopic(projectId: string) {
+    const topicId = this.selectedTopicId();
+    if (topicId === 'all' || topicId === 'unassigned') return;
+
+    try {
+      await this.chatService.removeProjectFromTopic(topicId, projectId);
+    } catch (err: any) {
+      console.error(err);
+      alert('Could not remove project from topic');
+    }
+  }
+
+  async onAddToTopic(projectId: string, event: Event) {
+    const select = event.target as HTMLSelectElement;
+    const topicId = select.value;
+    if (!topicId) return;
+
+    await this.chatService.addProjectToTopic(topicId, projectId);
+    select.value = '';          // reset the dropdown
+  }
+
+  /** Returns all topics that currently contain the given project */
+  topicsOf(projectId: string): Topic[] {
+    return this.topics().filter(t => t.projectIds.includes(projectId));
+  }
+
+  selectTopic(id: string | 'all' | 'unassigned') {
+    this.selectedTopicId.set(id);
+  }
+
+  onTopicIconSelected(event: Event) {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      this.topicError.set('Please select an image file');
+      return;
+    }
+
+    if (file.size > 800_000) {
+      this.topicError.set('Image is too large (max ~800 KB). Please choose a smaller one.');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      this.topicIcon.set(reader.result as string);   // data URL
+      this.topicError.set(null);
+    };
+    reader.onerror = () => {
+      this.topicError.set('Failed to read image');
+    };
+    reader.readAsDataURL(file);
+
+    // allow selecting the same file again later
+    input.value = '';
+  }
+
+  clearTopicIcon() {
+    this.topicIcon.set('');
+  }
+
 }

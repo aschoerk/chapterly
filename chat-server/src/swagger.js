@@ -223,6 +223,46 @@ const options = {
             }
           }
         },
+        Topic: {
+          type: 'object',
+          properties: {
+            id: {
+              type: 'string',
+              format: 'uuid'
+            },
+            name: {
+              type: 'string'
+            },
+            description: {
+              type: 'string'
+            },
+            defaultModelId: {
+              type: 'string',
+              nullable: true
+            },
+            defaultSystemPrompt: {
+              type: 'string'
+            },
+            icon: {
+              type: 'string'
+            },
+            projectIds: {
+              type: 'array',
+              items: {
+                type: 'string',
+                format: 'uuid'
+              }
+            },
+            createdAt: {
+              type: 'string',
+              format: 'date-time'
+            },
+            updatedAt: {
+              type: 'string',
+              format: 'date-time'
+            }
+          }
+          },
         Persona: {
           type: 'object',
           properties: {

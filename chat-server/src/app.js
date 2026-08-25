@@ -5,6 +5,7 @@ const apiRoutes = require('./routes/api');
 const chatsRoutes = require('./routes/chats');
 const projectsRoutes = require('./routes/projects');
 const personasRoutes = require('./routes/personas');
+const topicsRoutes = require('./routes/topics');
 // ...
 require('./db');          // ← this initializes the database
 
@@ -38,6 +39,7 @@ function createApp() {
   app.use('/api/chats', chatsRoutes);
   app.use('/api/projects', projectsRoutes);
   app.use('/api/personas', personasRoutes);
+  app.use('/api/topics', topicsRoutes);
 
   app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 

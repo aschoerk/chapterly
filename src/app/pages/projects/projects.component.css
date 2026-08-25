@@ -5,6 +5,77 @@
   font-family: system-ui, -apple-system, sans-serif;
 }
 
+.projects-layout {
+  display: flex;
+  height: calc(100vh - var(--header-height, 0px));
+}
+
+.project-pane {
+  flex: 1;
+  overflow: auto;
+  padding: 1rem;
+}
+
+.topic-pane {
+  width: 240px;
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.topic-list {
+  flex: 1;
+  overflow-y: auto;
+  list-style: none;
+  margin: 0;
+  padding: 0.5rem 0;
+}
+
+.topic-list li {
+  padding: 0.4rem 0.9rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.topic-list li.active {
+  background: var(--bg-active);
+  font-weight: 600;
+}
+
+.topic-list-icon {
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+.topic-list-icon.emoji {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1rem;
+}
+
+.chip-icon {
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+  object-fit: cover;
+  margin-right: 0.25rem;
+  vertical-align: middle;
+}
+
+.header-topic-icon {
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  object-fit: cover;
+  margin-right: 0.4rem;
+  vertical-align: middle;
+}
+
 .page-header {
   display: flex;
   justify-content: space-between;
@@ -283,24 +354,31 @@
   position: fixed;
   inset: 0;
   background: rgba(0, 0, 0, 0.45);
-  display: flex;
-  align-items: center;
-  justify-content: center;
   z-index: 1000;
-  padding: 1rem;
 }
 
 .modal {
-  background: white;
-  border-radius: 12px;
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 1001;
+
+  background: var(--bg-sidebar, #fff);
+  border-radius: 10px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
   padding: 1.5rem;
-  width: 100%;
-  max-width: 560px;
+  width: min(480px, 92vw);
   max-height: 90vh;
   overflow-y: auto;
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
 }
 
+/* optional: make sure the form itself is not transparent */
+.modal.topic-form,
+.modal.project-form {
+  opacity: 1;
+  pointer-events: auto;
+}
 .modal h3 {
   margin: 0 0 1.25rem;
   font-size: 1.2rem;
@@ -347,35 +425,34 @@
 .avatar-row {
   display: flex;
   align-items: center;
-  gap: 1rem;
+  gap: 0.75rem;
+  margin-top: 0.35rem;
 }
 
 .avatar.preview {
-  width: 56px;
-  height: 56px;
-  border-radius: 12px;
+  width: 48px;
+  height: 48px;
+  border-radius: 8px;
   object-fit: cover;
-  background: #e5e7eb;
+  border: 1px solid var(--border);
 }
 
 .avatar.preview.placeholder {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-weight: 600;
-  font-size: 1.1rem;
-  color: #9ca3af;
+  background: var(--bg-hover);
+  font-size: 1.4rem;
 }
 
 .avatar-controls {
   display: flex;
   flex-direction: column;
-  gap: 0.4rem;
+  gap: 0.3rem;
 }
 
 .file-btn {
-  display: inline-block;
-  text-align: center;
+  cursor: pointer;
 }
 
 .hint {

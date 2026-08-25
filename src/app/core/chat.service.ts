@@ -1,7 +1,7 @@
 import { Injectable, signal, computed, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
-import { Chat, ChatNode, CreateNodeRequest, Project, Persona } from '../models/chat';
+import { Chat, ChatNode, CreateNodeRequest, Project, Persona, Topic } from '../models/chat';
 import { getServerConfig } from './server-config';
 
 @Injectable({
@@ -15,6 +15,7 @@ export class ChatService {
   private readonly _nodes = signal<ChatNode[]>([]);
   private readonly _projects = signal<Project[]>([]);
   private readonly _personas = signal<Persona[]>([]);
+  private readonly _topics = signal<Topic[]>([]);
   private readonly _currentChatId = signal<string | null>(null);
   private readonly CURRENT_PERSONA_KEY = 'chat-client.currentPersonaId';
   private readonly _currentPersonaId = signal<string | null>(null);
@@ -24,6 +25,7 @@ export class ChatService {
   readonly currentChatId = computed(() => this._currentChatId());
   readonly projects = computed(() => this._projects());
   readonly personas = computed(() => this._personas());
+  readonly topics = computed(() => this._topics());
   readonly currentPersonaId = computed(() => this._currentPersonaId());
   readonly currentPersona = computed(() => this.getPersona(this._currentPersonaId()));
 
@@ -538,5 +540,89 @@ export class ChatService {
     } catch {
       // ignore
     }
+  }
+
+  async loadTopics(): Promise<void> {
+    const topics = await firstValueFrom(
+      this.http.get<Topic[]>(`${this.config.apiBase}/topics`)
+    );
+    this._topics.set(topics);
+  }
+
+  async createTopic(data: {
+    name: string;
+    description?: string;
+    defaultModelId?: string | null;
+    defaultSystemPrompt?: string;
+    icon?: string;
+    projectIds?: string[];
+  }): Promise<Topic> {
+    const topic = await firstValueFrom(
+      this.http.post<Topic>(`${this.config.apiBase}/topics`, data)
+    );
+    this._topics.update(list =>
+      [...list, topic].sort((a, b) => a.name.localeCompare(b.name))
+    );
+    return topic;
+  }
+
+  async updateTopic(
+    id: string,
+    data: Partial<{
+      name: string;
+      description: string;
+      defaultModelId: string | null;
+      defaultSystemPrompt: string;
+      icon: string;
+    }>
+  ): Promise<Topic> {
+    const topic = await firstValueFrom(
+      this.http.put<Topic>(`${this.config.apiBase}/topics/${id}`, data)
+    );
+    this._topics.update(list =>
+      list
+        .map(t => (t.id === id ? topic : t))
+        .sort((a, b) => a.name.localeCompare(b.name))
+    );
+    return topic;
+  }
+
+  async deleteTopic(id: string): Promise<void> {
+    await firstValueFrom(
+      this.http.delete(`${this.config.apiBase}/topics/${id}`)
+    );
+    this._topics.update(list => list.filter(t => t.id !== id));
+  }
+
+  /** Add a project to a topic */
+  async addProjectToTopic(topicId: string, projectId: string): Promise<Topic> {
+    const topic = await firstValueFrom(
+      this.http.post<Topic>(
+        `${this.config.apiBase}/topics/${topicId}/projects`,
+        { projectId }
+      )
+    );
+    this._topics.update(list =>
+      list.map(t => (t.id === topicId ? topic : t))
+    );
+    return topic;
+  }
+
+  /** Remove a project from a topic */
+  async removeProjectFromTopic(topicId: string, projectId: string): Promise<Topic> {
+    const topic = await firstValueFrom(
+      this.http.delete<Topic>(
+        `${this.config.apiBase}/topics/${topicId}/projects/${projectId}`
+      )
+    );
+    this._topics.update(list =>
+      list.map(t => (t.id === topicId ? topic : t))
+    );
+    return topic;
+  }
+
+  getTopic(id: string | null | undefined): Topic | undefined {
+    if (!id) return undefined;
+    return this._topics().find(t => t.id === id);
   }
 }

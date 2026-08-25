@@ -17,7 +17,7 @@
   border-radius: 12px;
   box-shadow: 0 16px 48px rgba(0, 0, 0, 0.45);
 
-  /* System / theme aware */
+  /* System / topic aware */
   background-color: var(--bg-primary, Canvas);
   color: var(--text-primary, CanvasText);
   border: 1px solid var(--border-color, #555);

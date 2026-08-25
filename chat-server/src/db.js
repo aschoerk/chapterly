@@ -118,6 +118,30 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_chat_nodes_parent_id ON chat_nodes(parent_id);
 `);
 
+db.exec(`
+  CREATE TABLE IF NOT EXISTS topics (
+    id                    TEXT PRIMARY KEY,
+    name                  TEXT NOT NULL,
+    description           TEXT DEFAULT '',
+    default_model_id      TEXT,
+    default_system_prompt TEXT DEFAULT '',
+    icon                  TEXT DEFAULT '',
+    created_at            TEXT DEFAULT (datetime('now')),
+    updated_at            TEXT DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS topic_projects (
+    topic_id   TEXT NOT NULL,
+    project_id TEXT NOT NULL,
+    PRIMARY KEY (topic_id, project_id),
+    FOREIGN KEY (topic_id)   REFERENCES topics(id)   ON DELETE CASCADE,
+    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_topic_projects_topic   ON topic_projects(topic_id);
+  CREATE INDEX IF NOT EXISTS idx_topic_projects_project ON topic_projects(project_id);
+`);
+
 
 try {
   const projectCols = db.prepare(`PRAGMA table_info(projects)`).all().map(c => c.name);

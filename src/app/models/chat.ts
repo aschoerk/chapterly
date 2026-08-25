@@ -12,6 +12,18 @@ export interface Project {
   updatedAt: string;
 }
 
+export interface Topic {
+  id: string;
+  name: string;
+  description: string;
+  defaultModelId: string | null;
+  defaultSystemPrompt: string;
+  icon: string;
+  projectIds: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface Chat {
   id: string;
   title: string;
