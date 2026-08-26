@@ -284,4 +284,11 @@ export class ConfigComponent {
     };
     return labels[modality] || modality;
   }
+
+  formatPerMillion(raw?: string | null): string {
+    if (raw == null || raw === '') return '—';
+    const n = Number(raw);
+    if (!Number.isFinite(n)) return '—';
+    return `$${(n * 1_000_000).toFixed(2)}`;
+  }
 }

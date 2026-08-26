@@ -137,6 +137,9 @@
               <td>
                 <div class="model-name">{{ model.displayName }}</div>
                 <div class="model-id">{{ model.modelId }}</div>
+                @if (model.contextLength) {
+                  <div class="model-meta">{{ model.contextLength | number }} ctx</div>
+                }
               </td>
               <td>
                 <span class="badge" [class.preset]="model.type === 'preset'">
@@ -145,9 +148,13 @@
                 <!-- Show architecture info -->
                 @if (model.architecture) {
                   <div class="architecture-info">
-                    <small class="modality-display">
-                      {{ formatArchitecture(model.architecture) }}
-                    </small>
+                    <small>{{ formatArchitecture(model.architecture) }}</small>
+                  </div>
+                }
+                @if (model.pricing_prompt || model.pricing?.prompt) {
+                  <div class="price">
+                    in {{ formatPerMillion(model.pricing_prompt || model.pricing?.prompt) }}
+                    / out {{ formatPerMillion(model.pricing_completion || model.pricing?.completion) }}
                   </div>
                 }
               </td>

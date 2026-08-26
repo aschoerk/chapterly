@@ -49,6 +49,7 @@ function initializeSchema(db) {
                                         type TEXT NOT NULL,          -- 'fetched' | 'preset' | 'discontinued'
                                         enabled INTEGER DEFAULT 1,
                                         context_length INTEGER,
+                                        catalog_json TEXT,
                                         created_at TEXT DEFAULT (datetime('now')),
       FOREIGN KEY (provider_id) REFERENCES providers(id) ON DELETE CASCADE
       );
@@ -137,13 +138,13 @@ function initializeSchema(db) {
 
   // Migration example
   try {
-    const cols = db.prepare(`PRAGMA table_info(chat_nodes)`).all().map(c => c.name);
-    if (!cols.includes('attachments')) {
-      db.exec(`ALTER TABLE chat_nodes ADD COLUMN attachments TEXT DEFAULT '[]'`);
-      console.log('Migrated chat_nodes: added attachments');
+    const modelCols = db.prepare(`PRAGMA table_info(models)`).all().map(c => c.name);
+    if (!modelCols.includes('catalog_json')) {
+      db.exec(`ALTER TABLE models ADD COLUMN catalog_json TEXT`);
+      console.log('Migrated models: added catalog_json');
     }
   } catch (e) {
-    // ignore if already present or other issues
+    console.warn('models.catalog_json migration skipped', e.message);
   }
 
   console.log(`📦 SQLite initialized`);

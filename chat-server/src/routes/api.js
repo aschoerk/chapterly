@@ -188,6 +188,89 @@ router.delete('/providers/:id', (req, res) => {
 
 // ---------- Models ----------
 
+function parseCatalog(raw) {
+  if (!raw) return {};
+  if (typeof raw === 'object') return raw;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return {};
+  }
+}
+
+function extractCatalog(body = {}) {
+  const catalog = body.catalog && typeof body.catalog === 'object'
+    ? body.catalog
+    : {};
+
+  // Accept both nested catalog and flattened ModelEntry fields
+  const merged = {
+    object: body.object ?? catalog.object,
+    created: body.created ?? catalog.created,
+    ownedBy: body.ownedBy ?? catalog.ownedBy,
+    shutdownDate: body.shutdownDate ?? catalog.shutdownDate ?? null,
+    canonicalSlug: body.canonicalSlug ?? catalog.canonicalSlug,
+    description: body.description ?? catalog.description,
+    architecture: body.architecture ?? catalog.architecture,
+    pricing: body.pricing ?? catalog.pricing,
+    topProvider: body.topProvider ?? catalog.topProvider,
+    supportedParameters: body.supportedParameters
+      ?? body.supported_parameters
+      ?? catalog.supportedParameters,
+    reasoning: body.reasoning ?? catalog.reasoning,
+    knowledgeCutoff: body.knowledgeCutoff ?? catalog.knowledgeCutoff ?? null,
+    expirationDate: body.expirationDate ?? catalog.expirationDate ?? null,
+    perRequestLimits: body.perRequestLimits ?? catalog.perRequestLimits ?? null,
+    pricing_prompt: body.pricing_prompt
+      ?? catalog.pricing_prompt
+      ?? body.pricing?.prompt
+      ?? catalog.pricing?.prompt,
+    pricing_completion: body.pricing_completion
+      ?? catalog.pricing_completion
+      ?? body.pricing?.completion
+      ?? catalog.pricing?.completion,
+    pricing_input_cache_read: body.pricing_input_cache_read
+      ?? catalog.pricing_input_cache_read
+      ?? body.pricing?.input_cache_read
+      ?? catalog.pricing?.input_cache_read
+  };
+
+  // Drop undefined so SQLite does not store noise
+  return Object.fromEntries(
+    Object.entries(merged).filter(([, v]) => v !== undefined)
+  );
+}
+
+function mapModelRow(row) {
+  const catalog = parseCatalog(row.catalog_json);
+  return {
+    id: row.id,
+    displayName: row.display_name,
+    modelId: row.model_id,
+    providerId: row.provider_id,
+    type: row.type,
+    enabled: !!row.enabled,
+    contextLength: row.context_length,
+    description: catalog.description ?? '',
+    architecture: catalog.architecture,
+    pricing: catalog.pricing,
+    topProvider: catalog.topProvider,
+    supportedParameters: catalog.supportedParameters ?? catalog.supported_parameters ?? [],
+    supported_parameters: catalog.supportedParameters ?? catalog.supported_parameters ?? [],
+    reasoning: catalog.reasoning,
+    created: catalog.created,
+    ownedBy: catalog.ownedBy,
+    shutdownDate: catalog.shutdownDate ?? null,
+    canonicalSlug: catalog.canonicalSlug,
+    knowledgeCutoff: catalog.knowledgeCutoff ?? null,
+    expirationDate: catalog.expirationDate ?? null,
+    perRequestLimits: catalog.perRequestLimits ?? null,
+    pricing_prompt: catalog.pricing_prompt ?? catalog.pricing?.prompt,
+    pricing_completion: catalog.pricing_completion ?? catalog.pricing?.completion,
+    pricing_input_cache_read: catalog.pricing_input_cache_read ?? catalog.pricing?.input_cache_read
+  };
+}
+
 /**
  * @openapi
  * /api/models:
@@ -207,15 +290,7 @@ router.delete('/providers/:id', (req, res) => {
  */
 router.get('/models', (req, res) => {
   const rows = db.prepare('SELECT * FROM models ORDER BY enabled DESC, display_name').all();
-  res.json(rows.map(row => ({
-    id: row.id,
-    displayName: row.display_name,
-    modelId: row.model_id,
-    providerId: row.provider_id,
-    type: row.type,
-    enabled: !!row.enabled,
-    contextLength: row.context_length
-  })));
+  res.json(rows.map(mapModelRow));
 });
 
 /**
@@ -259,28 +334,84 @@ router.get('/models', (req, res) => {
  *         description: Missing required fields
  */
 router.post('/models', (req, res) => {
-  const { displayName, modelId, providerId, type = 'preset', enabled = true, contextLength } = req.body;
+  const {
+    displayName,
+    modelId,
+    providerId,
+    type = 'preset',
+    enabled = true,
+    contextLength
+  } = req.body;
 
   if (!displayName || !modelId || !providerId) {
     return res.status(400).json({ error: 'displayName, modelId and providerId are required' });
   }
 
   const id = uuidv4();
+  const catalog = extractCatalog(req.body);
 
   db.prepare(`
-    INSERT INTO models (id, display_name, model_id, provider_id, type, enabled, context_length)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  `).run(id, displayName, modelId, providerId, type, enabled ? 1 : 0, contextLength || null);
-
-  res.status(201).json({
+    INSERT INTO models (id, display_name, model_id, provider_id, type, enabled, context_length, catalog_json)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
     id,
     displayName,
     modelId,
     providerId,
     type,
-    enabled,
-    contextLength
-  });
+    enabled ? 1 : 0,
+    contextLength ?? null,
+    Object.keys(catalog).length ? JSON.stringify(catalog) : null
+  );
+
+  const row = db.prepare('SELECT * FROM models WHERE id = ?').get(id);
+  res.status(201).json(mapModelRow(row));
+});
+
+router.put('/models/:id', (req, res) => {
+  const { id } = req.params;
+  const existing = db.prepare('SELECT * FROM models WHERE id = ?').get(id);
+  if (!existing) {
+    return res.status(404).json({ error: 'Model not found' });
+  }
+
+  const nextDisplayName = req.body.displayName ?? existing.display_name;
+  const nextModelId = req.body.modelId ?? existing.model_id;
+  const nextType = req.body.type ?? existing.type;
+  const nextEnabled = req.body.enabled === undefined
+    ? existing.enabled
+    : (req.body.enabled ? 1 : 0);
+  const nextContext = req.body.contextLength === undefined
+    ? existing.context_length
+    : req.body.contextLength;
+
+  const incomingCatalog = extractCatalog(req.body);
+  const previousCatalog = parseCatalog(existing.catalog_json);
+  const catalog = Object.keys(incomingCatalog).length
+    ? { ...previousCatalog, ...incomingCatalog }
+    : previousCatalog;
+
+  db.prepare(`
+    UPDATE models
+    SET display_name = ?,
+        model_id = ?,
+        type = ?,
+        enabled = ?,
+        context_length = ?,
+        catalog_json = ?
+    WHERE id = ?
+  `).run(
+    nextDisplayName,
+    nextModelId,
+    nextType,
+    nextEnabled,
+    nextContext ?? null,
+    Object.keys(catalog).length ? JSON.stringify(catalog) : null,
+    id
+  );
+
+  const row = db.prepare('SELECT * FROM models WHERE id = ?').get(id);
+  res.json(mapModelRow(row));
 });
 
 /**
