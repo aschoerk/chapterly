@@ -313,6 +313,318 @@ describe('API Routes (in-memory DB)', () => {
       const getRes = await request(app).get(`/api/chats/${chatId}`);
       expect(getRes.status).toBe(404);
     });
+    describe('Edit Question and Answer Versions', () => {
+      let chatId;
+      let rootQuestionId;
+      let rootAnswerId;
+      let childQuestionId;
+
+      beforeEach(async () => {
+        // Create a chat
+        const chatRes = await request(app).post('/api/chats').send({title: 'Versioning Test Chat'});
+        chatId = chatRes.body.id;
+
+        // Create root question
+        const rootQuestionRes = await request(app)
+          .post(`/api/chats/${chatId}/nodes`)
+          .send({content: 'Root question?', type: "question"});
+        rootQuestionId = rootQuestionRes.body.id;
+
+        // Create root answer
+        const rootAnswerRes = await request(app)
+          .post(`/api/chats/${chatId}/nodes`)
+          .send({
+            content: 'Root answer.',
+            type: 'answer',
+            parentId: rootQuestionId
+          });
+        rootAnswerId = rootAnswerRes.body.id;
+
+        // Create child question
+        const childQuestionRes = await request(app)
+          .post(`/api/chats/${chatId}/nodes`)
+          .send({
+            content: 'Child question?',
+            type: "question",
+            parentId: rootAnswerId
+          });
+        childQuestionId = childQuestionRes.body.id;
+      });
+
+      test('POST /api/chats/:chatId/nodes/:nodeId/edit-answer creates a new version of an answer', async () => {
+        const res = await request(app)
+          .post(`/api/chats/${chatId}/nodes/${rootAnswerId}/edit-answer`)
+          .send({content: 'Updated answer content'});
+
+        expect(res.status).toBe(201);
+        expect(res.body.content).toBe('Updated answer content');
+        expect(res.body.version).toBe(2);
+        expect(res.body.previousVersionId).toBe(rootAnswerId);
+        expect(res.body.isCurrent).toBe(true);
+
+        // Verify old version is no longer current
+        const oldNodeRes = await request(app).get(`/api/chats/${chatId}/nodes`);
+        const oldNode = oldNodeRes.body.find(node => node.id === rootAnswerId);
+        expect(oldNode.isCurrent).toBe(false);
+      });
+
+      test('POST /api/chats/:chatId/nodes/:nodeId/edit-question creates a new version of a question', async () => {
+        const res = await request(app)
+          .post(`/api/chats/${chatId}/nodes/${rootQuestionId}/edit-question`)
+          .send({content: 'Updated question content'});
+
+        expect(res.status).toBe(201);
+        expect(res.body.content).toBe('Updated question content');
+        expect(res.body.version).toBe(2);
+        expect(res.body.previousVersionId).toBe(rootQuestionId);
+        expect(res.body.isCurrent).toBe(true);
+
+        // Verify old version is no longer current
+        const oldNodeRes = await request(app).get(`/api/chats/${chatId}/nodes`);
+        const oldNode = oldNodeRes.body.find(node => node.id === rootQuestionId);
+        expect(oldNode.isCurrent).toBe(false);
+      });
+
+      test('Editing a node reparents child nodes to the new version', async () => {
+        // Edit the root answer which has a child
+        const editRes = await request(app)
+          .post(`/api/chats/${chatId}/nodes/${rootAnswerId}/edit-answer`)
+          .send({content: 'Edited root answer'});
+
+        const newVersionId = editRes.body.id;
+
+        // Check that child question now points to new version as parent
+        const nodesRes = await request(app).get(`/api/chats/${chatId}/nodes`);
+        const childNode = nodesRes.body.find(node => node.id === childQuestionId);
+
+        expect(childNode.parentId).toBe(newVersionId);
+      });
+
+      test('Editing maintains attachments from previous version when not specified', async () => {
+        const attachments = [{
+          id: uuidv4(),
+          name: 'test.txt',
+          mimeType: 'text/plain',
+          size: 100,
+          dataUrl: 'data:text/plain;base64,dGVzdA=='
+        }];
+
+        // Create a node with attachments
+        const nodeWithAttachmentsRes = await request(app)
+          .post(`/api/chats/${chatId}/nodes`)
+          .send({
+            content: 'Node with attachments',
+            type: 'question',
+            attachments
+          });
+
+        const nodeId = nodeWithAttachmentsRes.body.id;
+
+        // Edit without specifying attachments
+        const editRes = await request(app)
+          .post(`/api/chats/${chatId}/nodes/${nodeId}/edit-question`)
+          .send({content: 'Edited content'});
+
+        expect(editRes.status).toBe(201);
+        expect(editRes.body.attachments).toEqual(attachments);
+      });
+
+      test('Editing replaces attachments when explicitly provided', async () => {
+        const originalAttachments = [{
+          id: uuidv4(),
+          name: 'original.txt',
+          mimeType: 'text/plain',
+          size: 100,
+          dataUrl: 'data:text/plain;base64,b3JpZ2luYWw='
+        }];
+
+        const newAttachments = [{
+          id: uuidv4(),
+          name: 'replacement.txt',
+          mimeType: 'text/plain',
+          size: 200,
+          dataUrl: 'data:text/plain;base64/cmVwbGFjZW1lbnQ='
+        }];
+
+        // Create a node with original attachments
+        const nodeWithAttachmentsRes = await request(app)
+          .post(`/api/chats/${chatId}/nodes`)
+          .send({
+            content: 'Node with attachments',
+            type: 'question',
+            attachments: originalAttachments
+          });
+
+        const nodeId = nodeWithAttachmentsRes.body.id;
+
+        // Edit with new attachments
+        const editRes = await request(app)
+          .post(`/api/chats/${chatId}/nodes/${nodeId}/edit-question`)
+          .send({
+            content: 'Edited content',
+            attachments: newAttachments
+          });
+
+        expect(editRes.status).toBe(201);
+        expect(editRes.body.attachments).toEqual(newAttachments);
+      });
+
+      test('Editing with empty attachments array clears attachments', async () => {
+        const attachments = [{
+          id: uuidv4(),
+          name: 'test.txt',
+          mimeType: 'text/plain',
+          size: 100,
+          dataUrl: 'data:text/plain;base64,dGVzdA=='
+        }];
+
+        // Create a node with attachments
+        const nodeWithAttachmentsRes = await request(app)
+          .post(`/api/chats/${chatId}/nodes`)
+          .send({
+            content: 'Node with attachments',
+            type: 'question',
+            attachments
+          });
+
+        const nodeId = nodeWithAttachmentsRes.body.id;
+
+        // Edit with empty attachments array
+        const editRes = await request(app)
+          .post(`/api/chats/${chatId}/nodes/${nodeId}/edit-question`)
+          .send({
+            content: 'Edited content',
+            attachments: []
+          });
+
+        expect(editRes.status).toBe(201);
+        expect(editRes.body.attachments).toEqual([]);
+      });
+
+      test('Multiple edits create sequential versions', async () => {
+        // First edit
+        const edit1Res = await request(app)
+          .post(`/api/chats/${chatId}/nodes/${rootQuestionId}/edit-question`)
+          .send({content: 'First edit'});
+
+        const edit1Id = edit1Res.body.id;
+
+        // Second edit
+        const edit2Res = await request(app)
+          .post(`/api/chats/${chatId}/nodes/${edit1Id}/edit-question`)
+          .send({content: 'Second edit'});
+
+        expect(edit2Res.status).toBe(201);
+        expect(edit2Res.body.version).toBe(3); // Original was v1, first edit v2, this is v3
+        expect(edit2Res.body.previousVersionId).toBe(edit1Id);
+      });
+
+      test('Editing preserves model and provider information', async () => {
+        const modelId = 'test-model-id';
+        const providerId = 'test-provider-id';
+
+        // Create a node with model/provider info
+        const nodeWithModelRes = await request(app)
+          .post(`/api/chats/${chatId}/nodes`)
+          .send({
+            content: 'Node with model info',
+            type: 'question',
+            modelId,
+            providerId
+          });
+
+        const nodeId = nodeWithModelRes.body.id;
+
+        // Edit the node
+        const editRes = await request(app)
+          .post(`/api/chats/${chatId}/nodes/${nodeId}/edit-question`)
+          .send({content: 'Edited content'});
+
+        expect(editRes.status).toBe(201);
+        expect(editRes.body.modelId).toBe(modelId);
+        expect(editRes.body.providerId).toBe(providerId);
+      });
+
+      test('Editing a node with no children does not affect other nodes', async () => {
+        // Create an isolated question node (no parent, no children)
+        const isolatedQuestionRes = await request(app)
+          .post(`/api/chats/${chatId}/nodes`)
+          .send({content: 'Isolated question?', type: "question"});
+
+        const isolatedQuestionId = isolatedQuestionRes.body.id;
+
+        // Edit this isolated node
+        const editRes = await request(app)
+          .post(`/api/chats/${chatId}/nodes/${isolatedQuestionId}/edit-question`)
+          .send({content: 'Edited isolated question'});
+
+        expect(editRes.status).toBe(201);
+
+        // Verify the root question/answer structure is unchanged
+        const nodesRes = await request(app).get(`/api/chats/${chatId}/nodes`);
+        const rootNode = nodesRes.body.find(node =>
+          node.id === rootQuestionId && node.isCurrent);
+
+        expect(rootNode).toBeDefined();
+        expect(rootNode.content).toBe('Root question?'); // Should be original content
+      });
+
+      test('Editing handles deeply nested node structures', async () => {
+        // Create a deeper hierarchy
+        const deepAnswerRes = await request(app)
+          .post(`/api/chats/${chatId}/nodes`)
+          .send({
+            content: 'Deep answer',
+            type: 'answer',
+            parentId: childQuestionId
+          });
+
+        const deepAnswerId = deepAnswerRes.body.id;
+
+        // Edit the middle node (childQuestion)
+        const editRes = await request(app)
+          .post(`/api/chats/${chatId}/nodes/${childQuestionId}/edit-question`)
+          .send({content: 'Edited child question'});
+
+        const newChildVersionId = editRes.body.id;
+
+        // Verify deep answer now points to the new version
+        const nodesRes = await request(app).get(`/api/chats/${chatId}/nodes`);
+        const deepAnswerNode = nodesRes.body.find(node => node.id === deepAnswerId);
+
+        expect(deepAnswerNode.parentId).toBe(newChildVersionId);
+      });
+
+      test('Editing non-existent node returns 404', async () => {
+        const fakeNodeId = uuidv4();
+
+        const res = await request(app)
+          .post(`/api/chats/${chatId}/nodes/${fakeNodeId}/edit-question`)
+          .send({content: 'Edit attempt'});
+
+        expect(res.status).toBe(404);
+        expect(res.body.error).toBe('Node not found');
+      });
+
+      test('Editing with wrong node type returns error', async () => {
+        // Try to edit a question as an answer
+        const res = await request(app)
+          .post(`/api/chats/${chatId}/nodes/${rootQuestionId}/edit-answer`)
+          .send({content: 'Wrong type edit'});
+
+        expect(res.status).toBe(400);
+        expect(res.body.error).toBe('Only answers can be versioned this way');
+      });
+
+      test('Editing without content returns validation error', async () => {
+        const res = await request(app)
+          .post(`/api/chats/${chatId}/nodes/${rootQuestionId}/edit-question`)
+          .send({}); // No content
+
+        expect(res.status).toBe(400);
+        expect(res.body.error).toBe('content is required');
+      });
+    });
   });
   // ------------------------------------------------------------------------
   // Projects

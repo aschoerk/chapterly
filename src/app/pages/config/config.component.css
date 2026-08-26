@@ -225,3 +225,29 @@
   gap: 0.5rem;
   margin-top: 1.4rem;
 }
+
+.modalities-selector {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.modality-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: normal;
+  margin-bottom: 0;
+}
+
+.architecture-info {
+  margin-top: 0.25rem;
+}
+
+.modality-display {
+  color: #666;
+  font-family: monospace;
+  font-size: 0.75rem;
+}
+

@@ -1,7 +1,7 @@
 import { Injectable, signal, computed, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
-import { ProviderConfig, ModelEntry } from '../models/chat-config';
+import {ProviderConfig, ModelEntry, ModelArchitecture} from '../models/chat-config';
 import { getServerConfig } from './server-config';
 
 const API_BASE = 'http://localhost:3847/api';   // we can make this dynamic later
@@ -76,14 +76,15 @@ export class SettingsService {
   }
 
   // ---------- Models / Presets ----------
-  async addPreset(displayName: string, modelId: string, providerId: string): Promise<void> {
+  async addPreset(displayName: string, modelId: string, providerId: string, architecture?: ModelArchitecture): Promise<void> {
     const created = await firstValueFrom(
       this.http.post<ModelEntry>(`${API_BASE}/models`, {
         displayName,
         modelId,
         providerId,
         type: 'preset',
-        enabled: true
+        enabled: true,
+        architecture
       })
     );
     this._models.update(list => [...list, created]);
@@ -154,74 +155,80 @@ export class SettingsService {
     }
   }
 
+  private createModalityString(inputs: string[], outputs: string[]): string {
+    const inputStr = inputs.length > 0 ? inputs.join('+') : 'none';
+    const outputStr = outputs.length > 0 ? outputs.join('+') : 'none';
+    return `${inputStr}->${outputStr}`;
+  }
+
   async fetchModels(provider: ProviderConfig): Promise<void> {
     try {
-      // 1. Get current models of this provider from the local state
-      const currentModels = this._models().filter(m => m.providerId === provider.id);
-
-      // 2. Fetch the fresh list from the provider
-      const response: any = await firstValueFrom(
-        this.http.get(`${this.PROXY_BASE}/models`, {
-          headers: {
-            'Authorization': `Bearer ${provider.apiKey}`,
-            'x-target-base': provider.baseUrl
-          }
-        })
-      );
-
-      const freshList = (response.data || []).map((m: any) => ({
-        displayName: m.name || m.id,
-        modelId: m.id,
-        providerId: provider.id,
-        type: 'fetched' as const,
-        enabled: false,
-        contextLength: m.context_length
-      }));
-
-      const freshModelIds = new Set(freshList.map((m: any) => m.modelId));
-
-      // 3. Handle existing models
-      for (const existing of currentModels) {
-        // Never touch presets
-        if (existing.type === 'preset') {
-          continue;
+      const response = await fetch(`${provider.baseUrl}/models`, {
+        headers: {
+          'Authorization': `Bearer ${provider.apiKey}`,
+          'Content-Type': 'application/json'
         }
+      });
 
-        const stillExists = freshModelIds.has(existing.modelId);
-
-        if (!stillExists) {
-          if (existing.enabled) {
-            // Mark as discontinued
-            await firstValueFrom(
-              this.http.put(`${this.API_BASE}/models/${existing.id}`, {
-                type: 'discontinued'
-              })
-            );
-          } else {
-            // Not enabled → delete
-            await firstValueFrom(
-              this.http.delete(`${this.API_BASE}/models/${existing.id}`)
-            );
-          }
-        }
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
       }
 
-      // 4. Add models that are completely new
-      const existingModelIds = new Set(currentModels.map(m => m.modelId));
-      const newModels = freshList.filter((m: any) => !existingModelIds.has(m.modelId));
+      const data = await response.json();
+      const fetchedModels: ModelEntry[] = data.data.map((model: any) => {
+        // Handle different possible API response structures
+        let architecture: ModelArchitecture | undefined;
 
-      for (const model of newModels) {
-        await firstValueFrom(
-          this.http.post(`${this.API_BASE}/models`, model)
-        );
-      }
+        // Case 1: Direct architecture object
+        if (model.architecture) {
+            architecture = {
+            modality: model.architecture.modality || this.createModalityString(
+              model.architecture.input_modalities || [],
+              model.architecture.output_modalities || []
+            ),
+            input_modalities: model.architecture.input_modalities || [],
+            output_modalities: model.architecture.output_modalities || []
+          };
+        }
+        // Case 2: Separate modality fields
+        else if (model.input_modalities || model.output_modalities) {
+          const inputs = model.input_modalities || [];
+          const outputs = model.output_modalities || [];
+          architecture = {
+            modality: this.createModalityString(inputs, outputs),
+            input_modalities: inputs,
+            output_modalities: outputs
+          };
+        }
+        // Case 3: Just a modality string
+        else if (model.modality) {
+          // Parse modality string like "text+image->text"
+          const [inputStr, outputStr] = model.modality.split('->');
+          const inputs = inputStr ? inputStr.split('+').filter(Boolean) : [];
+          const outputs = outputStr ? outputStr.split('+').filter(Boolean) : [];
 
-      // 5. Reload everything from the server to have a clean state
-      await this.loadAll();
+          architecture = {
+            modality: model.modality,
+            input_modalities: inputs,
+            output_modalities: outputs
+          };
+        }
 
-    } catch (err: any) {
-      console.error('Failed to fetch models', err);
-      throw err;
+        return {
+          displayName: model.displayName || model.id,
+          modelId: model.id,
+          providerId: provider.id,
+          enabled: false,
+          type: 'fetched',
+          architecture
+        };
+      });
+
+      this._models.update(models => [...models, ...fetchedModels]);
+      // this.saveToStorage();
+    } catch (error) {
+      console.error('Failed to fetch models:', error);
+      throw error;
     }
   }
 }

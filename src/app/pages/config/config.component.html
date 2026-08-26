@@ -142,6 +142,14 @@
                 <span class="badge" [class.preset]="model.type === 'preset'">
                   {{ model.type === 'preset' ? 'Preset' : 'Fetched' }}
                 </span>
+                <!-- Show architecture info -->
+                @if (model.architecture) {
+                  <div class="architecture-info">
+                    <small class="modality-display">
+                      {{ formatArchitecture(model.architecture) }}
+                    </small>
+                  </div>
+                }
               </td>
               <td>
                 @if (model.type === 'preset') {
@@ -180,6 +188,36 @@
               <option [value]="p.id">{{ p.name }}</option>
             }
           </select>
+        </label>
+
+        <label>
+          Input Modalities
+          <div class="modalities-selector">
+            @for (modality of modalityOptions; track modality.value) {
+              <label class="modality-checkbox">
+                <input
+                  type="checkbox"
+                  [checked]="isInputModalitySelected(modality.value)"
+                  (change)="toggleInputModality(modality.value)" />
+                {{ modality.label }}
+              </label>
+            }
+          </div>
+        </label>
+
+        <label>
+          Output Modalities
+          <div class="modalities-selector">
+            @for (modality of modalityOptions; track modality.value) {
+              <label class="modality-checkbox">
+                <input
+                  type="checkbox"
+                  [checked]="isOutputModalitySelected(modality.value)"
+                  (change)="toggleOutputModality(modality.value)" />
+                {{ modality.label }}
+              </label>
+            }
+          </div>
         </label>
 
         <!-- Test result -->
