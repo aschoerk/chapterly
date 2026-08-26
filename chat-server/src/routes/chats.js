@@ -315,6 +315,74 @@ router.post('/:chatId/nodes', (req, res) => {
   res.status(201).json(mapNode(node));
 });
 
+
+/**
+ * Shared helper to create a new version of a node (question or answer).
+ */
+function editNodeVersion(nodeId, expectedType, { content, attachments }) {
+  if (content === undefined || content === null) {
+    const err = new Error('content is required');
+    err.status = 400;
+    throw err;
+  }
+
+  const oldNode = db.prepare('SELECT * FROM chat_nodes WHERE id = ?').get(nodeId);
+  if (!oldNode) {
+    const err = new Error('Node not found');
+    err.status = 404;
+    throw err;
+  }
+
+  if (oldNode.type !== expectedType) {
+    const err = new Error(`Only ${expectedType}s can be versioned this way`);
+    err.status = 400;
+    throw err;
+  }
+
+  const newId = uuidv4();
+  const newVersion = (oldNode.version || 1) + 1;
+  const attachmentsJson = attachments !== undefined
+    ? JSON.stringify(Array.isArray(attachments) ? attachments : [])
+    : (oldNode.attachments || '[]');
+
+  // Wrap inside a transaction for atomicity
+  const executeEditTransaction = db.transaction(() => {
+    // 1. Mark existing node as no longer current
+    db.prepare('UPDATE chat_nodes SET is_current = 0 WHERE id = ?').run(nodeId);
+
+    // 2. Insert new version node
+    db.prepare(`
+      INSERT INTO chat_nodes (
+        id, chat_id, parent_id, type, content,
+        model_id, provider_id, version, previous_version_id, is_current, attachments
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
+    `).run(
+      newId,
+      oldNode.chat_id,
+      oldNode.parent_id,
+      expectedType,
+      content,
+      oldNode.model_id,
+      oldNode.provider_id,
+      newVersion,
+      nodeId,
+      attachmentsJson
+    );
+
+    // 3. Update chat timestamp
+    db.prepare(`UPDATE chats SET updated_at = datetime('now') WHERE id = ?`).run(oldNode.chat_id);
+
+    // 4. Re-parent existing child nodes from oldId to newId
+    db.prepare(`UPDATE chat_nodes SET parent_id = ?, updated_at = datetime('now') WHERE parent_id = ?`).run(newId, nodeId);
+  });
+
+  executeEditTransaction();
+
+  return db.prepare('SELECT * FROM chat_nodes WHERE id = ?').get(newId);
+}
+
+
+
 /**
  * @openapi
  * /api/chats/{chatId}/nodes/{nodeId}/edit-answer:
@@ -368,50 +436,21 @@ router.post('/:chatId/nodes', (req, res) => {
  *         description: Node not found
  */
 router.post('/:chatId/nodes/:nodeId/edit-answer', (req, res) => {
-  const { nodeId } = req.params;
-  const { content, attachments } = req.body;
-
-  if (content === undefined || content === null) {
-    return res.status(400).json({ error: 'content is required' });
+  try {
+    const node = editNodeVersion(req.params.nodeId, 'answer', req.body);
+    res.status(201).json(mapNode(node));
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
   }
+});
 
-  const oldNode = db.prepare('SELECT * FROM chat_nodes WHERE id = ?').get(nodeId);
-  if (!oldNode) return res.status(404).json({ error: 'Node not found' });
-  if (oldNode.type !== 'answer') {
-    return res.status(400).json({ error: 'Only answers can be versioned this way' });
+router.post('/:chatId/nodes/:nodeId/edit-question', (req, res) => {
+  try {
+    const node = editNodeVersion(req.params.nodeId, 'question', req.body);
+    res.status(201).json(mapNode(node));
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
   }
-
-  db.prepare('UPDATE chat_nodes SET is_current = 0 WHERE id = ?').run(nodeId);
-
-  const newId = uuidv4();
-  const newVersion = oldNode.version + 1;
-
-  // If attachments is supplied use it, otherwise keep the old ones
-  const attachmentsJson = attachments !== undefined
-    ? JSON.stringify(Array.isArray(attachments) ? attachments : [])
-    : (oldNode.attachments || '[]');
-
-  db.prepare(`
-    INSERT INTO chat_nodes (
-      id, chat_id, parent_id, type, content,
-      model_id, provider_id, version, previous_version_id, is_current, attachments
-    ) VALUES (?, ?, ?, 'answer', ?, ?, ?, ?, ?, 1, ?)
-  `).run(
-    newId,
-    oldNode.chat_id,
-    oldNode.parent_id,
-    content,
-    oldNode.model_id,
-    oldNode.provider_id,
-    newVersion,
-    nodeId,
-    attachmentsJson
-  );
-
-  db.prepare(`UPDATE chats SET updated_at = datetime('now') WHERE id = ?`).run(oldNode.chat_id);
-
-  const node = db.prepare('SELECT * FROM chat_nodes WHERE id = ?').get(newId);
-  res.status(201).json(mapNode(node));
 });
 
 /**
@@ -584,6 +623,33 @@ router.patch('/:id', (req, res) => {
 
   const updated = db.prepare('SELECT * FROM chats WHERE id = ?').get(id);
   res.json(mapChat(updated));
+});
+
+router.patch('/:chatId/nodes/:nodeId', (req, res) => {
+  const { nodeId } = req.params;
+  const { content, attachments, modelId, providerId } = req.body || {};
+
+  const oldNode = db.prepare('SELECT * FROM chat_nodes WHERE id = ?').get(nodeId);
+  if (!oldNode) return res.status(404).json({ error: 'Node not found' });
+
+  const nextContent = content !== undefined ? content : oldNode.content;
+  const nextAttachments = attachments !== undefined
+    ? JSON.stringify(Array.isArray(attachments) ? attachments : [])
+    : (oldNode.attachments || '[]');
+  const nextModel = modelId !== undefined ? modelId : oldNode.model_id;
+  const nextProvider = providerId !== undefined ? providerId : oldNode.provider_id;
+
+  db.prepare(`
+    UPDATE chat_nodes
+    SET content = ?, attachments = ?, model_id = ?, provider_id = ?,
+        updated_at = datetime('now')
+    WHERE id = ?
+  `).run(nextContent, nextAttachments, nextModel, nextProvider, nodeId);
+
+  db.prepare(`UPDATE chats SET updated_at = datetime('now') WHERE id = ?`).run(oldNode.chat_id);
+
+  const node = db.prepare('SELECT * FROM chat_nodes WHERE id = ?').get(nodeId);
+  res.json(mapNode(node));
 });
 
 

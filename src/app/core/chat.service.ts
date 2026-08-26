@@ -148,6 +148,19 @@ export class ChatService {
     return chat;
   }
 
+  /** Walk root → leaf, choosing the newest child at every fork. */
+  restoreMostRecentPath(): void {
+    const map: Record<string, string> = {};
+    let parentId: string | null = null;
+    while (true) {
+      const child = this.newestChild(parentId);
+      if (!child) break;
+      map[parentId ?? 'root'] = child.id;
+      parentId = child.id;
+    }
+    this._activeChildMap.set(map);
+  }
+
   async selectChat(chatId: string): Promise<void> {
     if (chatId) {
       localStorage.setItem(LS_CHAT, chatId);
@@ -155,8 +168,10 @@ export class ChatService {
       localStorage.removeItem(LS_CHAT);
     }
     this._currentChatId.set(chatId);
-    this._activeChildMap.set({});          // reset path for the new chat
+    this._activeChildMap.set({});
     await this.loadNodes(chatId);
+    this.restoreMostRecentPath();
+    await this.ensureDraftAtLeaf(chatId);
   }
 
   // ---------- Nodes ----------
@@ -171,6 +186,39 @@ export class ChatService {
     return node;
   }
 
+  async deleteNode(chatId: string, nodeId: string): Promise<void> {
+    const snapshot = this._nodes();
+    const target = snapshot.find(n => n.id === nodeId);
+    const parentId = target?.parentId ?? null;
+
+    await this.api.deleteNode(chatId, nodeId);
+
+    const toDelete = new Set<string>();
+    const collect = (id: string) => {
+      toDelete.add(id);
+      snapshot.filter(n => n.parentId === id).forEach(child => collect(child.id));
+    };
+    collect(nodeId);
+
+    this._nodes.update(list => list.filter(n => !toDelete.has(n.id)));
+
+    this._activeChildMap.update(m => {
+      const next: Record<string, string> = {};
+      for (const [k, v] of Object.entries(m)) {
+        if (toDelete.has(k) || toDelete.has(v)) continue;
+        next[k] = v;
+      }
+      return next;
+    });
+
+    const remaining = this.getChildren(parentId);
+    if (remaining.length > 0) {
+      this.setActiveChild(parentId, this.newestChild(parentId)!.id);
+    }
+
+    await this.ensureDraftAtLeaf(chatId);
+  }
+
   async editAnswer(chatId: string, nodeId: string, content: string,
                    attachments?: NodeAttachment[]): Promise<ChatNode> {
     const body: any = { content };
@@ -183,7 +231,25 @@ export class ChatService {
       );
       return [...updated, node];
     });
+    this.setActiveChild(node.parentId ?? null, node.id);
+    await this.ensureDraftAtLeaf(chatId);
+    return node;
+  }
 
+  async editQuestion(
+    chatId: string,
+    nodeId: string,
+    content: string,
+    attachments?: NodeAttachment[]
+  ): Promise<ChatNode> {
+    const node = await this.api.editQuestion(chatId, nodeId, content, attachments);
+
+    this._nodes.update(list => {
+      const updated = list.map(n => (n.id === nodeId ? { ...n, isCurrent: false } : n));
+      return [...updated, node];
+    });
+
+    this.setActiveChild(node.parentId ?? null, node.id);
     return node;
   }
 
@@ -313,7 +379,6 @@ export class ChatService {
     onChunk?: (chunk: string) => void
   ): Promise<ChatNode> {
 
-    // 1. Create empty answer node
     const answerNode = await this.addNode(chatId, {
       parentId: questionNodeId,
       type: 'answer',
@@ -322,9 +387,9 @@ export class ChatService {
       providerId: model.providerId
     });
 
-    // 2. Start generation tracking (for Stop button + thinking indicator)
-    const signal = this.startGeneration(answerNode.id);
+    this.setActiveChild(questionNodeId, answerNode.id);
 
+    const signal = this.startGeneration(answerNode.id);
     let accumulated = '';
 
     try {
@@ -350,31 +415,24 @@ export class ChatService {
 
       // 3. Persist final / partial answer
       if (accumulated.trim()) {
-        await this.editAnswer(chatId, answerNode.id, accumulated);
+        const versioned = await this.editAnswer(chatId, answerNode.id, accumulated);
+        this.setActiveChild(questionNodeId, versioned.id);
+        return versioned;
       }
-
+      return answerNode;
+    } catch (err) {
+      // abort / network — keep whatever tokens we already wrote locally
       return answerNode;
     } finally {
       this.stopGeneration();
+      if (accumulated.trim()) {
+        const current = this.getActiveChild(questionNodeId) ?? answerNode;
+        await this.ensureDraftAtLeaf(chatId);
+        this.scrollToNode?.(current.id);
+      }
     }
   }
 
-  async deleteNode(chatId: string, nodeId: string): Promise<void> {
-    await this.api.deleteNode(chatId, nodeId);
-
-    // Remove the node and all its descendants from the local state
-    this._nodes.update(list => {
-      const toDelete = new Set<string>();
-
-      const collect = (id: string) => {
-        toDelete.add(id);
-        list.filter(n => n.parentId === id).forEach(child => collect(child.id));
-      };
-
-      collect(nodeId);
-      return list.filter(n => !toDelete.has(n.id));
-    });
-  }
 
   async updateChatTitle(id: string, title: string): Promise<void> {
     const updated = await this.api.patchChat(id, { title });
@@ -539,14 +597,27 @@ export class ChatService {
     this._activeChildMap.update(m => ({ ...m, [key]: childId }));
   }
 
-  /** The single active sibling under a parent, or null */
+  private nodeTimestamp(n: ChatNode): number {
+    const raw = n.updatedAt || n.createdAt || '';
+    const t = Date.parse(raw);
+    return Number.isFinite(t) ? t : 0;
+  }
+
+  newestChild(parentId: string | null): ChatNode | null {
+    const siblings = this.getChildren(parentId);
+    if (siblings.length === 0) return null;
+    return siblings.reduce((a, b) =>
+      this.nodeTimestamp(a) >= this.nodeTimestamp(b) ? a : b
+    );
+  }
+
   getActiveChild(parentId: string | null): ChatNode | null {
     const siblings = this.getChildren(parentId);
     if (siblings.length === 0) return null;
 
     const activeId = this.getActiveChildId(parentId);
     const found = siblings.find(s => s.id === activeId);
-    return found ?? siblings[0];          // fallback to first
+    return found ?? this.newestChild(parentId);
   }
 
   /** Linear path from root following the active-child map */
@@ -573,12 +644,11 @@ export class ChatService {
     return path;
   }
 
-  /** Children of a node (direct) */
+
   getChildren(parentId: string | null): ChatNode[] {
     return this._nodes().filter(n =>
       (n.parentId ?? null) === (parentId ?? null) &&
-      // for answers we usually only care about current versions
-      (n.type === 'question' || n.isCurrent)
+      n.isCurrent
     );
   }
 
@@ -595,5 +665,82 @@ export class ChatService {
       this.selectChat(saved);
     }
   }
+
+  private ensuringDraft = false;
+
+  isDraftQuestion(node: ChatNode): boolean {
+    return node.type === 'question'
+      && !node.content?.trim()
+      && !(node.attachments?.length);
+  }
+
+  async persistQuestion(
+    chatId: string,
+    nodeId: string,
+    content: string,
+    attachments?: NodeAttachment[],
+    modelId?: string,
+    providerId?: string
+  ): Promise<ChatNode> {
+    const node = await this.api.patchNode(chatId, nodeId, {
+      content,
+      attachments,
+      modelId,
+      providerId
+    });
+    this._nodes.update(list => list.map(n => (n.id === nodeId ? { ...n, ...node } : n)));
+    return this._nodes().find(n => n.id === nodeId) ?? node;
+  }
+
+  /**
+   * Guarantee the active path ends on an empty question the user can type into.
+   * - empty chat → root draft question
+   * - leaf answer with generated text and no child question → child draft
+   */
+  async ensureDraftAtLeaf(chatId: string): Promise<void> {
+    if (!chatId || this.ensuringDraft || this.generatingNodeId()) return;
+
+    const leaf = this.getActivePath().at(-1) ?? null;
+
+    if (!leaf) {
+      this.ensuringDraft = true;
+      try {
+        const draft = await this.addNode(chatId, {
+          parentId: null,
+          type: 'question',
+          content: ''
+        });
+        this.setActiveChild(null, draft.id);
+      } finally {
+        this.ensuringDraft = false;
+      }
+      return;
+    }
+
+    if (leaf.type !== 'answer') return;
+    if (!leaf.content?.trim()) return;
+
+    const existing = this.getChildren(leaf.id).filter(n => n.type === 'question');
+    if (existing.length > 0) {
+      const draft = existing.find(n => this.isDraftQuestion(n)) ?? existing[0];
+      this.setActiveChild(leaf.id, draft.id);
+      return;
+    }
+
+    this.ensuringDraft = true;
+    try {
+      const draft = await this.addNode(chatId, {
+        parentId: leaf.id,
+        type: 'question',
+        content: '',
+        modelId: leaf.modelId || undefined,
+        providerId: leaf.providerId || undefined
+      });
+      this.setActiveChild(leaf.id, draft.id);
+    } finally {
+      this.ensuringDraft = false;
+    }
+  }
+
 
 }

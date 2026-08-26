@@ -96,12 +96,44 @@ export class ChatApiService {
     );
   }
 
+  editQuestion(
+    chatId: string,
+    nodeId: string,
+    content: string,
+    attachments?: NodeAttachment[]
+  ): Promise<ChatNode> {
+    const body: any = { content };
+    if (attachments !== undefined) body.attachments = attachments;
+
+    return firstValueFrom(
+      this.http.post<ChatNode>(
+        this.api(`/chats/${chatId}/nodes/${nodeId}/edit-question`),
+        body
+      )
+    );
+  }
+
   branchQuestion(chatId: string, nodeId: string, data: BranchQuestionRequest): Promise<ChatNode> {
     return firstValueFrom(
       this.http.post<ChatNode>(
         this.api(`/chats/${chatId}/nodes/${nodeId}/branch-question`),
         data
       )
+    );
+  }
+
+  patchNode(
+    chatId: string,
+    nodeId: string,
+    data: {
+      content?: string;
+      attachments?: NodeAttachment[];
+      modelId?: string;
+      providerId?: string;
+    }
+  ): Promise<ChatNode> {
+    return firstValueFrom(
+      this.http.patch<ChatNode>(this.api(`/chats/${chatId}/nodes/${nodeId}`), data)
     );
   }
 

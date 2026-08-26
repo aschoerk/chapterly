@@ -1,13 +1,13 @@
 import {
   Component, inject, input, output, signal, effect,
-  viewChild, ElementRef, afterNextRender
+  viewChild, ElementRef
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ChatService } from '../../core/chat.service';
 import { SettingsService } from '../../core/settings.service';
-import {ChatNode, NodeAttachment, ChatMessage } from '../../models/chat';
-import { MarkdownService} from '../../core/markdown.service';
+import { ChatNode, NodeAttachment, ChatMessage } from '../../models/chat';
+import { MarkdownService } from '../../core/markdown.service';
 
 @Component({
   selector: 'app-chat-node',
@@ -18,39 +18,29 @@ import { MarkdownService} from '../../core/markdown.service';
 })
 export class ChatNodeComponent {
   private readonly settings = inject(SettingsService);
-  public readonly  markdownService = inject(MarkdownService);
+  public readonly markdownService = inject(MarkdownService);
   readonly chatService = inject(ChatService);
 
-  /** The node this component renders */
   readonly node = input.required<ChatNode>();
-// ---------- Attachment state for edit / branch ----------
-  readonly editAttachments = signal<NodeAttachment[]>([]);
-  readonly isEditorDragOver = signal(false);
-
-  private readonly MAX_ATTACHMENT_BYTES = 4_000_000;
-
-  /**
-   * Currently active sibling id for this node's parent.
-   * Used only for the branch switcher UI.
-   */
   readonly activeChildId = input<string | null>(null);
-
-  /** Emitted when the user switches to another sibling branch */
   readonly activate = output<string>();
 
-  // ---- local UI state (owned by the node) ----
-  readonly isContentEditing = signal(false);
+  readonly editAttachments = signal<NodeAttachment[]>([]);
+  readonly isEditorDragOver = signal(false);
+  private readonly MAX_ATTACHMENT_BYTES = 4_000_000;
+
+  readonly isEditing = signal(false);
   readonly contentDraft = signal('');
-
-  readonly isBranching = signal(false);
-  readonly branchContent = signal('');
   readonly branchModelId = signal('');
-
   readonly isLoading = signal(false);
-
+  readonly pendingAction = signal<'version' | 'branch' | 'send' | 'continue' | null>(null);
+  readonly showPreview = signal(false);
+  /** Set by Cancel so auto-open does not immediately re-enter edit. */
+  readonly editDismissed = signal(false);
   readonly enabledModels = this.settings.enabledModels;
 
-  // ---- derived helpers for the branch switcher ----
+  private readonly editArea = viewChild<ElementRef<HTMLTextAreaElement>>('editArea');
+
   get siblings(): ChatNode[] {
     return this.chatService.getChildren(this.node().parentId);
   }
@@ -71,40 +61,136 @@ export class ChatNodeComponent {
     };
   }
 
-  // ---- actions ----
-// Reference to the editing textarea
-  private readonly editArea = viewChild<ElementRef<HTMLTextAreaElement>>('editArea');
+  isDraftEmpty(): boolean {
+    return !this.contentDraft().trim() && this.editAttachments().length === 0;
+  }
 
-// Add this signal
-  readonly showPreview = signal(false);
+  /** Question that has not produced an answer yet — the in-thread composer. */
+  isUnsentQuestion(): boolean {
+    const n = this.node();
+    if (n.type !== 'question') return false;
+    return !this.chatService.getChildren(n.id).some(child => child.type === 'answer');
+  }
 
-// Optional helper if you want to reset preview when closing
+  /** Last node on the active path (no current children). */
+  isLeafNode(): boolean {
+    return this.chatService.getChildren(this.node().id).length === 0;
+  }
 
-  /** Auto-resize the textarea to fit its content */
   resizeTextarea(): void {
     const textarea = this.editArea()?.nativeElement;
     if (!textarea) return;
-
     textarea.style.height = 'auto';
-
-    const maxHeight = window.innerHeight * 0.80;   // 80 % of screen height
-    const contentHeight = textarea.scrollHeight + 4;
-
-    textarea.style.height = `${Math.min(contentHeight, maxHeight)}px`;
+    const maxHeight = window.innerHeight * 0.55;
+    textarea.style.height = `${Math.min(textarea.scrollHeight + 4, maxHeight)}px`;
   }
 
-  async saveInlineEdit(): Promise<void> {
+  private scheduleResize(): void {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        this.resizeTextarea();
+        this.editArea()?.nativeElement?.focus();
+      });
+    });
+  }
+
+  onContentClick(event: MouseEvent): void {
+    const target = event.target as HTMLElement | null;
+    if (target?.closest('a, button, input, textarea, .chip, .file-link')) {
+      return;
+    }
+    const selection = window.getSelection();
+    if (selection && selection.toString().trim().length > 0) {
+      return;
+    }
+    if (this.chatService.isGenerating(this.node().id)) {
+      return;
+    }
+    this.startEdit();
+  }
+
+  startEdit(): void {
+    if (this.isEditing()) return;
+    const n = this.node();
+    this.editDismissed.set(false);
+    this.contentDraft.set(n.content || '');
+    this.editAttachments.set([...(n.attachments || [])]);
+    this.branchModelId.set(this.resolvePreferredModelId(n));
+    this.pendingAction.set(null);
+    this.isEditing.set(true);
+    this.scheduleResize();
+  }
+
+  /**
+   * Model shown in the question listbox:
+   * 1. already-queried question → the LLM that produced its answer
+   * 2. else project.defaultModelId, if the chat belongs to a project
+   * 3. else defaultModelId of a topic that contains that project
+   * 4. else first enabled model (last-resort fallback)
+   */
+  resolvePreferredModelId(node: ChatNode): string {
+    const models = this.enabledModels();
+    const match = (ref?: string | null) =>
+      models.find(m => !!ref && (m.id === ref || m.modelId === ref));
+
+    const queried = node.type === 'question' &&
+      this.chatService.getChildren(node.id).some(c => c.type === 'answer');
+
+    if (queried) {
+      const fromQuestion = match(node.modelId);
+      if (fromQuestion) return fromQuestion.modelId;
+
+      const currentAnswer = this.chatService.getChildren(node.id)
+          .find(c => c.type === 'answer' && c.isCurrent)
+        ?? this.chatService.getChildren(node.id).find(c => c.type === 'answer');
+      const fromAnswer = match(currentAnswer?.modelId);
+      if (fromAnswer) return fromAnswer.modelId;
+    }
+
+    const chatId = node.chatId || this.chatService.currentChatId();
+    const chat = this.chatService.chats().find(c => c.id === chatId);
+    const project = this.chatService.getProject(chat?.projectId ?? null);
+
+    const fromProject = match(project?.defaultModelId);
+    if (fromProject) return fromProject.modelId;
+
+    if (project) {
+      const topics = this.chatService.topics().filter(t =>
+        Array.isArray(t.projectIds) && t.projectIds.includes(project.id)
+      );
+      for (const topic of topics) {
+        const fromTopic = match(topic.defaultModelId);
+        if (fromTopic) return fromTopic.modelId;
+      }
+    }
+
+    return models[0]?.modelId || '';
+  }
+
+  cancelEdit(): void {
+    this.editDismissed.set(true);
+    this.pendingAction.set(null);
+    this.showPreview.set(false);
+    this.isEditing.set(false);
+    this.contentDraft.set('');
+    this.editAttachments.set([]);
+  }
+
+  /**
+   * OK — persist as a new version of this node. Does not call the LLM.
+   * Answers use /edit-answer. Questions use /edit-question (see patches).
+   */
+  async saveAsVersion(): Promise<void> {
     const node = this.node();
     const newContent = this.contentDraft().trim();
     const attachments = this.editAttachments();
 
-    // nothing changed (text and attachments identical) → just close
     const attachmentsUnchanged =
       JSON.stringify(attachments) === JSON.stringify(node.attachments || []);
 
     if ((!newContent && attachments.length === 0) ||
       (newContent === node.content && attachmentsUnchanged)) {
-      this.cancelInlineEdit();
+      this.cancelEdit();
       return;
     }
 
@@ -112,56 +198,62 @@ export class ChatNodeComponent {
     if (!chatId) return;
 
     this.isLoading.set(true);
+    this.pendingAction.set('version');
     try {
+      let saved: ChatNode;
       if (node.type === 'answer') {
-        // create a new version of the answer, carrying the current attachments
-        await this.chatService.editAnswer(
+        saved = await this.chatService.editAnswer(
           chatId,
           node.id,
           newContent,
           attachments
         );
       } else {
-        // Questions currently create a branch (safer than overwrite)
-        await this.chatService.branchQuestion(
+        saved = await this.chatService.editQuestion(
           chatId,
           node.id,
           newContent,
-          node.modelId || undefined,
-          node.providerId || undefined,
           attachments
         );
       }
-      this.cancelInlineEdit();
+      this.activate.emit(saved.id);
+      this.cancelEdit();
     } catch (err: any) {
       console.error(err);
       alert('Save failed: ' + (err?.message || err));
     } finally {
       this.isLoading.set(false);
+      this.pendingAction.set(null);
     }
   }
 
-  private scheduleResize(): void {
-    // Two animation frames = after Angular has rendered + browser has laid out
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => this.resizeTextarea());
-    });
+  /**
+   * Empty leaf question: put “continue” in the draft, pin the default LLM,
+   * and send. Same path as Send, no extra branch.
+   */
+  async continueDraft(): Promise<void> {
+    if (!this.isUnsentQuestion() || this.isLoading()) return;
+    this.contentDraft.set('continue');
+    this.editAttachments.set([]);
+    this.branchModelId.set(this.resolvePreferredModelId(this.node()));
+    this.pendingAction.set('continue');
+    await this.sendDraft();
   }
 
-
-
-  async submitBranch(): Promise<void> {
+  /**
+   * Send an unsent question (the in-thread composer).
+   * Writes the draft onto this same node, then streams the answer.
+   */
+  async sendDraft(): Promise<void> {
     const node = this.node();
-    const content = this.branchContent().trim();
+    const content = this.contentDraft().trim();
     const attachments = this.editAttachments();
-
-    // allow send when there is text OR at least one attachment
     if (!content && attachments.length === 0) return;
 
     const chatId = this.chatService.currentChatId();
     if (!chatId) return;
 
-    const modelId = this.branchModelId();
+    const modelId = this.branchModelId() || this.resolvePreferredModelId(node);
     const model = this.enabledModels().find(
       m => m.modelId === modelId || m.id === modelId
     );
@@ -177,32 +269,121 @@ export class ChatNodeComponent {
     }
 
     this.isLoading.set(true);
+    if (this.pendingAction() !== 'continue') {
+      this.pendingAction.set('send');
+    }
     try {
-      // 1. Create the new branched question (with attachments)
-      const newQuestion = await this.chatService.branchQuestion(
+      const saved = await this.chatService.persistQuestion(
         chatId,
         node.id,
         content,
+        attachments,
         model.modelId,
-        model.providerId,
-        attachments
+        model.providerId
       );
 
-      // 2. Activate immediately (while this component is still alive)
-      this.activate.emit(newQuestion.id);
+      this.activate.emit(saved.id);
 
-      // 3. Close the editor UI early
-      this.cancelBranch();
+      if (!node.parentId) {
+        const firstLine = content
+          ? content.split('\n')[0].trim().slice(0, 80)
+          : (attachments[0]?.name ?? '');
+        if (firstLine && this.chatService.chats().find(c => c.id === chatId)?.title === 'New Chat') {
+          await this.chatService.updateChatTitle(chatId, firstLine);
+        }
+      }
 
-      // 4. Build context up to the parent, then add the new question
-      //    with proper multimodal content (images → image_url parts)
-      const contextMessages = this.buildContextMessagesUpTo(node.parentId);
+      const contextMessages = this.buildContextMessagesUpTo(saved.parentId);
+      contextMessages.push({
+        role: 'user',
+        content: this.nodeToMessageContent({ ...saved, content, attachments })
+      });
+
+      this.cancelEdit();
+
+      await this.chatService.streamAnswer(
+        chatId,
+        saved.id,
+        provider,
+        model,
+        contextMessages
+      );
+    } catch (err: any) {
+      console.error(err);
+      alert('Failed: ' + (err?.message || err));
+    } finally {
+      this.isLoading.set(false);
+      this.pendingAction.set(null);
+    }
+  }
+
+  /**
+   * Branch — create a new sibling question (a new leaf) and stream an answer.
+   *
+   * - From a question: sibling under the same parent.
+   * - From an answer: new question whose parent is this answer
+   *   (continues the thread from this point).
+   */
+  async saveAsBranchAndSend(): Promise<void> {
+    const node = this.node();
+    const content = this.contentDraft().trim();
+    const attachments = this.editAttachments();
+    if (!content && attachments.length === 0) return;
+
+    const chatId = this.chatService.currentChatId();
+    if (!chatId) return;
+
+    const modelId = this.branchModelId() || this.resolvePreferredModelId(node);
+    const model = this.enabledModels().find(
+      m => m.modelId === modelId || m.id === modelId
+    );
+    if (!model) {
+      alert('Selected model not found');
+      return;
+    }
+
+    const provider = this.settings.providers().find(p => p.id === model.providerId);
+    if (!provider) {
+      alert('Provider not found');
+      return;
+    }
+
+    this.isLoading.set(true);
+    this.pendingAction.set('branch');
+    try {
+      let newQuestion: ChatNode;
+
+      if (node.type === 'question') {
+        newQuestion = await this.chatService.branchQuestion(
+          chatId,
+          node.id,
+          content,
+          model.modelId,
+          model.providerId,
+          attachments
+        );
+        this.activate.emit(newQuestion.id);
+      } else {
+        newQuestion = await this.chatService.addNode(chatId, {
+          parentId: node.id,
+          type: 'question',
+          content,
+          modelId: model.modelId,
+          providerId: model.providerId,
+          attachments
+        });
+        this.activate.emit(newQuestion.id);
+      }
+
+      const contextParentId = node.type === 'question' ? node.parentId : node.id;
+      const contextMessages = this.buildContextMessagesUpTo(contextParentId);
       contextMessages.push({
         role: 'user',
         content: this.nodeToMessageContent(newQuestion)
       });
 
-      // 5. Stream the answer
+      this.cancelEdit();
+
       await this.chatService.streamAnswer(
         chatId,
         newQuestion.id,
@@ -215,21 +396,73 @@ export class ChatNodeComponent {
       alert('Failed: ' + (err?.message || err));
     } finally {
       this.isLoading.set(false);
+      this.pendingAction.set(null);
     }
   }
 
   async deleteNode(): Promise<void> {
-    if (!confirm('Delete this question and all its answers/branches?')) return;
+    const node = this.node();
+    const subtree = this.collectSubtree(node.id);
+    const nonTrivial = subtree.filter(n => !this.isTrivialNode(n));
+
+    if (nonTrivial.length > 0) {
+      const extra = subtree.length - 1;
+      const msg = extra > 0
+        ? `Delete this ${node.type} and its ${extra} descendant(s)? ${nonTrivial.length} node(s) have content.`
+        : `Delete this ${node.type}? It has content.`;
+      if (!confirm(msg)) return;
+    }
 
     const chatId = this.chatService.currentChatId();
     if (!chatId) return;
 
+    const parentId = node.parentId;
+
     try {
-      await this.chatService.deleteNode(chatId, this.node().id);
+      await this.chatService.deleteNode(chatId, node.id);
+
+      const remaining = parentId
+        ? this.chatService.getChildren(parentId)
+        : this.chatService.getChildren(null);
+      if (remaining.length > 0) {
+        const newest = remaining.reduce((a, b) =>
+          this.nodeTimestamp(a) >= this.nodeTimestamp(b) ? a : b
+        );
+        this.activate.emit(newest.id);
+      }
+
+      const ensure = (this.chatService as any).ensureDraftAtLeaf;
+      if (typeof ensure === 'function') {
+        await ensure.call(this.chatService, chatId);
+      }
     } catch (err: any) {
       console.error(err);
       alert('Failed to delete: ' + (err?.message || err));
     }
+  }
+
+  private isTrivialNode(n: ChatNode): boolean {
+    const emptyText = !n.content?.trim();
+    const noFiles = !(n.attachments && n.attachments.length);
+    return emptyText && noFiles;
+  }
+
+  private nodeTimestamp(n: ChatNode): number {
+    const raw = n.updatedAt || n.createdAt || '';
+    const t = Date.parse(raw);
+    return Number.isFinite(t) ? t : 0;
+  }
+
+  private collectSubtree(rootId: string): ChatNode[] {
+    const all = this.chatService.nodes();
+    const result: ChatNode[] = [];
+    const walk = (id: string) => {
+      const n = all.find(x => x.id === id);
+      if (n) result.push(n);
+      all.filter(x => x.parentId === id).forEach(child => walk(child.id));
+    };
+    walk(rootId);
+    return result;
   }
 
   prevSibling(): void {
@@ -252,11 +485,6 @@ export class ChatNodeComponent {
     this.activate.emit(next.id);
   }
 
-
-  /**
-   * Builds OpenAI-style messages from root down to the given parentId (inclusive).
-   * Relies on ChatService.getPathToNode if available.
-   */
   private buildContextMessagesUpTo(parentId: string | null): ChatMessage[] {
     if (!parentId) return [];
 
@@ -286,10 +514,23 @@ export class ChatNodeComponent {
   readonly renderedHtml = signal('');
 
   constructor() {
-    // Automatically re-render whenever the node content changes
     effect(() => {
       const content = this.node().content;
       this.updateRendered(content);
+    });
+
+    // Leaf questions open ready to type / edit, unless the user just cancelled.
+    effect(() => {
+      const n = this.node();
+      if (
+        n.type === 'question' &&
+        this.isLeafNode() &&
+        !this.isEditing() &&
+        !this.editDismissed() &&
+        !this.chatService.isGenerating(n.id)
+      ) {
+        this.startEdit();
+      }
     });
   }
 
@@ -305,18 +546,11 @@ export class ChatNodeComponent {
 
     try {
       await navigator.clipboard.writeText(content);
-
       this.copied.set(true);
-
-      // Reset the button text after 1.5 seconds
       clearTimeout(this.copyTimeout);
-      this.copyTimeout = setTimeout(() => {
-        this.copied.set(false);
-      }, 1500);
+      this.copyTimeout = setTimeout(() => this.copied.set(false), 1500);
     } catch (err) {
       console.error('Failed to copy:', err);
-
-      // Fallback for older environments
       const textarea = document.createElement('textarea');
       textarea.value = content;
       textarea.style.position = 'fixed';
@@ -328,7 +562,7 @@ export class ChatNodeComponent {
         this.copied.set(true);
         clearTimeout(this.copyTimeout);
         this.copyTimeout = setTimeout(() => this.copied.set(false), 1500);
-      } catch (e) {
+      } catch {
         alert('Copy failed');
       }
       document.body.removeChild(textarea);
@@ -338,40 +572,6 @@ export class ChatNodeComponent {
   stopGeneration(): void {
     this.chatService.stopGeneration();
   }
-
-
-  // ---------- Start edit / branch (seed attachments) ----------
-
-  startInlineEdit() {
-    const n = this.node();
-    this.contentDraft.set(n.content || '');
-    this.editAttachments.set([...(n.attachments || [])]); // copy
-    this.isContentEditing.set(true);
-    this.scheduleResize();
-  }
-
-  startBranch() {
-    const n = this.node();
-    this.branchContent.set(n.content || '');
-    this.branchModelId.set(n.modelId || this.enabledModels()[0]?.modelId || '');
-    this.editAttachments.set([...(n.attachments || [])]); // start with a copy
-    this.isBranching.set(true);
-    this.scheduleResize();
-  }
-
-  cancelInlineEdit() {
-    this.isContentEditing.set(false);
-    this.contentDraft.set('');
-    this.editAttachments.set([]);
-  }
-
-  cancelBranch() {
-    this.isBranching.set(false);
-    this.branchContent.set('');
-    this.editAttachments.set([]);
-  }
-
-  // ---------- Shared file helpers (same as in chat.component) ----------
 
   private readAsDataURL(file: File): Promise<string> {
     return new Promise((resolve, reject) => {
@@ -440,12 +640,6 @@ export class ChatNodeComponent {
     window.open(dataUrl, '_blank');
   }
 
-  /**
-   * Convert a single node into the content that goes into an OpenAI-style message.
-   * - No attachments  → plain string
-   * - With images     → array of {type:'text'} + {type:'image_url'} parts
-   * - Other files     → listed in the text part
-   */
   private nodeToMessageContent(
     node: ChatNode
   ): string | Array<{ type: string; text?: string; image_url?: { url: string } }> {
@@ -455,11 +649,10 @@ export class ChatNodeComponent {
     }
 
     const images = attachments.filter(a => a.mimeType?.startsWith('image/'));
-    const other  = attachments.filter(a => !a.mimeType?.startsWith('image/'));
+    const other = attachments.filter(a => !a.mimeType?.startsWith('image/'));
 
     const parts: Array<{ type: string; text?: string; image_url?: { url: string } }> = [];
 
-    // text part (original content + list of non-image files)
     let text = node.content || '';
     if (other.length) {
       text +=
@@ -471,7 +664,6 @@ export class ChatNodeComponent {
       parts.push({ type: 'text', text });
     }
 
-    // image parts
     for (const img of images) {
       parts.push({
         type: 'image_url',
@@ -479,7 +671,6 @@ export class ChatNodeComponent {
       });
     }
 
-    // if we only produced a single text part, keep the simple string form
     if (parts.length === 1 && parts[0].type === 'text') {
       return parts[0].text!;
     }

@@ -30,7 +30,9 @@ if (!fs.existsSync(dataDir)) {
 }
 
 const dbPath = path.join(dataDir, 'chat.db');
-const db = new Database(dbPath);
+const db = new Database(dbPath,{
+  verbose: (sql) => console.log(`[SQL ${new Date().toISOString()}] ${sql}`)
+});
 
 // Better performance and less locking issues
 db.pragma('journal_mode = WAL');

@@ -1,4 +1,4 @@
-import { Component, inject, OnInit, signal } from '@angular/core';
+import { Component, effect, inject, OnInit, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ChatService } from '../../core/chat.service';
@@ -33,111 +33,23 @@ export class ChatComponent implements OnInit {
 
   readonly enabledModels = this.settings.enabledModels;
 
-  // ---------- Attachment state (composer) ----------
-  readonly pendingAttachments = signal<NodeAttachment[]>([]);
-  readonly isDragOver = signal(false);
-
-  private readonly MAX_ATTACHMENT_BYTES = 4_000_000;
-
   async ngOnInit() {
     await this.chatService.loadChats();
     await this.settings.loadAll();
   }
 
-  // ------------------------------------------------------------------
-  // Root question (composer)
-  // ------------------------------------------------------------------
-
-  // ---------- Send root question (adapted) ----------
-
-  async addRootQuestion() {
-    const chatId = this.currentChatId();
-    const content = this.newQuestion().trim();
-    const attachments = this.pendingAttachments();
-    const selectedId = this.lastModelService.selectedModelId();
-
-    // allow send when there is text OR at least one attachment
-    if (!chatId || (!content && attachments.length === 0) || !selectedId) return;
-
-    const model = this.enabledModels().find(
-      m => m.id === selectedId || m.modelId === selectedId
-    );
-    if (!model) {
-      alert('Selected model not found');
-      return;
-    }
-
-    this.lastModelService.saveLastUsedModel(model.id);
-    this.lastModelService.setSelectedModel(model.id);
-
-    const provider = this.settings.providers().find(p => p.id === model.providerId);
-    if (!provider) {
-      alert('Provider not found');
-      return;
-    }
-
-    const leaf = this.getCurrentLeaf();
-    const parentId = leaf ? leaf.id : null;
-
-    this.isLoading.set(true);
-    try {
-      // 1. Create the question node (now with attachments)
-      const questionNode = await this.chatService.addNode(chatId, {
-        parentId,
-        type: 'question',
-        content,
-        modelId: model.modelId,
-        providerId: model.providerId,
-        attachments                                // ← new
+  constructor() {
+    effect(() => {
+      const chatId = this.currentChatId();
+      const generating = this.chatService.generatingNodeId();
+      // re-run when the tree or the active path changes
+      this.chatService.currentNodes();
+      this.chatService.getActivePath();
+      if (!chatId || generating) return;
+      queueMicrotask(() => {
+        void this.chatService.ensureDraftAtLeaf(chatId);
       });
-
-      // Auto-title for new chats (use text if present, otherwise first file name)
-      if (parentId === null) {
-        const firstLine = content
-          ? content.split('\n')[0].trim().slice(0, 80)
-          : (attachments[0]?.name ?? 'New chat');
-        if (firstLine) {
-          await this.chatService.updateChatTitle(chatId, firstLine);
-        }
-      }
-
-      this.setActiveChild(parentId, questionNode.id);
-
-      // clear composer
-      this.newQuestion.set('');
-      this.pendingAttachments.set([]);             // ← clear chips
-
-      // 2. Build context (already includes the new question via the active path,
-      //    or we push it explicitly with multimodal content)
-      const contextMessages = this.buildContextMessages();
-
-      // If buildContextMessages stops before the node we just created,
-      // push it explicitly with proper multimodal content:
-      contextMessages.push({
-        role: 'user',
-        content: this.nodeToMessageContent(questionNode)   // ← handles images
-      });
-
-      // 3. Stream the answer
-      await this.chatService.streamAnswer(
-        chatId,
-        questionNode.id,
-        provider,
-        model,
-        contextMessages
-      );
-
-      // Activate the latest answer
-      const answers = this.chatService.getChildren(questionNode.id);
-      if (answers.length > 0) {
-        this.setActiveChild(questionNode.id, answers[answers.length - 1].id);
-      }
-    } catch (err: any) {
-      console.error(err);
-      alert('Failed to get answer: ' + (err?.message || err));
-    } finally {
-      this.isLoading.set(false);
-    }
+    });
   }
 
 
@@ -265,70 +177,7 @@ export class ChatComponent implements OnInit {
 
     return messages;
   }
-  // ---------- File helpers ----------
 
-  private readAsDataURL(file: File): Promise<string> {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result as string);
-      reader.onerror = () => reject(new Error('Failed to read file'));
-      reader.readAsDataURL(file);
-    });
-  }
-
-  private async filesToAttachments(files: FileList | File[]): Promise<NodeAttachment[]> {
-    const result: NodeAttachment[] = [];
-    for (const file of Array.from(files)) {
-      if (file.size > this.MAX_ATTACHMENT_BYTES) {
-        alert(`${file.name} is too large (max 4 MB)`);
-        continue;
-      }
-      const dataUrl = await this.readAsDataURL(file);
-      result.push({
-        id: crypto.randomUUID(),
-        name: file.name,
-        mimeType: file.type || 'application/octet-stream',
-        size: file.size,
-        dataUrl
-      });
-    }
-    return result;
-  }
-
-  async onComposerFilesSelected(event: Event) {
-    const input = event.target as HTMLInputElement;
-    if (!input.files?.length) return;
-    const added = await this.filesToAttachments(input.files);
-    this.pendingAttachments.update(list => [...list, ...added]);
-    input.value = '';
-  }
-
-  onComposerDragOver(event: DragEvent) {
-    event.preventDefault();
-    event.stopPropagation();
-    this.isDragOver.set(true);
-  }
-
-  onComposerDragLeave(event: DragEvent) {
-    event.preventDefault();
-    event.stopPropagation();
-    this.isDragOver.set(false);
-  }
-
-  async onComposerDrop(event: DragEvent) {
-    event.preventDefault();
-    event.stopPropagation();
-    this.isDragOver.set(false);
-    const files = event.dataTransfer?.files;
-    if (files?.length) {
-      const added = await this.filesToAttachments(files);
-      this.pendingAttachments.update(list => [...list, ...added]);
-    }
-  }
-
-  removePendingAttachment(id: string) {
-    this.pendingAttachments.update(list => list.filter(a => a.id !== id));
-  }
 
 
   // remove local activeChildMap / getActivePath / setActiveChild …
