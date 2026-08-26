@@ -18,6 +18,7 @@ const options = {
       { name: 'Providers', description: 'AI provider configuration' },
       { name: 'Models', description: 'Available models and presets' },
       { name: 'Chats', description: 'Chat management' },
+      { name: 'Topics', description: 'Topic / grouping management for projects' },
       { name: 'Nodes', description: 'Chat nodes (questions & answers)' },
       { name: 'Projects', description: 'Project / workspace management' },
       { name: 'Personas', description: 'Reusable personas / characters for chats' }
@@ -111,6 +112,38 @@ const options = {
             }
           }
         },
+        NodeAttachment: {
+          type: 'object',
+          required: ['id', 'name', 'mimeType', 'size', 'dataUrl'],
+          properties: {
+            id: {
+              type: 'string',
+              format: 'uuid',
+              description: 'Local unique id of the attachment'
+            },
+            name: {
+              type: 'string',
+              description: 'Original filename',
+              example: 'screenshot.png'
+            },
+            mimeType: {
+              type: 'string',
+              description: 'MIME type of the file',
+              example: 'image/png'
+            },
+            size: {
+              type: 'integer',
+              description: 'File size in bytes',
+              example: 245760
+            },
+            dataUrl: {
+              type: 'string',
+              description: 'Full data-URL (data:…;base64,…)',
+              example: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA...'
+            }
+          }
+        },
+
         ChatNode: {
           type: 'object',
           properties: {
@@ -162,6 +195,22 @@ const options = {
               type: 'string',
               format: 'date-time',
               nullable: true
+            },
+            promptTokens: {
+              type: 'integer',
+              nullable: true
+            },
+            completionTokens: {
+              type: 'integer',
+              nullable: true
+            },
+            attachments: {
+              type: 'array',
+              description: 'Optional file attachments belonging to this node',
+              items: {
+                $ref: '#/components/schemas/NodeAttachment'
+              },
+              default: []
             }
           }
         },

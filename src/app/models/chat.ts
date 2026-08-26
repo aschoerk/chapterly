@@ -32,6 +32,14 @@ export interface Chat {
   updated_at: string;
 }
 
+export interface NodeAttachment {
+  id: string;           // local uuid
+  name: string;         // original filename
+  mimeType: string;     // e.g. "image/png", "application/pdf"
+  size: number;         // bytes
+  dataUrl: string;      // data:…;base64,…  (kept for images & small files)
+}
+
 export interface ChatNode {
   id: string;
   chatId: string;
@@ -47,6 +55,7 @@ export interface ChatNode {
   updatedAt?: string | null;
   promptTokens?: number | null;
   completionTokens?: number | null;
+  attachments?: NodeAttachment[];
 }
 
 export interface CreateNodeRequest {
@@ -55,6 +64,7 @@ export interface CreateNodeRequest {
   content: string;
   modelId?: string;
   providerId?: string;
+  attachments?: NodeAttachment[];
 }
 
 export interface Persona {
@@ -66,3 +76,16 @@ export interface Persona {
   createdAt: string;
   updatedAt: string;
 }
+
+/** Multimodal content accepted by modern chat APIs */
+type MessageContent =
+  | string
+  | Array<{ type: string; text?: string; image_url?: { url: string } }>;
+
+export interface ChatMessage {
+  role: 'system' | 'user' | 'assistant';
+  content: MessageContent;
+}
+
+
+

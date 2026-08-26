@@ -13,7 +13,8 @@
 
         @if (currentChatId()) {
           <chat-title-editor></chat-title-editor>
-          @if (currentChatId() && getActivePath().length > 0) {
+
+          @if (getActivePath().length > 0) {
             <div class="node-nav-bar">
               <div class="nav-path">
                 @for (node of getActivePath(); track node.id; let i = $index) {
@@ -27,11 +28,10 @@
 
                     <span class="nav-badge">{{ node.type === 'question' ? 'Q' : 'A' }}</span>
 
-                    <!-- Branch indicator when siblings exist -->
-                    @if (getSiblings(node.parentId).length > 1) {
+                    @if (getChildren(node.parentId).length > 1) {
                       <span class="nav-branch-count">
-              {{ getSiblingIndex(node) }} / {{ getSiblings(node.parentId).length }}
-            </span>
+                        {{ getSiblingIndex(node) }} / {{ getChildren(node.parentId).length }}
+                      </span>
                     }
                   </button>
 
@@ -54,8 +54,30 @@
           }
         </div>
 
-        <!-- Composer -->
-        <div class="composer">
+        <!-- ========== Composer ========== -->
+        <div class="composer"
+             [class.drag-over]="isDragOver()"
+             (dragover)="onComposerDragOver($event)"
+             (dragleave)="onComposerDragLeave($event)"
+             (drop)="onComposerDrop($event)">
+
+          <!-- Pending attachments -->
+          @if (pendingAttachments().length) {
+            <div class="attachment-chips">
+              @for (a of pendingAttachments(); track a.id) {
+                <div class="chip">
+                  @if (a.mimeType.startsWith('image/')) {
+                    <img [src]="a.dataUrl" class="thumb" [alt]="a.name" />
+                  } @else {
+                    <span class="file-icon">📄</span>
+                  }
+                  <span class="name" [title]="a.name">{{ a.name }}</span>
+                  <button type="button" class="remove" (click)="removePendingAttachment(a.id)">×</button>
+                </div>
+              }
+            </div>
+          }
+
           <div class="composer-row">
             <select [ngModel]="selectedModelId()" (ngModelChange)="setSelectedModelId($event)">
               <option value="">Select model…</option>
@@ -67,17 +89,31 @@
 
           <textarea
             rows="3"
-            placeholder="Write your question… (Ctrl+Enter to send)"
+            placeholder="Write your question… (Ctrl+Enter to send, or drop files here)"
             [ngModel]="newQuestion()"
             (ngModelChange)="newQuestion.set($event)"
             (keydown.control.enter)="addRootQuestion()">
           </textarea>
 
           <div class="composer-actions">
-            <span class="hint">Ctrl + Enter to send</span>
+            <div class="left-actions">
+              <button class="btn-icon" type="button"
+                      title="Attach files"
+                      (click)="composerFileInput.click()">
+                📎
+              </button>
+              <input #composerFileInput
+                     type="file"
+                     multiple
+                     hidden
+                     accept="image/*,.pdf,.txt,.md,.json"
+                     (change)="onComposerFilesSelected($event)" />
+              <span class="hint">Ctrl + Enter to send</span>
+            </div>
+
             <button
               class="btn primary"
-              [disabled]="isLoading() || !newQuestion().trim() || !selectedModelId()"
+              [disabled]="isLoading() || (!newQuestion().trim() && !pendingAttachments().length) || !selectedModelId()"
               (click)="addRootQuestion()">
               {{ isLoading() ? 'Sending…' : 'Send question' }}
             </button>

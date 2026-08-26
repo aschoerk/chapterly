@@ -106,6 +106,7 @@ db.exec(`
     previous_version_id TEXT,
     prompt_tokens INTEGER,
     completion_tokens INTEGER,
+    attachments TEXT DEFAULT '[]',
     is_current INTEGER NOT NULL DEFAULT 1,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT,
@@ -144,10 +145,10 @@ db.exec(`
 
 
 try {
-  const projectCols = db.prepare(`PRAGMA table_info(projects)`).all().map(c => c.name);
-  if (!projectCols.includes('greeting')) {
-    db.exec(`ALTER TABLE projects ADD COLUMN greeting TEXT DEFAULT ''`);
-    console.log('Migrated projects table: added greeting');
+  const cols = db.prepare(`PRAGMA table_info(chat_nodes)`).all().map(c => c.name);
+  if (!cols.includes('attachments')) {
+    db.exec(`ALTER TABLE chat_nodes ADD COLUMN attachments TEXT DEFAULT '[]'`);
+    console.log('Migrated chat_nodes: added attachments');
   }
 } catch (e) {
   // ignore if already present or other issues

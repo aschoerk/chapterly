@@ -1,15 +1,30 @@
 import { Injectable, signal, computed, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
-import { firstValueFrom } from 'rxjs';
-import { Chat, ChatNode, CreateNodeRequest, Project, Persona, Topic } from '../models/chat';
+import { Chat, ChatNode, CreateNodeRequest, Project, Persona, Topic, ChatMessage, NodeAttachment } from '../models/chat';
+import { ChatApiService } from '../api/chat-api.service';
+import {
+  CreatePersonaRequest,
+  CreateProjectRequest,
+  CreateTopicRequest,
+  LlmChatMessage,
+  LlmNodeAttachment,
+  UpdatePersonaRequest,
+  UpdateProjectRequest,
+  UpdateTopicRequest
+} from '../api/chat-api.types';
 import { getServerConfig } from './server-config';
+import { firstValueFrom } from "rxjs";
+
+const LS_CHAT  = 'chat.currentChatId';
 
 @Injectable({
   providedIn: 'root'
 })
 export class ChatService {
+  private readonly api = inject(ChatApiService);
   private readonly http = inject(HttpClient);
   private readonly config = getServerConfig();
+
 
   private readonly _chats = signal<Chat[]>([]);
   private readonly _nodes = signal<ChatNode[]>([]);
@@ -64,43 +79,19 @@ export class ChatService {
   // ---------- Projects ----------
 
   async loadProjects(): Promise<void> {
-    const projects = await firstValueFrom(
-      this.http.get<Project[]>(`${this.config.apiBase}/projects`)
-    );
-    this._projects.set(projects);
+    this._projects.set(await this.api.getProjects());
   }
 
-  async createProject(data: {
-    name: string;
-    greeting: string;
-    systemPrompt?: string;
-    defaultModelId?: string | null;
-    avatar?: string;
-    personaIds?: string[];
-  }): Promise<Project> {
-    const project = await firstValueFrom(
-      this.http.post<Project>(`${this.config.apiBase}/projects`, data)
-    );
+  async createProject(data: CreateProjectRequest): Promise<Project> {
+    const project = await this.api.createProject(data);
     this._projects.update(list =>
       [...list, project].sort((a, b) => a.name.localeCompare(b.name))
     );
     return project;
   }
 
-  async updateProject(
-    id: string,
-    data: Partial<{
-      name: string;
-      greeting: string;
-      systemPrompt: string;
-      defaultModelId: string | null;
-      avatar: string;
-      personaIds: string[];
-    }>
-  ): Promise<Project> {
-    const project = await firstValueFrom(
-      this.http.put<Project>(`${this.config.apiBase}/projects/${id}`, data)
-    );
+  async updateProject(id: string, data: UpdateProjectRequest): Promise<Project> {
+    const project = await this.api.updateProject(id, data);
     this._projects.update(list =>
       list
         .map(p => (p.id === id ? project : p))
@@ -110,12 +101,7 @@ export class ChatService {
   }
 
   async deleteProject(id: string, deleteChats = false): Promise<void> {
-    const url = deleteChats
-      ? `${this.config.apiBase}/projects/${id}?deleteChats=true`
-      : `${this.config.apiBase}/projects/${id}`;
-
-    await firstValueFrom(this.http.delete(url));
-
+    await this.api.deleteProject(id, deleteChats);
     this._projects.update(list => list.filter(p => p.id !== id));
 
     if (deleteChats) {
@@ -135,24 +121,17 @@ export class ChatService {
   // ---------- Chats ----------
 
   async loadChats(): Promise<void> {
-    const chats = await firstValueFrom(
-      this.http.get<Chat[]>(`${this.config.apiBase}/chats`)
-    );
-    this._chats.set(chats);
+    this._chats.set(await this.api.getChats());
   }
 
   async createChat(title = 'New Chat', projectId: string | null = null): Promise<Chat> {
-    const chat = await firstValueFrom(
-      this.http.post<Chat>(`${this.config.apiBase}/chats`, { title, projectId })
-    );
+    const chat = await this.api.createChat(title, projectId);
     this._chats.update(list => [chat, ...list]);
     return chat;
   }
 
   async deleteChat(id: string): Promise<void> {
-    await firstValueFrom(
-      this.http.delete(`${this.config.apiBase}/chats/${id}`)
-    );
+    await this.api.deleteChat(id);
     this._chats.update(list => list.filter(c => c.id !== id));
 
     if (this._currentChatId() === id) {
@@ -162,9 +141,7 @@ export class ChatService {
   }
 
   async reassignChat(chatId: string, projectId: string | null): Promise<Chat> {
-    const chat = await firstValueFrom(
-      this.http.patch<Chat>(`${this.config.apiBase}/chats/${chatId}`, { projectId })
-    );
+    const chat = await this.api.patchChat(chatId, { projectId });
     this._chats.update(list =>
       list.map(c => (c.id === chatId ? chat : c))
     );
@@ -172,38 +149,35 @@ export class ChatService {
   }
 
   async selectChat(chatId: string): Promise<void> {
+    if (chatId) {
+      localStorage.setItem(LS_CHAT, chatId);
+    } else {
+      localStorage.removeItem(LS_CHAT);
+    }
     this._currentChatId.set(chatId);
+    this._activeChildMap.set({});          // reset path for the new chat
     await this.loadNodes(chatId);
   }
 
   // ---------- Nodes ----------
 
   async loadNodes(chatId: string): Promise<void> {
-    const nodes = await firstValueFrom(
-      this.http.get<ChatNode[]>(`${this.config.apiBase}/chats/${chatId}/nodes`)
-    );
-    this._nodes.set(nodes);
+    this._nodes.set(await this.api.getNodes(chatId));
   }
 
   async addNode(chatId: string, data: CreateNodeRequest): Promise<ChatNode> {
-    const node = await firstValueFrom(
-      this.http.post<ChatNode>(`${this.config.apiBase}/chats/${chatId}/nodes`, data)
-    );
+    const node = await this.api.createNode(chatId, data);
     this._nodes.update(list => [...list, node]);
     return node;
   }
 
-  /** Create a new version of an answer */
-  async editAnswer(chatId: string, nodeId: string, content: string): Promise<ChatNode> {
-    const node = await firstValueFrom(
-      this.http.post<ChatNode>(
-        `${this.config.apiBase}/chats/${chatId}/nodes/${nodeId}/edit-answer`,
-        { content }
-      )
-    );
+  async editAnswer(chatId: string, nodeId: string, content: string,
+                   attachments?: NodeAttachment[]): Promise<ChatNode> {
+    const body: any = { content };
+    const node = await this.api.editAnswer(chatId, nodeId, content, attachments);
 
     // Mark old version as not current locally and add the new one
-    this._nodes.update(list => {
+    this. _nodes.update(list => {
       const updated = list.map(n =>
         n.id === nodeId ? { ...n, isCurrent: false } : n
       );
@@ -219,47 +193,28 @@ export class ChatService {
     nodeId: string,
     content: string,
     modelId?: string,
-    providerId?: string
+    providerId?: string,
+    attachments?: NodeAttachment[]
   ): Promise<ChatNode> {
-    const node = await firstValueFrom(
-      this.http.post<ChatNode>(
-        `${this.config.apiBase}/chats/${chatId}/nodes/${nodeId}/branch-question`,
-        { content, modelId, providerId }
-      )
-    );
+    const body: any = { content, modelId, providerId };
+    if (attachments !== undefined) body.attachments = attachments;
+    const node = await this.api.branchQuestion(chatId, nodeId, {
+      content,
+      modelId,
+      providerId,
+      attachments
+    });
     this._nodes.update(list => [...list, node]);
     return node;
   }
 
-  // ---------- Helpers for the tree ----------
 
-  /** Returns the children of a node */
-  getChildren(nodeId: string | null): ChatNode[] {
-    return this.currentNodes()
-      .filter(n => n.parentId === nodeId && (n.type === 'question' || n.isCurrent))
-      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-  }
-
-  /** Returns the full path from root to a given node (only current answers) */
-  getPathToNode(nodeId: string): ChatNode[] {
-    const nodes = this.currentNodes();
-    const map = new Map(nodes.map(n => [n.id, n]));
-    const path: ChatNode[] = [];
-
-    let current = map.get(nodeId);
-    while (current) {
-      path.unshift(current);
-      current = current.parentId ? map.get(current.parentId) : undefined;
-    }
-
-    return path;
-  }
 
   async askLlm(
     providerBaseUrl: string,
     apiKey: string,
     modelId: string,
-    messages: { role: string; content: string }[],
+    messages: ChatMessage[],
     onChunk?: (chunk: string) => void,
     signal?: AbortSignal
   ): Promise<string> {
@@ -354,7 +309,7 @@ export class ChatService {
     questionNodeId: string,
     provider: { baseUrl: string; apiKey: string },
     model: { modelId: string; providerId: string },
-    messages: { role: string; content: string }[],
+    messages: ChatMessage[],
     onChunk?: (chunk: string) => void
   ): Promise<ChatNode> {
 
@@ -405,9 +360,7 @@ export class ChatService {
   }
 
   async deleteNode(chatId: string, nodeId: string): Promise<void> {
-    await firstValueFrom(
-      this.http.delete(`${this.config.apiBase}/chats/${chatId}/nodes/${nodeId}`)
-    );
+    await this.api.deleteNode(chatId, nodeId);
 
     // Remove the node and all its descendants from the local state
     this._nodes.update(list => {
@@ -424,9 +377,7 @@ export class ChatService {
   }
 
   async updateChatTitle(id: string, title: string): Promise<void> {
-    const updated = await firstValueFrom(
-      this.http.patch<Chat>(`${this.config.apiBase}/chats/${id}`, { title })
-    );
+    const updated = await this.api.patchChat(id, { title });
 
     this._chats.update(list =>
       list.map(c => (c.id === id ? updated : c))
@@ -460,39 +411,19 @@ export class ChatService {
   // ---------- Personas ----------
 
   async loadPersonas(): Promise<void> {
-    const personas = await firstValueFrom(
-      this.http.get<Persona[]>(`${this.config.apiBase}/personas`)
-    );
-    this._personas.set(personas);
+    this._personas.set(await this.api.getPersonas());
   }
 
-  async createPersona(data: {
-    name: string;
-    shortName: string;
-    description?: string;
-    avatar?: string;
-  }): Promise<Persona> {
-    const persona = await firstValueFrom(
-      this.http.post<Persona>(`${this.config.apiBase}/personas`, data)
-    );
+  async createPersona(data: CreatePersonaRequest): Promise<Persona> {
+    const persona = await this.api.createPersona(data);
     this._personas.update(list =>
       [...list, persona].sort((a, b) => a.name.localeCompare(b.name))
     );
     return persona;
   }
 
-  async updatePersona(
-    id: string,
-    data: Partial<{
-      name: string;
-      shortName: string;
-      description: string;
-      avatar: string;
-    }>
-  ): Promise<Persona> {
-    const persona = await firstValueFrom(
-      this.http.put<Persona>(`${this.config.apiBase}/personas/${id}`, data)
-    );
+  async updatePersona(id: string, data: UpdatePersonaRequest): Promise<Persona> {
+    const persona = await this.api.updatePersona(id, data);
     this._personas.update(list =>
       list
         .map(p => (p.id === id ? persona : p))
@@ -502,9 +433,7 @@ export class ChatService {
   }
 
   async deletePersona(id: string): Promise<void> {
-    await firstValueFrom(
-      this.http.delete(`${this.config.apiBase}/personas/${id}`)
-    );
+    await this.api.deletePersona(id);
     this._personas.update(list => list.filter(p => p.id !== id));
 
     if (this._currentPersonaId() === id) {
@@ -543,42 +472,19 @@ export class ChatService {
   }
 
   async loadTopics(): Promise<void> {
-    const topics = await firstValueFrom(
-      this.http.get<Topic[]>(`${this.config.apiBase}/topics`)
-    );
-    this._topics.set(topics);
+    this._topics.set(await this.api.getTopics());
   }
 
-  async createTopic(data: {
-    name: string;
-    description?: string;
-    defaultModelId?: string | null;
-    defaultSystemPrompt?: string;
-    icon?: string;
-    projectIds?: string[];
-  }): Promise<Topic> {
-    const topic = await firstValueFrom(
-      this.http.post<Topic>(`${this.config.apiBase}/topics`, data)
-    );
+  async createTopic(data: CreateTopicRequest): Promise<Topic> {
+    const topic = await this.api.createTopic(data);
     this._topics.update(list =>
       [...list, topic].sort((a, b) => a.name.localeCompare(b.name))
     );
     return topic;
   }
 
-  async updateTopic(
-    id: string,
-    data: Partial<{
-      name: string;
-      description: string;
-      defaultModelId: string | null;
-      defaultSystemPrompt: string;
-      icon: string;
-    }>
-  ): Promise<Topic> {
-    const topic = await firstValueFrom(
-      this.http.put<Topic>(`${this.config.apiBase}/topics/${id}`, data)
-    );
+  async updateTopic(id: string, data: UpdateTopicRequest): Promise<Topic> {
+    const topic = await this.api.updateTopic(id, data);
     this._topics.update(list =>
       list
         .map(t => (t.id === id ? topic : t))
@@ -588,20 +494,13 @@ export class ChatService {
   }
 
   async deleteTopic(id: string): Promise<void> {
-    await firstValueFrom(
-      this.http.delete(`${this.config.apiBase}/topics/${id}`)
-    );
+    await this.api.deleteTopic(id);
     this._topics.update(list => list.filter(t => t.id !== id));
   }
 
   /** Add a project to a topic */
   async addProjectToTopic(topicId: string, projectId: string): Promise<Topic> {
-    const topic = await firstValueFrom(
-      this.http.post<Topic>(
-        `${this.config.apiBase}/topics/${topicId}/projects`,
-        { projectId }
-      )
-    );
+    const topic = await this.api.addProjectToTopic(topicId, projectId);
     this._topics.update(list =>
       list.map(t => (t.id === topicId ? topic : t))
     );
@@ -610,11 +509,7 @@ export class ChatService {
 
   /** Remove a project from a topic */
   async removeProjectFromTopic(topicId: string, projectId: string): Promise<Topic> {
-    const topic = await firstValueFrom(
-      this.http.delete<Topic>(
-        `${this.config.apiBase}/topics/${topicId}/projects/${projectId}`
-      )
-    );
+    const topic = await this.api.removeProjectFromTopic(topicId, projectId);
     this._topics.update(list =>
       list.map(t => (t.id === topicId ? topic : t))
     );
@@ -625,4 +520,80 @@ export class ChatService {
     if (!id) return undefined;
     return this._topics().find(t => t.id === id);
   }
+
+
+  /** parentId → currently active childId */
+  private readonly _activeChildMap = signal<Record<string, string>>({});
+
+// ---------- Public API ----------
+
+  /** Currently chosen child under a parent (null parent = root level) */
+  getActiveChildId(parentId: string | null): string | null {
+    const key = parentId ?? 'root';
+    return this._activeChildMap()[key] ?? null;
+  }
+
+  /** Switch the active sibling under a parent */
+  setActiveChild(parentId: string | null, childId: string): void {
+    const key = parentId ?? 'root';
+    this._activeChildMap.update(m => ({ ...m, [key]: childId }));
+  }
+
+  /** The single active sibling under a parent, or null */
+  getActiveChild(parentId: string | null): ChatNode | null {
+    const siblings = this.getChildren(parentId);
+    if (siblings.length === 0) return null;
+
+    const activeId = this.getActiveChildId(parentId);
+    const found = siblings.find(s => s.id === activeId);
+    return found ?? siblings[0];          // fallback to first
+  }
+
+  /** Linear path from root following the active-child map */
+  getActivePath(): ChatNode[] {
+    const path: ChatNode[] = [];
+    let current = this.getActiveChild(null);
+    while (current) {
+      path.push(current);
+      current = this.getActiveChild(current.id);
+    }
+    return path;
+  }
+
+
+  /** Path from root down to (and including) a given node */
+  getPathToNode(nodeId: string): ChatNode[] {
+    const map = new Map(this._nodes().map(n => [n.id, n]));
+    const path: ChatNode[] = [];
+    let cur: ChatNode | undefined = map.get(nodeId);
+    while (cur) {
+      path.unshift(cur);
+      cur = cur.parentId ? map.get(cur.parentId) : undefined;
+    }
+    return path;
+  }
+
+  /** Children of a node (direct) */
+  getChildren(parentId: string | null): ChatNode[] {
+    return this._nodes().filter(n =>
+      (n.parentId ?? null) === (parentId ?? null) &&
+      // for answers we usually only care about current versions
+      (n.type === 'question' || n.isCurrent)
+    );
+  }
+
+  /** All siblings of a given node (including the node itself) */
+  getSiblingsOf(node: ChatNode): ChatNode[] {
+    return this.getChildren(node.parentId ?? null);
+  }
+
+
+// on startup (e.g. inside loadChats / init)
+  restoreCurrentChat(): void {
+    const saved = localStorage.getItem(LS_CHAT);
+    if (saved && this._chats().some(c => c.id === saved)) {
+      this.selectChat(saved);
+    }
+  }
+
 }

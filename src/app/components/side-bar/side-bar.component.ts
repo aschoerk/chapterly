@@ -8,6 +8,7 @@ import { SettingsService } from '../../core/settings.service';
 import { Chat, Project } from '../../models/chat';
 
 const LS_EXPANDED_KEY = 'chat-client.projects.expanded';
+const LS_TOPIC = 'chat.selectedTopicId';
 
 @Component({
   selector: 'side-bar',
@@ -46,10 +47,14 @@ export class SideBarComponent implements OnInit {
   readonly reassigningChatId = signal<string | null>(null);
 
   /** 'all' | topic-id */
-  readonly selectedTopicId = signal<string>('all');
+  readonly selectedTopicId = signal<string>(
+    localStorage.getItem(LS_TOPIC) || 'all'
+  );
 
   selectTopicFilter(id: string) {
-    this.selectedTopicId.set(id || 'all');
+    const value = id || 'all';
+    this.selectedTopicId.set(value);
+    localStorage.setItem(LS_TOPIC, value);
   }
 
 // replace the existing filteredProjects computed with this version

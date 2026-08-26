@@ -233,6 +233,7 @@ router.get('/:chatId/nodes', (req, res) => {
  *     description: |
  *       Adds a new node (question or answer) to the chat tree.
  *       parentId may be null for root-level questions.
+ *       Optional attachments (images, documents, …) can be supplied as data-URLs.
  *     tags:
  *       - Nodes
  *     parameters:
@@ -242,37 +243,34 @@ router.get('/:chatId/nodes', (req, res) => {
  *         schema:
  *           type: string
  *           format: uuid
- *         description: Parent chat UUID
  *     requestBody:
  *       required: true
  *       content:
  *         application/json:
  *           schema:
  *             type: object
- *             required:
- *               - type
- *               - content
+ *             required: [type, content]
  *             properties:
  *               parentId:
  *                 type: string
  *                 format: uuid
  *                 nullable: true
- *                 description: ID of the parent node (null for root)
  *               type:
  *                 type: string
  *                 enum: [question, answer]
- *                 description: Node type
  *               content:
  *                 type: string
- *                 description: Text content of the node
  *               modelId:
  *                 type: string
  *                 nullable: true
- *                 description: Optional model identifier
  *               providerId:
  *                 type: string
  *                 nullable: true
- *                 description: Optional provider identifier
+ *               attachments:
+ *                 type: array
+ *                 items:
+ *                   $ref: '#/components/schemas/NodeAttachment'
+ *                 description: Optional list of file attachments
  *     responses:
  *       201:
  *         description: Node created
@@ -282,14 +280,6 @@ router.get('/:chatId/nodes', (req, res) => {
  *               $ref: '#/components/schemas/ChatNode'
  *       400:
  *         description: Validation error
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 error:
- *                   type: string
- *                   example: "type and content are required"
  */
 router.post('/:chatId/nodes', (req, res) => {
   const { chatId } = req.params;
@@ -298,7 +288,8 @@ router.post('/:chatId/nodes', (req, res) => {
     type,
     content,
     modelId = null,
-    providerId = null
+    providerId = null,
+    attachments = []
   } = req.body;
 
   if (!type) {
@@ -309,14 +300,15 @@ router.post('/:chatId/nodes', (req, res) => {
   }
 
   const id = uuidv4();
+  const attachmentsJson = JSON.stringify(Array.isArray(attachments) ? attachments : []);
+
   db.prepare(`
     INSERT INTO chat_nodes (
       id, chat_id, parent_id, type, content,
-      model_id, provider_id, version, is_current
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, 1, 1)
-  `).run(id, chatId, parentId, type, content, modelId, providerId);
+      model_id, provider_id, version, is_current, attachments
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, 1, 1, ?)
+  `).run(id, chatId, parentId, type, content ?? '', modelId, providerId, attachmentsJson);
 
-  // Touch the chat
   db.prepare(`UPDATE chats SET updated_at = datetime('now') WHERE id = ?`).run(chatId);
 
   const node = db.prepare('SELECT * FROM chat_nodes WHERE id = ?').get(id);
@@ -330,7 +322,7 @@ router.post('/:chatId/nodes', (req, res) => {
  *     summary: Create a new version of an answer
  *     description: |
  *       Marks the existing answer as not current and inserts a new version
- *       with an incremented version number. Only answer nodes can be versioned this way.
+ *       with an incremented version number. Attachments can be supplied or updated.
  *     tags:
  *       - Nodes
  *     parameters:
@@ -340,26 +332,29 @@ router.post('/:chatId/nodes', (req, res) => {
  *         schema:
  *           type: string
  *           format: uuid
- *         description: Parent chat UUID
  *       - in: path
  *         name: nodeId
  *         required: true
  *         schema:
  *           type: string
  *           format: uuid
- *         description: ID of the answer node to version
  *     requestBody:
  *       required: true
  *       content:
  *         application/json:
  *           schema:
  *             type: object
- *             required:
- *               - content
+ *             required: [content]
  *             properties:
  *               content:
  *                 type: string
- *                 description: New content for the answer version
+ *               attachments:
+ *                 type: array
+ *                 items:
+ *                   $ref: '#/components/schemas/NodeAttachment'
+ *                 description: |
+ *                   Optional. If omitted, the previous version's attachments are kept.
+ *                   Pass an empty array to clear attachments.
  *     responses:
  *       201:
  *         description: New answer version created
@@ -368,30 +363,15 @@ router.post('/:chatId/nodes', (req, res) => {
  *             schema:
  *               $ref: '#/components/schemas/ChatNode'
  *       400:
- *         description: Invalid request (missing content or node is not an answer)
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 error:
- *                   type: string
+ *         description: Invalid request
  *       404:
  *         description: Node not found
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 error:
- *                   type: string
- *                   example: "Node not found"
  */
 router.post('/:chatId/nodes/:nodeId/edit-answer', (req, res) => {
   const { nodeId } = req.params;
-  const { content } = req.body;
+  const { content, attachments } = req.body;
 
-  if (!content) {
+  if (content === undefined || content === null) {
     return res.status(400).json({ error: 'content is required' });
   }
 
@@ -401,17 +381,21 @@ router.post('/:chatId/nodes/:nodeId/edit-answer', (req, res) => {
     return res.status(400).json({ error: 'Only answers can be versioned this way' });
   }
 
-  // Mark old version as not current
   db.prepare('UPDATE chat_nodes SET is_current = 0 WHERE id = ?').run(nodeId);
 
   const newId = uuidv4();
   const newVersion = oldNode.version + 1;
 
+  // If attachments is supplied use it, otherwise keep the old ones
+  const attachmentsJson = attachments !== undefined
+    ? JSON.stringify(Array.isArray(attachments) ? attachments : [])
+    : (oldNode.attachments || '[]');
+
   db.prepare(`
     INSERT INTO chat_nodes (
       id, chat_id, parent_id, type, content,
-      model_id, provider_id, version, previous_version_id, is_current
-    ) VALUES (?, ?, ?, 'answer', ?, ?, ?, ?, ?, 1)
+      model_id, provider_id, version, previous_version_id, is_current, attachments
+    ) VALUES (?, ?, ?, 'answer', ?, ?, ?, ?, ?, 1, ?)
   `).run(
     newId,
     oldNode.chat_id,
@@ -420,7 +404,8 @@ router.post('/:chatId/nodes/:nodeId/edit-answer', (req, res) => {
     oldNode.model_id,
     oldNode.provider_id,
     newVersion,
-    nodeId
+    nodeId,
+    attachmentsJson
   );
 
   db.prepare(`UPDATE chats SET updated_at = datetime('now') WHERE id = ?`).run(oldNode.chat_id);
@@ -503,9 +488,9 @@ router.post('/:chatId/nodes/:nodeId/edit-answer', (req, res) => {
  */
 router.post('/:chatId/nodes/:nodeId/branch-question', (req, res) => {
   const { nodeId } = req.params;
-  const { content, modelId, providerId } = req.body;
+  const { content, modelId, providerId, attachments } = req.body;
 
-  if (!content) {
+  if (content === undefined || content === null) {
     return res.status(400).json({ error: 'content is required' });
   }
 
@@ -517,19 +502,24 @@ router.post('/:chatId/nodes/:nodeId/branch-question', (req, res) => {
 
   const newId = uuidv4();
 
-  // New question becomes a sibling (same parent)
+  // If attachments supplied use them, otherwise copy from the original question
+  const attachmentsJson = attachments !== undefined
+    ? JSON.stringify(Array.isArray(attachments) ? attachments : [])
+    : (oldNode.attachments || '[]');
+
   db.prepare(`
     INSERT INTO chat_nodes (
       id, chat_id, parent_id, type, content,
-      model_id, provider_id, version, is_current
-    ) VALUES (?, ?, ?, 'question', ?, ?, ?, 1, 1)
+      model_id, provider_id, version, is_current, attachments
+    ) VALUES (?, ?, ?, 'question', ?, ?, ?, 1, 1, ?)
   `).run(
     newId,
     oldNode.chat_id,
     oldNode.parent_id,
     content,
     modelId || oldNode.model_id,
-    providerId || oldNode.provider_id
+    providerId || oldNode.provider_id,
+    attachmentsJson
   );
 
   db.prepare(`UPDATE chats SET updated_at = datetime('now') WHERE id = ?`).run(oldNode.chat_id);
@@ -623,7 +613,10 @@ function mapNode(row) {
     previousVersionId: row.previous_version_id,
     isCurrent: !!row.is_current,
     createdAt: row.created_at,
-    updatedAt: row.updated_at
+    updatedAt: row.updated_at,
+    promptTokens: row.prompt_tokens ?? null,
+    completionTokens: row.completion_tokens ?? null,
+    attachments: JSON.parse(row.attachments || '[]')
   };
 }
 

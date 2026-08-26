@@ -6,7 +6,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ChatService } from '../../core/chat.service';
 import { SettingsService } from '../../core/settings.service';
-import { ChatNode } from '../../models/chat';
+import {ChatNode, NodeAttachment, ChatMessage } from '../../models/chat';
 import { MarkdownService} from '../../core/markdown.service';
 
 @Component({
@@ -23,6 +23,11 @@ export class ChatNodeComponent {
 
   /** The node this component renders */
   readonly node = input.required<ChatNode>();
+// ---------- Attachment state for edit / branch ----------
+  readonly editAttachments = signal<NodeAttachment[]>([]);
+  readonly isEditorDragOver = signal(false);
+
+  private readonly MAX_ATTACHMENT_BYTES = 4_000_000;
 
   /**
    * Currently active sibling id for this node's parent.
@@ -91,7 +96,14 @@ export class ChatNodeComponent {
   async saveInlineEdit(): Promise<void> {
     const node = this.node();
     const newContent = this.contentDraft().trim();
-    if (!newContent || newContent === node.content) {
+    const attachments = this.editAttachments();
+
+    // nothing changed (text and attachments identical) → just close
+    const attachmentsUnchanged =
+      JSON.stringify(attachments) === JSON.stringify(node.attachments || []);
+
+    if ((!newContent && attachments.length === 0) ||
+      (newContent === node.content && attachmentsUnchanged)) {
       this.cancelInlineEdit();
       return;
     }
@@ -102,7 +114,13 @@ export class ChatNodeComponent {
     this.isLoading.set(true);
     try {
       if (node.type === 'answer') {
-        await this.chatService.editAnswer(chatId, node.id, newContent);
+        // create a new version of the answer, carrying the current attachments
+        await this.chatService.editAnswer(
+          chatId,
+          node.id,
+          newContent,
+          attachments
+        );
       } else {
         // Questions currently create a branch (safer than overwrite)
         await this.chatService.branchQuestion(
@@ -110,7 +128,8 @@ export class ChatNodeComponent {
           node.id,
           newContent,
           node.modelId || undefined,
-          node.providerId || undefined
+          node.providerId || undefined,
+          attachments
         );
       }
       this.cancelInlineEdit();
@@ -129,42 +148,15 @@ export class ChatNodeComponent {
     });
   }
 
-  startInlineEdit(): void {
-    this.isBranching.set(false);
-    this.contentDraft.set(this.node().content);
-    this.isContentEditing.set(true);
-    this.showPreview.set(false);
 
-    this.scheduleResize();
-  }
-
-  startBranch(): void {
-    this.isContentEditing.set(false);
-    this.branchContent.set(this.node().content);
-    this.branchModelId.set(this.node().modelId || '');
-    this.isBranching.set(true);
-    this.showPreview.set(false);
-
-    this.scheduleResize();
-  }
-
-  cancelInlineEdit(): void {
-    this.isContentEditing.set(false);
-    this.contentDraft.set('');
-    this.showPreview.set(false);          // ← reset
-  }
-
-  cancelBranch(): void {
-    this.isBranching.set(false);
-    this.branchContent.set('');
-    this.branchModelId.set('');
-    this.showPreview.set(false);          // ← reset
-  }
 
   async submitBranch(): Promise<void> {
     const node = this.node();
     const content = this.branchContent().trim();
-    if (!content) return;
+    const attachments = this.editAttachments();
+
+    // allow send when there is text OR at least one attachment
+    if (!content && attachments.length === 0) return;
 
     const chatId = this.chatService.currentChatId();
     if (!chatId) return;
@@ -173,7 +165,6 @@ export class ChatNodeComponent {
     const model = this.enabledModels().find(
       m => m.modelId === modelId || m.id === modelId
     );
-
     if (!model) {
       alert('Selected model not found');
       return;
@@ -187,14 +178,14 @@ export class ChatNodeComponent {
 
     this.isLoading.set(true);
     try {
-      // 1. Create the new branched question
-      // 1. Create the new branched question
+      // 1. Create the new branched question (with attachments)
       const newQuestion = await this.chatService.branchQuestion(
         chatId,
         node.id,
         content,
         model.modelId,
-        model.providerId
+        model.providerId,
+        attachments
       );
 
       // 2. Activate immediately (while this component is still alive)
@@ -203,10 +194,15 @@ export class ChatNodeComponent {
       // 3. Close the editor UI early
       this.cancelBranch();
 
-      // 4. Now do the long-running work
+      // 4. Build context up to the parent, then add the new question
+      //    with proper multimodal content (images → image_url parts)
       const contextMessages = this.buildContextMessagesUpTo(node.parentId);
-      contextMessages.push({ role: 'user', content });
+      contextMessages.push({
+        role: 'user',
+        content: this.nodeToMessageContent(newQuestion)
+      });
 
+      // 5. Stream the answer
       await this.chatService.streamAnswer(
         chatId,
         newQuestion.id,
@@ -237,7 +233,7 @@ export class ChatNodeComponent {
   }
 
   prevSibling(): void {
-    const list = this.siblings;
+    const list = this.chatService.getSiblingsOf(this.node());
     if (list.length < 2) return;
 
     const activeId = this.activeChildId() ?? list[0].id;
@@ -261,17 +257,24 @@ export class ChatNodeComponent {
    * Builds OpenAI-style messages from root down to the given parentId (inclusive).
    * Relies on ChatService.getPathToNode if available.
    */
-  private buildContextMessagesUpTo(parentId: string | null): { role: 'user' | 'assistant'; content: string }[] {
+  private buildContextMessagesUpTo(parentId: string | null): ChatMessage[] {
     if (!parentId) return [];
 
     if (typeof (this.chatService as any).getPathToNode === 'function') {
       const path: ChatNode[] = (this.chatService as any).getPathToNode(parentId);
-      const messages: { role: 'user' | 'assistant'; content: string }[] = [];
+      const messages: ChatMessage[] = [];
+
       for (const n of path) {
         if (n.type === 'question') {
-          messages.push({ role: 'user', content: n.content });
+          messages.push({
+            role: 'user',
+            content: this.nodeToMessageContent(n)
+          });
         } else if (n.type === 'answer' && n.isCurrent) {
-          messages.push({ role: 'assistant', content: n.content });
+          messages.push({
+            role: 'assistant',
+            content: this.nodeToMessageContent(n)
+          });
         }
       }
       return messages;
@@ -334,5 +337,152 @@ export class ChatNodeComponent {
 
   stopGeneration(): void {
     this.chatService.stopGeneration();
+  }
+
+
+  // ---------- Start edit / branch (seed attachments) ----------
+
+  startInlineEdit() {
+    const n = this.node();
+    this.contentDraft.set(n.content || '');
+    this.editAttachments.set([...(n.attachments || [])]); // copy
+    this.isContentEditing.set(true);
+    this.scheduleResize();
+  }
+
+  startBranch() {
+    const n = this.node();
+    this.branchContent.set(n.content || '');
+    this.branchModelId.set(n.modelId || this.enabledModels()[0]?.modelId || '');
+    this.editAttachments.set([...(n.attachments || [])]); // start with a copy
+    this.isBranching.set(true);
+    this.scheduleResize();
+  }
+
+  cancelInlineEdit() {
+    this.isContentEditing.set(false);
+    this.contentDraft.set('');
+    this.editAttachments.set([]);
+  }
+
+  cancelBranch() {
+    this.isBranching.set(false);
+    this.branchContent.set('');
+    this.editAttachments.set([]);
+  }
+
+  // ---------- Shared file helpers (same as in chat.component) ----------
+
+  private readAsDataURL(file: File): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = () => reject(new Error('Failed to read file'));
+      reader.readAsDataURL(file);
+    });
+  }
+
+  private async filesToAttachments(files: FileList | File[]): Promise<NodeAttachment[]> {
+    const result: NodeAttachment[] = [];
+    for (const file of Array.from(files)) {
+      if (file.size > this.MAX_ATTACHMENT_BYTES) {
+        alert(`${file.name} is too large (max 4 MB)`);
+        continue;
+      }
+      const dataUrl = await this.readAsDataURL(file);
+      result.push({
+        id: crypto.randomUUID(),
+        name: file.name,
+        mimeType: file.type || 'application/octet-stream',
+        size: file.size,
+        dataUrl
+      });
+    }
+    return result;
+  }
+
+  async onEditorFilesSelected(event: Event) {
+    const input = event.target as HTMLInputElement;
+    if (!input.files?.length) return;
+    const added = await this.filesToAttachments(input.files);
+    this.editAttachments.update(list => [...list, ...added]);
+    input.value = '';
+  }
+
+  onEditorDragOver(event: DragEvent) {
+    event.preventDefault();
+    event.stopPropagation();
+    this.isEditorDragOver.set(true);
+  }
+
+  onEditorDragLeave(event: DragEvent) {
+    event.preventDefault();
+    event.stopPropagation();
+    this.isEditorDragOver.set(false);
+  }
+
+  async onEditorDrop(event: DragEvent) {
+    event.preventDefault();
+    event.stopPropagation();
+    this.isEditorDragOver.set(false);
+    const files = event.dataTransfer?.files;
+    if (files?.length) {
+      const added = await this.filesToAttachments(files);
+      this.editAttachments.update(list => [...list, ...added]);
+    }
+  }
+
+  removeEditAttachment(id: string) {
+    this.editAttachments.update(list => list.filter(a => a.id !== id));
+  }
+
+  openImage(dataUrl: string) {
+    window.open(dataUrl, '_blank');
+  }
+
+  /**
+   * Convert a single node into the content that goes into an OpenAI-style message.
+   * - No attachments  → plain string
+   * - With images     → array of {type:'text'} + {type:'image_url'} parts
+   * - Other files     → listed in the text part
+   */
+  private nodeToMessageContent(
+    node: ChatNode
+  ): string | Array<{ type: string; text?: string; image_url?: { url: string } }> {
+    const attachments = node.attachments || [];
+    if (attachments.length === 0) {
+      return node.content || '';
+    }
+
+    const images = attachments.filter(a => a.mimeType?.startsWith('image/'));
+    const other  = attachments.filter(a => !a.mimeType?.startsWith('image/'));
+
+    const parts: Array<{ type: string; text?: string; image_url?: { url: string } }> = [];
+
+    // text part (original content + list of non-image files)
+    let text = node.content || '';
+    if (other.length) {
+      text +=
+        (text ? '\n\n' : '') +
+        '[Attached files]\n' +
+        other.map(a => `- ${a.name} (${a.mimeType})`).join('\n');
+    }
+    if (text.trim()) {
+      parts.push({ type: 'text', text });
+    }
+
+    // image parts
+    for (const img of images) {
+      parts.push({
+        type: 'image_url',
+        image_url: { url: img.dataUrl }
+      });
+    }
+
+    // if we only produced a single text part, keep the simple string form
+    if (parts.length === 1 && parts[0].type === 'text') {
+      return parts[0].text!;
+    }
+    return parts;
   }
 }
