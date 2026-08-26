@@ -4,7 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "jest"
   },
   "keywords": [],
   "author": "",
@@ -16,7 +16,15 @@
     "http-proxy-middleware": "^4.2.0",
     "portfinder": "^1.0.38",
     "swagger-jsdoc": "^6.3.0",
-    "swagger-ui-express": "^5.0.1",
+    "swagger-ui-express": "^5.0.1"
+  },
+  "devDependencies": {
+    "@babel/core": "^8.0.1",
+    "@babel/preset-env": "^8.0.2",
+    "babel-jest": "^30.4.1",
+    "identity-obj-proxy": "^3.0.0",
+    "jest": "^30.4.2",
+    "supertest": "^7.2.2",
     "uuid": "^14.0.2"
   }
 }
