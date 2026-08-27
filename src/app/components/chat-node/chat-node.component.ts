@@ -1,6 +1,6 @@
 import {
   Component, inject, input, output, signal, effect,
-  viewChild, ElementRef
+  viewChild, ElementRef, Provider
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -8,6 +8,7 @@ import { ChatService } from '../../core/chat.service';
 import { SettingsService } from '../../core/settings.service';
 import { ChatNode, NodeAttachment, ChatMessage } from '../../models/chat';
 import { MarkdownService } from '../../core/markdown.service';
+import {ModelEntry} from '../../models/chat-config';
 
 @Component({
   selector: 'app-chat-node',
@@ -235,23 +236,28 @@ export class ChatNodeComponent {
     if (!this.isUnsentQuestion() || this.isLoading()) return;
     this.contentDraft.set('continue');
     this.editAttachments.set([]);
-    this.branchModelId.set(this.resolvePreferredModelId(this.node()));
+    this.branchModelId.set(this.branchModelId() || this.resolvePreferredModelId(this.node()));
     this.pendingAction.set('continue');
     await this.sendDraft();
+    await this.cancelEdit();
   }
 
-  /**
-   * Send an unsent question (the in-thread composer).
-   * Writes the draft onto this same node, then streams the answer.
-   */
-  async sendDraft(): Promise<void> {
+
+  private async resolveSendTarget(): Promise<{
+    node: ChatNode;
+    content: string;
+    attachments: NodeAttachment[];
+    chatId: string;
+    model: ModelEntry;
+    provider: { baseUrl: string; apiKey: string };
+  } | null> {
     const node = this.node();
     const content = this.contentDraft().trim();
     const attachments = this.editAttachments();
-    if (!content && attachments.length === 0) return;
+    if (!content && attachments.length === 0) return null;
 
     const chatId = this.chatService.currentChatId();
-    if (!chatId) return;
+    if (!chatId) return null;
 
     const modelId = this.branchModelId() || this.resolvePreferredModelId(node);
     const model = this.enabledModels().find(
@@ -259,20 +265,66 @@ export class ChatNodeComponent {
     );
     if (!model) {
       alert('Selected model not found');
-      return;
+      return null;
     }
 
     const provider = this.settings.providers().find(p => p.id === model.providerId);
     if (!provider) {
       alert('Provider not found');
-      return;
+      return null;
     }
 
-    this.isLoading.set(true);
-    if (this.pendingAction() !== 'continue') {
-      this.pendingAction.set('send');
+    return { node, content, attachments, chatId, model, provider };
+  }
+
+  private async runSend(
+    pending: 'send' | 'branch' | 'continue',
+    work: () => Promise<void>
+  ): Promise<void> {
+    if (pending !== 'continue' || this.pendingAction() !== 'continue') {
+      this.pendingAction.set(pending);
     }
+    this.isLoading.set(true);
     try {
+      await work();
+    } catch (err: any) {
+      console.error(err);
+      alert('Failed: ' + (err?.message || err));
+    } finally {
+      this.isLoading.set(false);
+      this.pendingAction.set(null);
+    }
+  }
+
+  private async streamForQuestion(
+    chatId: string,
+    question: ChatNode,
+    contextParentId: string | null,
+    provider: { baseUrl: string; apiKey: string },
+    model: ModelEntry,
+    extra?: { content?: string; attachments?: NodeAttachment[] }
+  ): Promise<void> {
+    const contextMessages = this.buildContextMessagesUpTo(contextParentId);
+    contextMessages.push({
+      role: 'user',
+      content: this.nodeToMessageContent(
+        extra ? { ...question, content: extra.content ?? question.content, attachments: extra.attachments ?? question.attachments } : question
+      )
+    });
+    this.cancelEdit();
+    await this.chatService.streamAnswer(chatId, question.id, provider, model, contextMessages);
+  }
+
+  /**
+   * Send an unsent question (the in-thread composer).
+   * Writes the draft onto this same node, then streams the answer.
+   */
+  async sendDraft(): Promise<void> {
+    const target = await this.resolveSendTarget();
+    if (!target) return;
+    const { node, content, attachments, chatId, model, provider } = target;
+
+    await this.runSend(this.pendingAction() === 'continue' ? 'continue' : 'send', async () => {
       const saved = await this.chatService.persistQuestion(
         chatId,
         node.id,
@@ -281,7 +333,6 @@ export class ChatNodeComponent {
         model.modelId,
         model.providerId
       );
-
       this.activate.emit(saved.id);
 
       if (!node.parentId) {
@@ -293,28 +344,11 @@ export class ChatNodeComponent {
         }
       }
 
-      const contextMessages = this.buildContextMessagesUpTo(saved.parentId);
-      contextMessages.push({
-        role: 'user',
-        content: this.nodeToMessageContent({ ...saved, content, attachments })
+      await this.streamForQuestion(chatId, saved, saved.parentId, provider, model, {
+        content,
+        attachments
       });
-
-      this.cancelEdit();
-
-      await this.chatService.streamAnswer(
-        chatId,
-        saved.id,
-        provider,
-        model,
-        contextMessages
-      );
-    } catch (err: any) {
-      console.error(err);
-      alert('Failed: ' + (err?.message || err));
-    } finally {
-      this.isLoading.set(false);
-      this.pendingAction.set(null);
-    }
+    });
   }
 
   /**
@@ -325,79 +359,35 @@ export class ChatNodeComponent {
    *   (continues the thread from this point).
    */
   async saveAsBranchAndSend(): Promise<void> {
-    const node = this.node();
-    const content = this.contentDraft().trim();
-    const attachments = this.editAttachments();
-    if (!content && attachments.length === 0) return;
+    const target = await this.resolveSendTarget();
+    if (!target) return;
+    const { node, content, attachments, chatId, model, provider } = target;
 
-    const chatId = this.chatService.currentChatId();
-    if (!chatId) return;
+    await this.runSend('branch', async () => {
+      const newQuestion =
+        node.type === 'question'
+          ? await this.chatService.branchQuestion(
+            chatId,
+            node.id,
+            content,
+            model.modelId,
+            model.providerId,
+            attachments
+          )
+          : await this.chatService.addNode(chatId, {
+            parentId: node.id,
+            type: 'question',
+            content,
+            modelId: model.modelId,
+            providerId: model.providerId,
+            attachments
+          });
 
-    const modelId = this.branchModelId() || this.resolvePreferredModelId(node);
-    const model = this.enabledModels().find(
-      m => m.modelId === modelId || m.id === modelId
-    );
-    if (!model) {
-      alert('Selected model not found');
-      return;
-    }
-
-    const provider = this.settings.providers().find(p => p.id === model.providerId);
-    if (!provider) {
-      alert('Provider not found');
-      return;
-    }
-
-    this.isLoading.set(true);
-    this.pendingAction.set('branch');
-    try {
-      let newQuestion: ChatNode;
-
-      if (node.type === 'question') {
-        newQuestion = await this.chatService.branchQuestion(
-          chatId,
-          node.id,
-          content,
-          model.modelId,
-          model.providerId,
-          attachments
-        );
-        this.activate.emit(newQuestion.id);
-      } else {
-        newQuestion = await this.chatService.addNode(chatId, {
-          parentId: node.id,
-          type: 'question',
-          content,
-          modelId: model.modelId,
-          providerId: model.providerId,
-          attachments
-        });
-        this.activate.emit(newQuestion.id);
-      }
+      this.activate.emit(newQuestion.id);
 
       const contextParentId = node.type === 'question' ? node.parentId : node.id;
-      const contextMessages = this.buildContextMessagesUpTo(contextParentId);
-      contextMessages.push({
-        role: 'user',
-        content: this.nodeToMessageContent(newQuestion)
-      });
-
-      this.cancelEdit();
-
-      await this.chatService.streamAnswer(
-        chatId,
-        newQuestion.id,
-        provider,
-        model,
-        contextMessages
-      );
-    } catch (err: any) {
-      console.error(err);
-      alert('Failed: ' + (err?.message || err));
-    } finally {
-      this.isLoading.set(false);
-      this.pendingAction.set(null);
-    }
+      await this.streamForQuestion(chatId, newQuestion, contextParentId, provider, model);
+    });
   }
 
   async deleteNode(): Promise<void> {
@@ -522,6 +512,9 @@ export class ChatNodeComponent {
     // Leaf questions open ready to type / edit, unless the user just cancelled.
     effect(() => {
       const n = this.node();
+      if (n?.type === 'question') {
+        this.branchModelId.set(n.modelId ?? '');
+      }
       if (
         n.type === 'question' &&
         this.isLeafNode() &&

@@ -700,7 +700,17 @@ export class ChatService {
   async ensureDraftAtLeaf(chatId: string): Promise<void> {
     if (!chatId || this.ensuringDraft || this.generatingNodeId()) return;
 
-    const leaf = this.getActivePath().at(-1) ?? null;
+    let leaf = this.getActivePath().at(-1) ?? null;
+
+
+    if (!leaf) {
+      let nodes = await this.api.getNodes(chatId)
+      const parentNodes = new Set(nodes.map(n => n.parentId));
+
+      leaf = nodes.filter(n => parentNodes.has(n.id))
+        .sort((a, b) => -a.createdAt.localeCompare(b.createdAt)).at(0) ?? null;
+    }
+
 
     if (!leaf) {
       this.ensuringDraft = true;

@@ -182,7 +182,7 @@ function createInMemoryDB(verbose = false) {
 
 // Automatically create the appropriate database based on environment
 const IS_TEST = process.env.NODE_ENV === 'test';
-const db = IS_TEST ? createInMemoryDB() : createPersistentDB();
+const db = IS_TEST ? createInMemoryDB() : createPersistentDB(true);
 
 module.exports = db;
 

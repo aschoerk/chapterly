@@ -225,10 +225,14 @@ export class SideBarComponent implements OnInit {
     // Title is initialized (user can change it later via the title editor)
     const title = `${project.name} – New Chat`;
     const chat = await this.chatService.createChat(title, project.id);
-    await this.chatService.selectChat(chat.id);
+    // await this.chatService.selectChat(chat.id);
 
     // ---------- 1. Build System-node content ----------
     const parts: string[] = [];
+
+    this.topics()
+      .filter(t => t.defaultSystemPrompt?.trim() && t.projectIds.find(id => id == project.id) )
+      .every(t => parts.push(t.defaultSystemPrompt.trim()));
 
     // Project system prompt
     if (project.systemPrompt?.trim()) {
@@ -294,6 +298,7 @@ export class SideBarComponent implements OnInit {
     if (!this.isExpanded(project.id)) {
       this.toggleExpanded(project.id);
     }
+    await this.chatService.selectChat(chat.id);
   }
 
   async selectChat(chat: Chat) {
