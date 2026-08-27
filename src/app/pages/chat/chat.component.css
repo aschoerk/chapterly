@@ -303,9 +303,6 @@
 
 /* Slightly different look for the last (current) node */
 .nav-node:last-child {
-  background: var(--bg-active);
-  color: var(--text-active);
-  border-color: var(--accent);
   font-weight: 500;
 }
 

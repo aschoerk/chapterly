@@ -1,6 +1,6 @@
 import {
   Component, inject, input, output, signal, effect,
-  viewChild, ElementRef, Provider
+  viewChild, ElementRef, Provider, computed
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -9,6 +9,9 @@ import { SettingsService } from '../../core/settings.service';
 import { ChatNode, NodeAttachment, ChatMessage } from '../../models/chat';
 import { MarkdownService } from '../../core/markdown.service';
 import {ModelEntry} from '../../models/chat-config';
+import {NodeEditSession} from '../../core/node-edit-session';
+import {ConfirmDialogComponent} from '../confirm-dialog/confirm-dialog.component';
+import {ConfirmService} from '../../core/confirm.service';
 
 @Component({
   selector: 'app-chat-node',
@@ -21,6 +24,7 @@ export class ChatNodeComponent {
   private readonly settings = inject(SettingsService);
   public readonly markdownService = inject(MarkdownService);
   readonly chatService = inject(ChatService);
+  private readonly confirm = inject(ConfirmService);
 
   readonly node = input.required<ChatNode>();
   readonly activeChildId = input<string | null>(null);
@@ -30,7 +34,6 @@ export class ChatNodeComponent {
   readonly isEditorDragOver = signal(false);
   private readonly MAX_ATTACHMENT_BYTES = 4_000_000;
 
-  readonly isEditing = signal(false);
   readonly contentDraft = signal('');
   readonly branchModelId = signal('');
   readonly isLoading = signal(false);
@@ -39,8 +42,13 @@ export class ChatNodeComponent {
   /** Set by Cancel so auto-open does not immediately re-enter edit. */
   readonly editDismissed = signal(false);
   readonly enabledModels = this.settings.enabledModels;
+  private readonly editSession = inject(NodeEditSession);
 
   private readonly editArea = viewChild<ElementRef<HTMLTextAreaElement>>('editArea');
+
+  readonly isEditing = computed(() =>
+    this.editSession.editingNodeId() === this.node().id
+  );
 
   get siblings(): ChatNode[] {
     return this.chatService.getChildren(this.node().parentId);
@@ -71,6 +79,11 @@ export class ChatNodeComponent {
     const n = this.node();
     if (n.type !== 'question') return false;
     return !this.chatService.getChildren(n.id).some(child => child.type === 'answer');
+  }
+
+  isQuestion(): boolean {
+    const n = this.node();
+    return n.type === 'question';
   }
 
   /** Last node on the active path (no current children). */
@@ -110,15 +123,23 @@ export class ChatNodeComponent {
     this.startEdit();
   }
 
-  startEdit(): void {
+  async startEdit(source: 'user' | 'auto' = 'user'): Promise<void> {
     if (this.isEditing()) return;
     const n = this.node();
+    const ok = await this.editSession.begin({
+      chatId: n.chatId,
+      nodeId: n.id,
+      text: n.content || '',
+      attachments: n.attachments || []
+    }, source);
+
+    if (!ok) return;
+
     this.editDismissed.set(false);
     this.contentDraft.set(n.content || '');
     this.editAttachments.set([...(n.attachments || [])]);
-    this.branchModelId.set(this.resolvePreferredModelId(n));
+    this.branchModelId.set(n.modelId || this.resolvePreferredModelId(n));
     this.pendingAction.set(null);
-    this.isEditing.set(true);
     this.scheduleResize();
   }
 
@@ -168,14 +189,37 @@ export class ChatNodeComponent {
     return models[0]?.modelId || '';
   }
 
-  cancelEdit(): void {
+  async cancelEdit(): Promise<void> {
+    if (
+      this.editSession.editingNodeId() === this.node().id &&
+      this.editSession.isDirty()
+    ) {
+      const discard = await this.confirm.ask({
+        title: 'Discard edits?',
+        message: 'Close this editor without saving?',
+        confirmLabel: 'Discard',
+        cancelLabel: 'Keep editing',
+        danger: true
+      });
+      if (!discard) return;
+    }
     this.editDismissed.set(true);
     this.pendingAction.set(null);
     this.showPreview.set(false);
-    this.isEditing.set(false);
     this.contentDraft.set('');
     this.editAttachments.set([]);
+    this.editSession.abandon(this.node().id);
   }
+
+  private closeEditor(): void {
+    const id = this.node().id;
+    this.pendingAction.set(null);
+    this.showPreview.set(false);
+    this.contentDraft.set('');
+    this.editAttachments.set([]);
+    this.editSession.commit(id); // state → null; isEditing follows editingNodeId
+  }
+
 
   /**
    * OK — persist as a new version of this node. Does not call the LLM.
@@ -240,6 +284,15 @@ export class ChatNodeComponent {
     this.pendingAction.set('continue');
     await this.sendDraft();
     await this.cancelEdit();
+  }
+
+  onDraftText(text: string): void {
+    this.contentDraft.set(text);
+    this.editSession.patch(this.node().id, text, this.editAttachments());
+  }
+
+  private syncAttachments(): void {
+    this.editSession.patch(this.node().id, this.contentDraft(), this.editAttachments());
   }
 
 
@@ -311,7 +364,7 @@ export class ChatNodeComponent {
         extra ? { ...question, content: extra.content ?? question.content, attachments: extra.attachments ?? question.attachments } : question
       )
     });
-    this.cancelEdit();
+    this.closeEditor();
     await this.chatService.streamAnswer(chatId, question.id, provider, model, contextMessages);
   }
 
@@ -522,7 +575,7 @@ export class ChatNodeComponent {
         !this.editDismissed() &&
         !this.chatService.isGenerating(n.id)
       ) {
-        this.startEdit();
+        this.startEdit('auto');
       }
     });
   }
@@ -599,6 +652,7 @@ export class ChatNodeComponent {
     if (!input.files?.length) return;
     const added = await this.filesToAttachments(input.files);
     this.editAttachments.update(list => [...list, ...added]);
+    this.syncAttachments();
     input.value = '';
   }
 
@@ -622,11 +676,13 @@ export class ChatNodeComponent {
     if (files?.length) {
       const added = await this.filesToAttachments(files);
       this.editAttachments.update(list => [...list, ...added]);
+      this.syncAttachments();
     }
   }
 
   removeEditAttachment(id: string) {
     this.editAttachments.update(list => list.filter(a => a.id !== id));
+    this.syncAttachments();
   }
 
   openImage(dataUrl: string) {
@@ -669,4 +725,12 @@ export class ChatNodeComponent {
     }
     return parts;
   }
+
+  hasUnsavedChanges(): boolean {
+    const n = this.node();
+    const attachmentsUnchanged =
+      JSON.stringify(this.editAttachments()) === JSON.stringify(n.attachments || []);
+    return this.contentDraft() !== (n.content || '') || !attachmentsUnchanged;
+  }
+
 }

@@ -1,4 +1,4 @@
-import { Component, effect, inject, OnInit, signal } from '@angular/core';
+import { Component, effect, ElementRef, viewChild , inject, OnInit, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ChatService } from '../../core/chat.service';
@@ -33,12 +33,18 @@ export class ChatComponent implements OnInit {
 
   readonly enabledModels = this.settings.enabledModels;
 
+  private readonly tree = viewChild<ElementRef<HTMLElement>>('tree');
+
+  /** Node whose block sits nearest the top of .tree */
+  readonly visibleNodeId = signal<string | null>(null);
+
   async ngOnInit() {
     await this.chatService.loadChats();
     await this.settings.loadAll();
   }
 
   constructor() {
+    console.log('ChatComponent constructed', Date.now());
     effect(() => {
       const chatId = this.currentChatId();
       const generating = this.chatService.generatingNodeId();
@@ -50,8 +56,45 @@ export class ChatComponent implements OnInit {
         void this.chatService.ensureDraftAtLeaf(chatId);
       });
     });
+    effect(() => {
+      this.currentChatId();
+      this.chatService.currentNodes();
+      this.getActivePath();
+      queueMicrotask(() => this.syncVisibleNode());
+    });
   }
 
+  onTreeScroll(): void {
+    this.syncVisibleNode();
+  }
+
+  protected isNearViewport(id: string): boolean {
+    return this.visibleNodeId() === id;
+  }
+
+  private syncVisibleNode(): void {
+    const root = this.tree()?.nativeElement;
+    if (!root) {
+      this.visibleNodeId.set(null);
+      return;
+    }
+
+    const top = root.getBoundingClientRect().top;
+    let bestId: string | null = null;
+    let bestDist = Number.POSITIVE_INFINITY;
+
+    for (const node of this.getActivePath()) {
+      const el = root.querySelector(`[data-node-id="${node.id}"]`) as HTMLElement | null;
+      if (!el) continue;
+      const dist = Math.abs(el.getBoundingClientRect().top - top);
+      if (dist < bestDist) {
+        bestDist = dist;
+        bestId = node.id;
+      }
+    }
+
+    this.visibleNodeId.set(bestId);
+  }
 
   // ------------------------------------------------------------------
   // Active path / branch navigation (only remaining shared state)
@@ -196,8 +239,4 @@ export class ChatComponent implements OnInit {
     this.lastModelService.setSelectedModel($event);
   }
 
-
-  protected isNearViewport(id: string) {
-
-  }
 }

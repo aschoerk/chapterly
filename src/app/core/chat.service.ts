@@ -14,6 +14,7 @@ import {
 } from '../api/chat-api.types';
 import { getServerConfig } from './server-config';
 import { firstValueFrom } from "rxjs";
+import {NodeEditSession} from './node-edit-session';
 
 const LS_CHAT  = 'chat.currentChatId';
 
@@ -24,6 +25,7 @@ export class ChatService {
   private readonly api = inject(ChatApiService);
   private readonly http = inject(HttpClient);
   private readonly config = getServerConfig();
+  private readonly editSession = inject(NodeEditSession)
 
 
   private readonly _chats = signal<Chat[]>([]);
@@ -162,6 +164,11 @@ export class ChatService {
   }
 
   async selectChat(chatId: string): Promise<void> {
+    if (chatId === this._currentChatId()) return;
+
+    if (!(await this.editSession.canLeaveChat(chatId))) {
+      return; // tree, path, localStorage untouched
+    }
     if (chatId) {
       localStorage.setItem(LS_CHAT, chatId);
     } else {

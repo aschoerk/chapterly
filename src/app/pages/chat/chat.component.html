@@ -43,7 +43,7 @@
           }
         }
 
-        <div class="tree">
+        <div class="tree" #tree (scroll)="onTreeScroll()">
           @for (node of getActivePath(); track node.id) {
             <app-chat-node
               [node]="node"

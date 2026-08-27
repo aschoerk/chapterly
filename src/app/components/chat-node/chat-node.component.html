@@ -127,7 +127,7 @@
         <textarea #editArea
                   class="editor-textarea"
                   [ngModel]="contentDraft()"
-                  (ngModelChange)="contentDraft.set($event)"
+                  (ngModelChange)="onDraftText($event)"
                   (input)="resizeTextarea()"
                   (keydown.control.enter)="isUnsentQuestion() ? sendDraft() : saveAsVersion()"
                   (keydown.escape)="cancelEdit()"
@@ -180,16 +180,18 @@
             }
           </button>
 
-          <button class="btn small" type="button"
-                  [disabled]="isLoading() || isDraftEmpty()"
-                  (click)="saveAsBranchAndSend()"
-                  title="Save as a new leaf and send it to the LLM">
-            @if (isLoading() && pendingAction() === 'branch') {
-              Sending…
-            } @else {
-              Branch
-            }
-          </button>
+          @if (isQuestion()) {
+            <button class="btn small" type="button"
+                    [disabled]="isLoading() || isDraftEmpty()"
+                    (click)="saveAsBranchAndSend()"
+                    title="Save as a new leaf and send it to the LLM">
+              @if (isLoading() && pendingAction() === 'branch') {
+                Sending…
+              } @else {
+                Branch
+              }
+            </button>
+          }
         }
 
         <button class="btn small" type="button"
