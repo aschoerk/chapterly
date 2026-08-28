@@ -27,6 +27,31 @@ export class ChatReaderComponent implements OnInit, OnDestroy {
   readonly currentChatId = this.chatService.currentChatId;
   readonly hideQuestions = signal(false);
   readonly docIndex = signal(0);
+  private static readonly COLS_KEY = 'chat-reader.columnCount';
+
+  readonly columnChoices = [1, 2, 3] as const;
+  readonly columnCount = signal<1 | 2 | 3>(this.readStoredColumnCount());
+
+  private readStoredColumnCount(): 1 | 2 | 3 {
+    try {
+      const n = Number(localStorage.getItem(ChatReaderComponent.COLS_KEY));
+      return n === 1 || n === 2 || n === 3 ? n : 3;
+    } catch {
+      return 3;
+    }
+  }
+
+  setColumnCount(n: 1 | 2 | 3): void {
+    if (this.columnCount() === n) return;
+    this.columnCount.set(n);
+    try {
+      localStorage.setItem(ChatReaderComponent.COLS_KEY, String(n));
+    } catch {
+      /* private mode / blocked storage */
+    }
+    this.page.set(0);
+    queueMicrotask(() => this.layout());
+  }
 
   private isUsable(n: ChatNode): boolean {
     return !!(n.content?.trim() || n.attachments?.length);

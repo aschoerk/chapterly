@@ -1,6 +1,7 @@
 export interface ServerConfig {
   apiBase: string;
   proxyBase: string;
+  mode: string;
 }
 
 /**
@@ -17,7 +18,8 @@ export function getServerConfig(): ServerConfig {
 
   return {
     apiBase: `${base}/api`,
-    proxyBase: `${base}/proxy`
+    proxyBase: `${base}/proxy`,
+    mode: "local"  // indexdb: "cloud"
   };
 }
 

@@ -1,7 +1,7 @@
 import { Injectable, signal, computed, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Chat, ChatNode, CreateNodeRequest, Project, Persona, Topic, ChatMessage, NodeAttachment } from '../models/chat';
-import { ChatApiService } from '../api/chat-api.service';
+import { CHAT_API } from '../api/chat-api.token';
 import {
   CreatePersonaRequest,
   CreateProjectRequest,
@@ -22,7 +22,7 @@ const LS_CHAT  = 'chat.currentChatId';
   providedIn: 'root'
 })
 export class ChatService {
-  private readonly api = inject(ChatApiService);
+  private readonly api = inject(CHAT_API);
   private readonly http = inject(HttpClient);
   private readonly config = getServerConfig();
   private readonly editSession = inject(NodeEditSession)
@@ -115,7 +115,7 @@ export class ChatService {
       this._chats.update(list => list.filter(c => c.projectId !== id));
     } else {
       this._chats.update(list =>
-        list.map(c => (c.projectId === id ? { ...c, projectId: null } : c))
+        list.map(c => (c.projectId === id ? {...c, projectId: null} : c))
       );
     }
   }
@@ -148,7 +148,7 @@ export class ChatService {
   }
 
   async reassignChat(chatId: string, projectId: string | null): Promise<Chat> {
-    const chat = await this.api.patchChat(chatId, { projectId });
+    const chat = await this.api.patchChat(chatId, {projectId});
     this._chats.update(list =>
       list.map(c => (c.id === chatId ? chat : c))
     );
@@ -235,13 +235,13 @@ export class ChatService {
   async editAnswer(chatId: string, nodeId: string, content: string,
                    attachments?: NodeAttachment[],
                    thinking?: string): Promise<ChatNode> {
-    const body: any = { content };
+    const body: any = {content};
     const node = await this.api.editAnswer(chatId, nodeId, content, attachments, thinking);
 
     // Mark old version as not current locally and add the new one
-    this. _nodes.update(list => {
+    this._nodes.update(list => {
       const updated = list.map(n =>
-        n.id === nodeId ? { ...n, isCurrent: false } : n
+        n.id === nodeId ? {...n, isCurrent: false} : n
       );
       return [...updated, node];
     });
@@ -259,7 +259,7 @@ export class ChatService {
     const node = await this.api.editQuestion(chatId, nodeId, content, attachments);
 
     this._nodes.update(list => {
-      const updated = list.map(n => (n.id === nodeId ? { ...n, isCurrent: false } : n));
+      const updated = list.map(n => (n.id === nodeId ? {...n, isCurrent: false} : n));
       return [...updated, node];
     });
 
@@ -276,7 +276,7 @@ export class ChatService {
     providerId?: string,
     attachments?: NodeAttachment[]
   ): Promise<ChatNode> {
-    const body: any = { content, modelId, providerId };
+    const body: any = {content, modelId, providerId};
     if (attachments !== undefined) body.attachments = attachments;
     const node = await this.api.branchQuestion(chatId, nodeId, {
       content,
@@ -289,11 +289,8 @@ export class ChatService {
   }
 
 
-
-
-
   async updateChatTitle(id: string, title: string): Promise<void> {
-    const updated = await this.api.patchChat(id, { title });
+    const updated = await this.api.patchChat(id, {title});
 
     this._chats.update(list =>
       list.map(c => (c.id === id ? updated : c))
@@ -452,7 +449,7 @@ export class ChatService {
   /** Switch the active sibling under a parent */
   setActiveChild(parentId: string | null, childId: string): void {
     const key = parentId ?? 'root';
-    this._activeChildMap.update(m => ({ ...m, [key]: childId }));
+    this._activeChildMap.update(m => ({...m, [key]: childId}));
   }
 
   private nodeTimestamp(n: ChatNode): number {
@@ -521,6 +518,8 @@ export class ChatService {
     const saved = localStorage.getItem(LS_CHAT);
     if (saved && this._chats().some(c => c.id === saved)) {
       this.selectChat(saved);
+    } else {
+      localStorage.removeItem(LS_CHAT);
     }
   }
 
@@ -546,7 +545,7 @@ export class ChatService {
       modelId,
       providerId
     });
-    this._nodes.update(list => list.map(n => (n.id === nodeId ? { ...n, ...node } : n)));
+    this._nodes.update(list => list.map(n => (n.id === nodeId ? {...n, ...node} : n)));
     return this._nodes().find(n => n.id === nodeId) ?? node;
   }
 
@@ -557,46 +556,45 @@ export class ChatService {
    */
   async ensureDraftAtLeaf(chatId: string): Promise<void> {
     if (!chatId || this.ensuringDraft || this.generatingNodeId()) return;
+    if (this._currentChatId() !== chatId) return;
 
-    let leaf = this.getActivePath().at(-1) ?? null;
+    this.ensuringDraft = true;
+    try {
+      if (this._nodes().every(n => n.chatId !== chatId)) {
+        await this.loadNodes(chatId);
+      }
 
+      if (!this.getActivePath().length) {
+        this.restoreMostRecentPath();
+      }
 
-    if (!leaf) {
-      let nodes = await this.api.getNodes(chatId)
-      const parentNodes = new Set(nodes.map(n => n.parentId));
+      let leaf = this.getActivePath().at(-1) ?? null;
 
-      leaf = nodes.filter(n => parentNodes.has(n.id))
-        .sort((a, b) => -a.createdAt.localeCompare(b.createdAt)).at(0) ?? null;
-    }
-
-
-    if (!leaf) {
-      this.ensuringDraft = true;
-      try {
+      if (!leaf) {
+        const roots = this.getChildren(null).filter(n => n.type === 'question');
+        if (roots.length > 0) {
+          this.setActiveChild(null, this.newestChild(null)!.id);
+          return;
+        }
         const draft = await this.addNode(chatId, {
           parentId: null,
           type: 'question',
           content: ''
         });
         this.setActiveChild(null, draft.id);
-      } finally {
-        this.ensuringDraft = false;
+        return;
       }
-      return;
-    }
 
-    if (leaf.type !== 'answer') return;
-    if (!leaf.content?.trim()) return;
+      if (leaf.type !== 'answer') return;
+      if (!leaf.content?.trim()) return;
 
-    const existing = this.getChildren(leaf.id).filter(n => n.type === 'question');
-    if (existing.length > 0) {
-      const draft = existing.find(n => this.isDraftQuestion(n)) ?? existing[0];
-      this.setActiveChild(leaf.id, draft.id);
-      return;
-    }
+      const existing = this.getChildren(leaf.id).filter(n => n.type === 'question');
+      if (existing.length > 0) {
+        const draft = existing.find(n => this.isDraftQuestion(n)) ?? existing[0];
+        this.setActiveChild(leaf.id, draft.id);
+        return;
+      }
 
-    this.ensuringDraft = true;
-    try {
       const draft = await this.addNode(chatId, {
         parentId: leaf.id,
         type: 'question',
@@ -609,6 +607,4 @@ export class ChatService {
       this.ensuringDraft = false;
     }
   }
-
-
 }

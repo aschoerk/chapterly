@@ -69,8 +69,6 @@ export class SideBarComponent implements OnInit {
       if (topic) {
         const idSet = new Set(topic.projectIds);
         list = list.filter(p => idSet.has(p.id));
-      } else {
-        list = [];
       }
     }
 

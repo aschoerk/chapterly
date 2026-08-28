@@ -4,6 +4,16 @@
   <header class="reader-bar">
     <button class="btn-icon" type="button" (click)="backToTree()">← Tree</button>
     <h1 class="reader-title">{{ title() }}</h1>
+    <div class="pager cols-pager" role="group" aria-label="Columns">
+      @for (n of columnChoices; track n) {
+        <button class="btn-icon"
+                type="button"
+                [class.active]="columnCount() === n"
+                (click)="setColumnCount(n)"
+                [attr.aria-pressed]="columnCount() === n"
+                [title]="n + (n === 1 ? ' column' : ' columns')">{{ n }}</button>
+      }
+    </div>
     <div class="pager doc-pager">
       <button class="btn-icon" type="button"
               [disabled]="docIndex() === 0"
@@ -55,6 +65,7 @@
     <article
       #reader
       class="reader markdown-body"
+      [style.--reader-cols]="columnCount()"
       [innerHTML]="bookHtml()"
       (wheel)="onWheel($event)">
     </article>

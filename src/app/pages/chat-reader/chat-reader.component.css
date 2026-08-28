@@ -75,11 +75,16 @@
 
 .reader {
   box-sizing: border-box;
-  padding: 1.25rem 0;     /* vertical only */
-  column-gap: 36px;       /* px, not rem — rem is often fractional */
-  column-count: 3;
+  padding: 1.25rem 0;
+  column-gap: 36px;
+  column-count: var(--reader-cols, 3);
   column-fill: auto;
   overflow: hidden;
+}
+
+.cols-pager .btn-icon {
+  min-width: 1.75rem;
+  font-variant-numeric: tabular-nums;
 }
 
 .btn-icon.active {

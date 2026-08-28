@@ -64,7 +64,7 @@ export class ChatNodeComponent {
   }
 
   get siblings(): ChatNode[] {
-    return this.chatService.getChildren(this.node().parentId);
+    return this.chatService.getSiblingsOf(this.node());
   }
 
   get hasSiblings(): boolean {
@@ -479,7 +479,7 @@ export class ChatNodeComponent {
 
       const remaining = parentId
         ? this.chatService.getChildren(parentId)
-        : this.chatService.getChildren(null);
+        : [];
       if (remaining.length > 0) {
         const newest = remaining.reduce((a, b) =>
           this.nodeTimestamp(a) >= this.nodeTimestamp(b) ? a : b
