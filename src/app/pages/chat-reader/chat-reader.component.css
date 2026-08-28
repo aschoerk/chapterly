@@ -1,0 +1,131 @@
+.reader-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: #faf8f4;
+  color: #1c1917;
+}
+
+.reader-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 1rem;
+  border-bottom: 1px solid #e7e5e4;
+  background: #fff;
+  flex-shrink: 0;
+}
+
+.reader-title {
+  flex: 1;
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pager {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.folio {
+  min-width: 4.5rem;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.85rem;
+  color: #78716c;
+}
+
+.btn-icon {
+  border: 1px solid transparent;
+  background: transparent;
+  border-radius: 6px;
+  padding: 0.25rem 0.55rem;
+  cursor: pointer;
+}
+
+.btn-icon:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.reader-bar {
+  flex-shrink: 0;
+}
+
+.reader-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+
+
+.reader-frame {
+  flex: 1;
+  min-height: 0;          /* without this, flex item won’t shrink */
+  display: flex;          /* pass height to the article */
+  flex-direction: column;
+  padding: 1.25rem 1.75rem 1.75rem;
+}
+
+.reader {
+  box-sizing: border-box;
+  padding: 1.25rem 0;     /* vertical only */
+  column-gap: 36px;       /* px, not rem — rem is often fractional */
+  column-count: 3;
+  column-fill: auto;
+  overflow: hidden;
+}
+
+.btn-icon.active {
+  background: #ededeb;
+  border-color: #d6d3d1;
+}
+
+.book-node {
+  break-inside: avoid-column;
+  margin: 0 0 1.15rem;
+}
+
+.book-node.book-answer {
+  break-inside: auto;          /* long answers may split across columns */
+}
+
+.book-kicker {
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  margin: 0 0 0.35rem;
+  break-after: avoid;
+}
+
+.book-question .book-kicker { color: #1d4ed8; }
+.book-answer .book-kicker { color: #15803d; }
+
+.book-body p { margin: 0.4em 0; }
+.book-body pre {
+  white-space: pre-wrap;
+  break-inside: avoid;
+}
+
+.book-file {
+  font-size: 0.8rem;
+  color: #78716c;
+}
+
+.empty {
+  padding: 2rem;
+  color: #78716c;
+}
+
+@media (max-width: 800px) {
+  .reader {
+    column-count: 1;
+    column-rule: none;
+  }
+}

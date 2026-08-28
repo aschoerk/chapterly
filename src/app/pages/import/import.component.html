@@ -12,18 +12,59 @@
     <p class="drop-title">Drop JSON file(s) here</p>
     <p class="drop-hint">
       Copilots → Projects immediately &nbsp;|&nbsp; Sessions → review list
+      &nbsp;|&nbsp; Grok export → one session per conversation
     </p>
     <label class="btn primary file-label">
       Choose file(s)
       <input
         type="file"
-        accept=".json,application/json"
+        accept=".json,application/json,.txt"
         multiple
         (change)="onFileSelected($event)"
         hidden />
     </label>
   </div>
 </section>
+
+<!-- ========== Optional byte window for huge files ========== -->
+<section class="section slice-box">
+  <label class="checkbox">
+    <input type="checkbox" [(ngModel)]="useSlice" />
+    Read only a byte window (for multi-hundred-MB Grok exports)
+  </label>
+  @if (useSlice) {
+    <div class="slice-fields">
+      <label>
+        Offset (bytes from start)
+        <input type="number" min="0" [(ngModel)]="sliceOffset" />
+      </label>
+      <label>
+        Length (bytes, empty = rest of file)
+        <input
+          type="number"
+          min="1"
+          [ngModel]="sliceLength"
+          (ngModelChange)="sliceLength = $event === '' || $event == null ? null : +$event" />
+      </label>
+    </div>
+    <p class="drop-hint">
+      Offset is a search start: the reader walks forward to the next
+      <code>"conversation"</code> wrapper. Length is a soft stop: a conversation
+      that started inside the window is always read through its closing brace.
+      If the offset sits inside an object, that object is skipped.
+    </p>
+  }
+</section>
+
+@if (lastAlignedStart() !== null) {
+  <div class="alert info">
+    Snapped window: bytes {{ lastAlignedStart() }} → {{ lastAlignedEnd() }}
+    (end is the close of the last conversation that was opened).
+    <button class="btn small" type="button" (click)="useAlignedEndAsNextOffset()">
+      Use end as next offset
+    </button>
+  </div>
+}
 
 <!-- ========== Progress / errors ========== -->
 @if (progress()) {
@@ -90,7 +131,7 @@
   </section>
 }
 
-<!-- ========== Finished imports (copilots + completed sessions) ========== -->
+<!-- ========== Finished imports ========== -->
 @if (summaries().length) {
   <section class="section">
     <h2>Import result</h2>

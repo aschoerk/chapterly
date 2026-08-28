@@ -1,4 +1,4 @@
-import { Component, effect, ElementRef, viewChild , inject, OnInit, signal } from '@angular/core';
+import {Component, effect, ElementRef, viewChild, inject, OnInit, signal, HostListener} from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ChatService } from '../../core/chat.service';
@@ -8,6 +8,7 @@ import { SettingsService } from '../../core/settings.service';
 import { ChatTitleEditorComponent } from '../../components/chat-title-editor/chat-title-editor.component';
 import { ChatNodeComponent } from '../../components/chat-node/chat-node.component';
 import {SideBarComponent} from '../../components/side-bar/side-bar.component';
+import {Router} from '@angular/router';
 
 @Component({
   selector: 'app-chat',
@@ -37,6 +38,12 @@ export class ChatComponent implements OnInit {
 
   /** Node whose block sits nearest the top of .tree */
   readonly visibleNodeId = signal<string | null>(null);
+
+  private readonly router = inject(Router);
+
+  openReader() {
+    void this.router.navigate(['/read']);
+  }
 
   async ngOnInit() {
     await this.chatService.loadChats();
@@ -221,6 +228,25 @@ export class ChatComponent implements OnInit {
     return messages;
   }
 
+  @HostListener('window:keydown', ['$event'])
+  onKey(event: KeyboardEvent) {
+    if (this.isTyping(event)) return;
+    if (event.key === 'b' || event.key === 'B') {
+      if (!this.currentChatId()) return;
+      event.preventDefault();
+      this.openReader();
+    }
+  }
+
+  private isTyping(event: KeyboardEvent): boolean {
+    const t = event.target as HTMLElement | null;
+    return !!t && (
+      t.tagName === 'INPUT' ||
+      t.tagName === 'TEXTAREA' ||
+      t.tagName === 'SELECT' ||
+      t.isContentEditable
+    );
+  }
 
 
   // remove local activeChildMap / getActivePath / setActiveChild …

@@ -1,0 +1,62 @@
+
+
+<div class="reader-shell">
+  <header class="reader-bar">
+    <button class="btn-icon" type="button" (click)="backToTree()">← Tree</button>
+    <h1 class="reader-title">{{ title() }}</h1>
+    <div class="pager doc-pager">
+      <button class="btn-icon" type="button"
+              [disabled]="docIndex() === 0"
+              (click)="goFirstDoc()" title="Oldest document">«</button>
+      <button class="btn-icon" type="button"
+              [disabled]="docIndex() === 0"
+              (click)="prevDoc()" title="Previous document">‹</button>
+      <span class="folio" [title]="docLabel()">
+    Doc {{ documents().length ? docIndex() + 1 : 0 }} / {{ documents().length }}
+        <small>{{ docLabel() }}</small>
+  </span>
+      <button class="btn-icon" type="button"
+              [disabled]="docIndex() >= documents().length - 1"
+              (click)="nextDoc()" title="Next document">›</button>
+      <button class="btn-icon" type="button"
+              [disabled]="docIndex() >= documents().length - 1"
+              (click)="goLastDoc()" title="Newest document">»</button>
+    </div>
+    <button class="btn-icon"
+            type="button"
+            [class.active]="hideQuestions()"
+            (click)="toggleQuestions()"
+            [title]="hideQuestions() ? 'Show questions (q)' : 'Hide questions (q)' ">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+           stroke="currentColor" stroke-width="2"
+           stroke-linecap="round" stroke-linejoin="round"
+           aria-hidden="true">
+        @if (hideQuestions()) {
+          <circle cx="12" cy="12" r="10"/>
+          <path d="M8 12h8"/>
+        } @else {
+          <circle cx="12" cy="12" r="10"/>
+          <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/>
+          <path d="M12 17h.01"/>
+        }
+      </svg>
+    </button>
+    <div class="pager">
+      <button class="btn-icon" type="button"
+              [disabled]="page() === 0"
+              (click)="prevPage()">‹</button>
+      <span class="folio">{{ page() + 1 }} / {{ pageCount() }}</span>
+      <button class="btn-icon" type="button"
+              [disabled]="page() >= pageCount() - 1"
+              (click)="nextPage()">›</button>
+    </div>
+  </header>
+  <div class="reader-frame">          <!-- flex: 1, this is the page box -->
+    <article
+      #reader
+      class="reader markdown-body"
+      [innerHTML]="bookHtml()"
+      (wheel)="onWheel($event)">
+    </article>
+  </div>
+</div>

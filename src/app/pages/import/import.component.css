@@ -385,3 +385,91 @@
   font-size: 0.75rem;
   color: #92400e;
 }
+
+/* Slice window + pending list extras */
+.slice-box {
+  padding: 0.9rem 1rem;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  margin-bottom: 1.2rem;
+}
+.slice-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin: 0.75rem 0 0.4rem;
+}
+.slice-fields label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+.slice-fields input {
+  padding: 0.35rem 0.5rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  min-width: 180px;
+}
+.pending-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  margin-bottom: 1rem;
+}
+.pending-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.7rem 0.85rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #fff;
+}
+.pending-main {
+  flex: 1 1 220px;
+}
+.pending-title {
+  font-weight: 600;
+}
+.pending-meta {
+  font-size: 0.8rem;
+  color: #64748b;
+}
+.project-select {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+.project-select select {
+  padding: 0.3rem 0.45rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  min-width: 160px;
+}
+.btn.danger {
+  background: #fff;
+  color: #b91c1c;
+  border-color: #fecaca;
+}
+.btn.danger:hover:not(:disabled) {
+  background: #fef2f2;
+}
+.btn.small {
+  padding: 0.25rem 0.55rem;
+  font-size: 0.8rem;
+}
+.summary-list {
+  padding-left: 1.1rem;
+}
+.summary-list .err {
+  color: #b91c1c;
+}
+.summary-list li.error {
+  color: #7f1d1d;
+}
