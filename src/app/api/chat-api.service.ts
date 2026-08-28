@@ -84,10 +84,10 @@ export class ChatApiService {
     );
   }
 
-  editAnswer(chatId: string, nodeId: string, content: string,
-             attachments?: NodeAttachment[]): Promise<ChatNode> {
+  editAnswer(chatId: string, nodeId: string, content: string, attachments?: NodeAttachment[], thinking?: string | undefined): Promise<ChatNode> {
     const body: any = { content };
     if (attachments !== undefined) body.attachments = attachments;
+    if (thinking !== undefined) body.thinking = thinking;
 
     return firstValueFrom(
       this.http.post<ChatNode>(

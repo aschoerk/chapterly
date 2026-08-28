@@ -1,28 +1,33 @@
-import {ChatMessage, ChatNode} from '../models/chat';
-import {getServerConfig} from './server-config';
-import {inject, Injectable} from '@angular/core';
-import {ChatService} from './chat.service';
+import { ChatMessage, ChatNode } from '../models/chat';
+import { ModelEntry } from '../models/chat-config';
+import { getServerConfig } from './server-config';
+import { inject, Injectable } from '@angular/core';
+import { ChatService } from './chat.service';
 
-@Injectable({
-  providedIn: "root"
-})
+export interface LlmChunk {
+  content?: string;
+  thinking?: string;
+}
+
+@Injectable({ providedIn: 'root' })
 export class LlmService {
-  private readonly chatService = inject(ChatService)
+  private readonly chatService = inject(ChatService);
 
   async askLlm(
     providerBaseUrl: string,
     apiKey: string,
     modelId: string,
     messages: ChatMessage[],
-    onChunk?: (chunk: string) => void,
-    signal?: AbortSignal
-  ): Promise<string> {
+    onChunk?: (chunk: LlmChunk) => void,
+    signal?: AbortSignal,
+    extras: Record<string, unknown> = {}
+  ): Promise<{ content: string; thinking: string }> {
     const config = getServerConfig();
 
     const response = await fetch(`${config.proxyBase}/chat/completions`, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${apiKey}`,
+        Authorization: `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
         'x-target-base': providerBaseUrl,
         'HTTP-Referer': 'https://chat-client.local',
@@ -32,90 +37,88 @@ export class LlmService {
         model: modelId,
         messages,
         temperature: 0.7,
-        stream: true
+        stream: true,
+        ...extras
       }),
-      signal                               // ← allows cancellation
+      signal
     });
 
     if (!response.ok) {
-    const errText = await response.text();
-    throw new Error(`LLM request failed: ${response.status} ${errText}`);
-  }
+      const errText = await response.text();
+      throw new Error(`LLM request failed: ${response.status} ${errText}`);
+    }
+    if (!response.body) {
+      throw new Error('No response body for streaming');
+    }
 
-  if (!response.body) {
-    throw new Error('No response body for streaming');
-  }
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let content = '';
+    let thinking = '';
+    let buffer = '';
 
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let fullContent = '';
-  let buffer = '';
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
 
-  try {
-    while (true) {
-      // This will throw if the signal is aborted
-      const { done, value } = await reader.read();
-      if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
 
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() ?? '';
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed || trimmed === 'data: [DONE]') continue;
+          if (!trimmed.startsWith('data: ')) continue;
 
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed || trimmed === 'data: [DONE]') continue;
-
-        if (trimmed.startsWith('data: ')) {
           try {
             const json = JSON.parse(trimmed.slice(6));
-            const delta = json.choices?.[0]?.delta?.content;
-            if (typeof delta === 'string' && delta.length > 0) {
-              fullContent += delta;
-              onChunk?.(delta);
-            }
+            const delta = json.choices?.[0]?.delta ?? {};
+            const contentBit = this.asText(delta.content);
+            const thinkingBit = this.extractThinking(delta);
+            if (!contentBit && !thinkingBit) continue;
+
+            if (contentBit) content += contentBit;
+            if (thinkingBit) thinking += thinkingBit;
+            onChunk?.({
+              content: contentBit || undefined,
+              thinking: thinkingBit || undefined
+            });
           } catch {
-            // ignore partial / malformed chunks
+            // incomplete SSE line
           }
         }
       }
+    } catch (err: any) {
+      if (err?.name === 'AbortError') {
+        return { content: content.trim(), thinking: thinking.trim() };
+      }
+      throw err;
+    } finally {
+      try {
+        reader.releaseLock();
+      } catch { /* ignore */ }
     }
-  } catch (err: any) {
-    // AbortError is expected when the user clicks Stop
-    if (err?.name === 'AbortError') {
-      // Return whatever we have received so far
-      return fullContent.trim();
-    }
-    throw err;
-  } finally {
-    // Make sure the reader is released
-    try {
-      reader.releaseLock();
-    } catch {
-      // ignore
-    }
+
+    return {
+      content: content.trim() || (thinking.trim() ? '' : '(no response)'),
+      thinking: thinking.trim()
+    };
   }
 
-  return fullContent.trim() || '(no response)';
-  }
-
-  /**
-   * Creates an empty answer node under the given question and streams the LLM response into it.
-   * Supports cancellation via the generation AbortController.
-   * Returns the final (or partial) content that was written.
-   */
   async streamAnswer(
     chatId: string,
     questionNodeId: string,
     provider: { baseUrl: string; apiKey: string },
-  model: { modelId: string; providerId: string },
-  messages: ChatMessage[],
-    onChunk?: (chunk: string) => void
+    model: Pick<ModelEntry, 'modelId' | 'providerId' | 'reasoning' | 'supportedParameters' | 'supported_parameters'>,
+    messages: ChatMessage[],
+    onChunk?: (chunk: LlmChunk) => void
   ): Promise<ChatNode> {
-
     const answerNode = await this.chatService.addNode(chatId, {
       parentId: questionNodeId,
       type: 'answer',
       content: '',
+      thinking: '',
       modelId: model.modelId,
       providerId: model.providerId
     });
@@ -123,47 +126,97 @@ export class LlmService {
     this.chatService.setActiveChild(questionNodeId, answerNode.id);
 
     const signal = this.chatService.startGeneration(answerNode.id);
-    let accumulated = '';
+    let accContent = '';
+    let accThinking = '';
+
+    const writeLive = () => {
+      this.chatService.updateNodes(list =>
+        list.map(n =>
+          n.id === answerNode.id
+            ? { ...n, content: accContent, thinking: accThinking }
+            : n
+        )
+      );
+    };
 
     try {
-      accumulated = await this.askLlm(
+      const result = await this.askLlm(
         provider.baseUrl,
         provider.apiKey,
         model.modelId,
         messages,
-        (chunk: string) => {
-          accumulated += chunk;
-
-          // Live update in the local store
-          this.chatService.updateNodes(
-            list =>
-              list.map(n =>
-                n.id === answerNode.id ? { ...n, content: accumulated } : n
-              )
-          )
-
+        chunk => {
+          if (chunk.content) accContent += chunk.content;
+          if (chunk.thinking) accThinking += chunk.thinking;
+          writeLive();
           onChunk?.(chunk);
         },
-        signal
+        signal,
+        this.reasoningExtras(model)
       );
 
-      // 3. Persist final / partial answer
-      if (accumulated.trim()) {
-    const versioned = await this.chatService.editAnswer(chatId, answerNode.id, accumulated);
+      accContent = result.content;
+      accThinking = result.thinking;
+      writeLive();
+
+      if (accContent.trim() || accThinking.trim()) {
+        const versioned = await this.chatService.editAnswer(
+          chatId,
+          answerNode.id,
+          accContent,
+          undefined,
+          accThinking
+        );
         this.chatService.setActiveChild(questionNodeId, versioned.id);
-    return versioned;
-  }
-  return answerNode;
-  } catch (err) {
-    // abort / network — keep whatever tokens we already wrote locally
-    return answerNode;
-  } finally {
+        return versioned;
+      }
+      return answerNode;
+    } catch {
+      return answerNode;
+    } finally {
       this.chatService.stopGeneration();
-    if (accumulated.trim()) {
-      const current = this.chatService.getActiveChild(questionNodeId) ?? answerNode;
-      await this.chatService.ensureDraftAtLeaf(chatId);
-      this.chatService.scrollToNode?.(current.id);
+      if (accContent.trim() || accThinking.trim()) {
+        const current = this.chatService.getActiveChild(questionNodeId) ?? answerNode;
+        await this.chatService.ensureDraftAtLeaf(chatId);
+        this.chatService.scrollToNode?.(current.id);
+      }
     }
   }
+
+  private reasoningExtras(
+    model: Pick<ModelEntry, 'reasoning' | 'supportedParameters' | 'supported_parameters'>
+  ): Record<string, unknown> {
+    const params = model.supportedParameters ?? model.supported_parameters ?? [];
+    const listed = params.some(p => /reasoning|include_reasoning|thinking/i.test(p));
+    const meta = model.reasoning;
+    if (!listed && !meta) return {};
+
+    const extras: Record<string, unknown> = { include_reasoning: true };
+    const effort = meta?.default_effort ?? meta?.supported_efforts?.[0];
+    if (effort) extras['reasoning'] = { effort };
+    else extras['reasoning'] = { enabled: true };
+    return extras;
+  }
+
+  private extractThinking(delta: any): string {
+    return this.asText(
+      delta?.reasoning_content ??
+      delta?.reasoning ??
+      delta?.thinking ??
+      delta?.reasoning_text
+    );
+  }
+
+  private asText(value: unknown): string {
+    if (typeof value === 'string') return value;
+    if (Array.isArray(value)) {
+      return value.map(part => this.asText(
+        typeof part === 'string' ? part : (part as any)?.text ?? (part as any)?.content
+      )).join('');
+    }
+    if (value && typeof value === 'object' && 'text' in (value as any)) {
+      return this.asText((value as any).text);
+    }
+    return '';
   }
 }

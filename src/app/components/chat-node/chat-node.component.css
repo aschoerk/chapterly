@@ -268,13 +268,40 @@
   padding: 0.25rem 0;
 }
 
-.thinking {
+.thinking-content {
+  margin: 0 0 0.55rem;
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--text-muted, #64748b) 8%, transparent);
+}
+
+.thinking-content.live {
+  border-color: color-mix(in srgb, var(--accent, #3b82f6) 45%, var(--border, #e2e8f0));
+}
+
+.thinking-toggle {
   display: flex;
   align-items: center;
-  gap: 0.6rem;
-  color: #64748b;
+  gap: 0.45rem;
+  width: 100%;
+  padding: 0.4rem 0.65rem;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted, #64748b);
+  font-size: 0.8rem;
   font-style: italic;
-  padding: 0.35rem 0;
+  cursor: pointer;
+}
+
+.thinking-body {
+  margin: 0;
+  padding: 0 0.7rem 0.65rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 0.8rem;
+  line-height: 1.45;
+  color: var(--text-muted, #475569);
+  font-family: inherit;
 }
 
 .spinner {

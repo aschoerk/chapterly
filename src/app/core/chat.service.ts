@@ -233,9 +233,10 @@ export class ChatService {
   }
 
   async editAnswer(chatId: string, nodeId: string, content: string,
-                   attachments?: NodeAttachment[]): Promise<ChatNode> {
+                   attachments?: NodeAttachment[],
+                   thinking?: string): Promise<ChatNode> {
     const body: any = { content };
-    const node = await this.api.editAnswer(chatId, nodeId, content, attachments);
+    const node = await this.api.editAnswer(chatId, nodeId, content, attachments, thinking);
 
     // Mark old version as not current locally and add the new one
     this. _nodes.update(list => {

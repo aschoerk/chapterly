@@ -207,16 +207,31 @@
     </div>
 
   } @else {
-    @if (node().type === 'answer' && chatService.isGenerating(node().id) && !node().content?.trim()) {
-      <div class="node-content thinking">
-        <span class="spinner"></span>
-        <span>Thinking…</span>
+    @if (node().type === 'answer' && (hasThinking() || isThinkingLive())) {
+      <div class="thinking-content" [class.live]="isThinkingLive()">
+        <button type="button" class="thinking-toggle"
+                (click)="thinkingOpen.set(!thinkingOpen())">
+          @if (isThinkingLive() && !node().content?.trim()) {
+            <span class="spinner"></span>
+            <span>{{ hasThinking() ? 'Thinking…' : 'Waiting for the model…' }}</span>
+          } @else {
+            <span class="thinking-chevron">{{ thinkingOpen() ? '▾' : '▸' }}</span>
+            <span>Thought</span>
+          }
+        </button>
+        @if (thinkingOpen() && hasThinking()) {
+          <pre class="thinking-body">{{ node().thinking }}</pre>
+        }
       </div>
-    } @else if (node().content?.trim()) {
+    }
+
+    @if (node().content?.trim()) {
       <div class="node-content click-to-edit"
            title="Click to edit"
            (click)="onContentClick($event)"
            [innerHTML]="renderedHtml()"></div>
+    } @else if (isThinkingLive()) {
+      <!-- spinner lives in thinking-content -->
     } @else if (node().type === 'question') {
       <div class="node-content empty-draft click-to-edit"
            title="Click to write the next question"

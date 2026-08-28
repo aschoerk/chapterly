@@ -46,12 +46,22 @@ export class ChatNodeComponent {
   readonly editDismissed = signal(false);
   readonly enabledModels = this.settings.enabledModels;
   private readonly editSession = inject(NodeEditSession);
+  readonly thinkingOpen = signal(true);
 
   private readonly editArea = viewChild<ElementRef<HTMLTextAreaElement>>('editArea');
 
   readonly isEditing = computed(() =>
     this.editSession.editingNodeId() === this.node().id
   );
+
+  hasThinking(): boolean {
+    return !!this.node().thinking?.trim();
+  }
+
+  isThinkingLive(): boolean {
+    const n = this.node();
+    return n.type === 'answer' && this.chatService.isGenerating(n.id);
+  }
 
   get siblings(): ChatNode[] {
     return this.chatService.getChildren(this.node().parentId);

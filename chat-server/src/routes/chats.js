@@ -350,6 +350,9 @@ function editNodeVersion(nodeId, expectedType, { content, thinking, attachments 
     ? JSON.stringify(Array.isArray(attachments) ? attachments : [])
     : (oldNode.attachments || '[]');
 
+  const newThinking = thinking !== undefined && type == "answer" ? thinking : oldNode.thinking;
+
+
   // Wrap inside a transaction for atomicity
   const executeEditTransaction = db.transaction(() => {
     // 1. Mark existing node as no longer current
@@ -367,7 +370,7 @@ function editNodeVersion(nodeId, expectedType, { content, thinking, attachments 
       oldNode.parent_id,
       expectedType,
       content,
-      oldNode.thinking,
+      newThinking,
       oldNode.model_id,
       oldNode.provider_id,
       newVersion,
