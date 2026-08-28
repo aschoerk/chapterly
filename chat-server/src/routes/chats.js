@@ -350,7 +350,7 @@ function editNodeVersion(nodeId, expectedType, { content, thinking, attachments 
     ? JSON.stringify(Array.isArray(attachments) ? attachments : [])
     : (oldNode.attachments || '[]');
 
-  const newThinking = thinking !== undefined && type == "answer" ? thinking : oldNode.thinking;
+  const newThinking = thinking !== undefined && expectedType == "answer" ? thinking : oldNode.thinking;
 
 
   // Wrap inside a transaction for atomicity
