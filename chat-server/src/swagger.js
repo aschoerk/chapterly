@@ -167,6 +167,9 @@ const options = {
             content: {
               type: 'string'
             },
+            thinking: {
+              type: 'string'
+            },
             modelId: {
               type: 'string',
               nullable: true

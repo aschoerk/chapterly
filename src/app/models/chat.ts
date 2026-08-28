@@ -46,6 +46,7 @@ export interface ChatNode {
   parentId: string | null;
   type: NodeType;
   content: string;
+  thinking?: string | null;
   modelId?: string | null;
   providerId?: string | null;
   version: number;
@@ -62,6 +63,7 @@ export interface CreateNodeRequest {
   parentId?: string | null;
   type: NodeType;
   content: string;
+  thinking?: string;
   modelId?: string;
   providerId?: string;
   attachments?: NodeAttachment[];

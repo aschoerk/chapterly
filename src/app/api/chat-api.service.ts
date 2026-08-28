@@ -84,7 +84,8 @@ export class ChatApiService {
     );
   }
 
-  editAnswer(chatId: string, nodeId: string, content: string, attachments?: NodeAttachment[]): Promise<ChatNode> {
+  editAnswer(chatId: string, nodeId: string, content: string,
+             attachments?: NodeAttachment[]): Promise<ChatNode> {
     const body: any = { content };
     if (attachments !== undefined) body.attachments = attachments;
 
@@ -127,6 +128,7 @@ export class ChatApiService {
     nodeId: string,
     data: {
       content?: string;
+      thinking?: string;
       attachments?: NodeAttachment[];
       modelId?: string;
       providerId?: string;

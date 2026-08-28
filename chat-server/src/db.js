@@ -93,6 +93,7 @@ function initializeSchema(db) {
                                             parent_id TEXT,
                                             type TEXT NOT NULL CHECK(type IN ('question', 'answer')),
       content TEXT NOT NULL,
+      thinking TEXT,
       model_id TEXT,
       provider_id TEXT,
       version INTEGER NOT NULL DEFAULT 1,
@@ -141,6 +142,11 @@ function initializeSchema(db) {
     const modelCols = db.prepare(`PRAGMA table_info(models)`).all().map(c => c.name);
     if (!modelCols.includes('catalog_json')) {
       db.exec(`ALTER TABLE models ADD COLUMN catalog_json TEXT`);
+      console.log('Migrated models: added catalog_json');
+    }
+    const nodeCols = db.prepare(`PRAGMA table_info(chat_nodes)`).all().map(c => c.name);
+    if (!nodeCols.includes('catalog_json')) {
+      db.exec(`ALTER TABLE chat_nodes ADD COLUMN thinking   TEXT`);
       console.log('Migrated models: added catalog_json');
     }
   } catch (e) {

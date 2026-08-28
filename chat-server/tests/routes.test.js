@@ -249,7 +249,7 @@ describe('API Routes (in-memory DB)', () => {
     test('POST /api/chats/:chatId/nodes adds a question', async () => {
       const res = await request(app)
         .post(`/api/chats/${chatId}/nodes`)
-        .send({content: 'Hello?', type: "question"});
+        .send({content: 'Hello?', thinking: 'thinking', type: "question"});
       expect(res.status).toBe(201);
       expect(res.body.type).toBe('question');
       expect(res.body.content).toBe('Hello?');

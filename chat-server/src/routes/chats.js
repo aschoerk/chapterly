@@ -260,6 +260,9 @@ router.get('/:chatId/nodes', (req, res) => {
  *                 enum: [question, answer]
  *               content:
  *                 type: string
+ *               thinking:
+ *                 type: string
+ *                 nullable: true
  *               modelId:
  *                 type: string
  *                 nullable: true
@@ -287,6 +290,7 @@ router.post('/:chatId/nodes', (req, res) => {
     parentId = null,
     type,
     content,
+    thinking,
     modelId = null,
     providerId = null,
     attachments = []
@@ -304,10 +308,11 @@ router.post('/:chatId/nodes', (req, res) => {
 
   db.prepare(`
     INSERT INTO chat_nodes (
-      id, chat_id, parent_id, type, content,
+      id, chat_id, parent_id, type, content, thinking,
       model_id, provider_id, version, is_current, attachments
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, 1, 1, ?)
-  `).run(id, chatId, parentId, type, content ?? '', modelId, providerId, attachmentsJson);
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 1, ?)
+  `).run(id, chatId, parentId, type, content ?? '',
+    thinking ?? null, modelId, providerId, attachmentsJson);
 
   db.prepare(`UPDATE chats SET updated_at = datetime('now') WHERE id = ?`).run(chatId);
 
@@ -319,7 +324,7 @@ router.post('/:chatId/nodes', (req, res) => {
 /**
  * Shared helper to create a new version of a node (question or answer).
  */
-function editNodeVersion(nodeId, expectedType, { content, attachments }) {
+function editNodeVersion(nodeId, expectedType, { content, thinking, attachments }) {
   if (content === undefined || content === null) {
     const err = new Error('content is required');
     err.status = 400;
@@ -353,15 +358,16 @@ function editNodeVersion(nodeId, expectedType, { content, attachments }) {
     // 2. Insert new version node
     db.prepare(`
       INSERT INTO chat_nodes (
-        id, chat_id, parent_id, type, content,
+        id, chat_id, parent_id, type, content, thinking,
         model_id, provider_id, version, previous_version_id, is_current, attachments
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
     `).run(
       newId,
       oldNode.chat_id,
       oldNode.parent_id,
       expectedType,
       content,
+      oldNode.thinking,
       oldNode.model_id,
       oldNode.provider_id,
       newVersion,
@@ -416,6 +422,9 @@ function editNodeVersion(nodeId, expectedType, { content, attachments }) {
  *             properties:
  *               content:
  *                 type: string
+ *               thinking:
+ *                 type: string
+ *                 nullable: true
  *               attachments:
  *                 type: array
  *                 items:
@@ -490,6 +499,10 @@ router.post('/:chatId/nodes/:nodeId/edit-question', (req, res) => {
  *               content:
  *                 type: string
  *                 description: Content of the new branched question
+ *               thinking:
+ *                  type: string
+ *                  nullable: true
+ *                  description: LLM thinking process if requested
  *               modelId:
  *                 type: string
  *                 nullable: true
@@ -527,7 +540,7 @@ router.post('/:chatId/nodes/:nodeId/edit-question', (req, res) => {
  */
 router.post('/:chatId/nodes/:nodeId/branch-question', (req, res) => {
   const { nodeId } = req.params;
-  const { content, modelId, providerId, attachments } = req.body;
+  const { content, thinking, modelId, providerId, attachments } = req.body;
 
   if (content === undefined || content === null) {
     return res.status(400).json({ error: 'content is required' });
@@ -548,14 +561,15 @@ router.post('/:chatId/nodes/:nodeId/branch-question', (req, res) => {
 
   db.prepare(`
     INSERT INTO chat_nodes (
-      id, chat_id, parent_id, type, content,
+      id, chat_id, parent_id, type, content, thinking,
       model_id, provider_id, version, is_current, attachments
-    ) VALUES (?, ?, ?, 'question', ?, ?, ?, 1, 1, ?)
+    ) VALUES (?, ?, ?, 'question', ?, ?, ?, ?, 1, 1, ?)
   `).run(
     newId,
     oldNode.chat_id,
     oldNode.parent_id,
     content,
+    thinking,
     modelId || oldNode.model_id,
     providerId || oldNode.provider_id,
     attachmentsJson
@@ -627,12 +641,13 @@ router.patch('/:id', (req, res) => {
 
 router.patch('/:chatId/nodes/:nodeId', (req, res) => {
   const { nodeId } = req.params;
-  const { content, attachments, modelId, providerId } = req.body || {};
+  const { content, thinking, attachments, modelId, providerId } = req.body || {};
 
   const oldNode = db.prepare('SELECT * FROM chat_nodes WHERE id = ?').get(nodeId);
   if (!oldNode) return res.status(404).json({ error: 'Node not found' });
 
   const nextContent = content !== undefined ? content : oldNode.content;
+  const nextThinking = thinking !== undefined ? thinking : oldNode.thinking;
   const nextAttachments = attachments !== undefined
     ? JSON.stringify(Array.isArray(attachments) ? attachments : [])
     : (oldNode.attachments || '[]');
@@ -641,10 +656,10 @@ router.patch('/:chatId/nodes/:nodeId', (req, res) => {
 
   db.prepare(`
     UPDATE chat_nodes
-    SET content = ?, attachments = ?, model_id = ?, provider_id = ?,
+    SET content = ?, thinking = ?, attachments = ?, model_id = ?, provider_id = ?,
         updated_at = datetime('now')
     WHERE id = ?
-  `).run(nextContent, nextAttachments, nextModel, nextProvider, nodeId);
+  `).run(nextContent, nextThinking, nextAttachments, nextModel, nextProvider, nodeId);
 
   db.prepare(`UPDATE chats SET updated_at = datetime('now') WHERE id = ?`).run(oldNode.chat_id);
 
@@ -673,6 +688,7 @@ function mapNode(row) {
     parentId: row.parent_id,
     type: row.type,
     content: row.content,
+    thinking: row.thinking ?? null,
     modelId: row.model_id,
     providerId: row.provider_id,
     version: row.version,
