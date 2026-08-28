@@ -12,6 +12,7 @@ import {ModelEntry} from '../../models/chat-config';
 import {NodeEditSession} from '../../core/node-edit-session';
 import {ConfirmDialogComponent} from '../confirm-dialog/confirm-dialog.component';
 import {ConfirmService} from '../../core/confirm.service';
+import {LlmService} from '../../core/llm.service';
 
 @Component({
   selector: 'app-chat-node',
@@ -24,6 +25,8 @@ export class ChatNodeComponent {
   private readonly settings = inject(SettingsService);
   public readonly markdownService = inject(MarkdownService);
   readonly chatService = inject(ChatService);
+  readonly llmService = inject(LlmService);
+
   private readonly confirm = inject(ConfirmService);
 
   readonly node = input.required<ChatNode>();
@@ -365,7 +368,7 @@ export class ChatNodeComponent {
       )
     });
     this.closeEditor();
-    await this.chatService.streamAnswer(chatId, question.id, provider, model, contextMessages);
+    await this.llmService.streamAnswer(chatId, question.id, provider, model, contextMessages);
   }
 
   /**
