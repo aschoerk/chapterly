@@ -102,10 +102,18 @@
         [ngModel]="searchTerm()"
         (ngModelChange)="searchTerm.set($event)"
       />
-      <label class="checkbox">
-        <input type="checkbox" [ngModel]="showEnabledOnly()" (ngModelChange)="showEnabledOnly.set($event)" />
+      <button
+        class="btn"
+        [class.active]="showEnabledOnly()"
+        (click)="setEnabledOnly(!showEnabledOnly())">
         Enabled only
-      </label>
+      </button>
+      <button
+        class="btn"
+        [class.active]="showDisabledOnly()"
+        (click)="setDisabledOnly(!showDisabledOnly())">
+        Not enabled only
+      </button>
     </div>
 
     @if (filteredModels().length === 0) {

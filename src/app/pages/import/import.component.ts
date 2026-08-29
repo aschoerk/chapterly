@@ -3,7 +3,20 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import { ChatService } from '../../core/chat.service';
-import { Project } from '../../models/chat';
+import {Chat, ChatNode, Persona, Project, Topic} from '../../models/chat';
+
+const BUNDLE_FORMAT = 'aschoerk.chat.bundle';
+const BUNDLE_VERSION = 1;
+
+interface ChatBundle {
+  format: typeof BUNDLE_FORMAT;
+  version: typeof BUNDLE_VERSION;
+  exportedAt: string;
+  projects: Project[];
+  topics: Topic[];
+  personas: Persona[];
+  chats: Array<Chat & { nodes: ChatNode[] }>;
+}
 
 export interface ParsedTurn {
   role: 'system' | 'user' | 'assistant' | 'other';
@@ -25,8 +38,9 @@ export interface ParseResult {
   turns: ParsedTurn[];
   format: string;
   warnings: string[];
-  kind: 'chat' | 'copilots';
+  kind: 'chat' | 'copilots' | 'bundle';
   copilots?: CopilotEntry[];
+  bundle?: ChatBundle;
 }
 
 /** One pending session waiting for project assignment */
@@ -153,13 +167,21 @@ export class ImportComponent {
               title: parsed.title,
               created
             });
-          } else {
-            newPending.push({
-              id: crypto.randomUUID(),
+          } else if (parsed.kind === 'bundle' && parsed.bundle) {
+            const created = await this.importBundle(parsed.bundle);
+            newSummaries.push({
               fileName: file.name,
-              result: parsed,
-              selectedProjectId: this.findBestProjectId(parsed.title)
+              kind: 'copilots',
+              title: parsed.title,
+              created
             });
+          } else {
+              newPending.push({
+                id: crypto.randomUUID(),
+                fileName: file.name,
+                result: parsed,
+                selectedProjectId: this.findBestProjectId(parsed.title)
+              });
           }
         }
       } catch (err: any) {
@@ -725,6 +747,10 @@ export class ImportComponent {
       return this.parseChatGptExport(data, warnings);
     }
 
+    if (data?.format === BUNDLE_FORMAT && Array.isArray(data.chats)) {
+      return this.parseBundle(data);
+    }
+
     if (data?.nodes || data?.turns) {
       return this.parseNativeLike(data, warnings);
     }
@@ -732,6 +758,8 @@ export class ImportComponent {
     warnings.push('Unknown structure – best-effort extraction.');
     return this.parseFallback(data, warnings);
   }
+
+
 
   private mapRole(role: string): { role: ParsedTurn['role']; mappedType: ParsedTurn['mappedType'] } {
     const r = (role || '').toLowerCase().trim();
@@ -1100,4 +1128,144 @@ export class ImportComponent {
   async goToChat() {
     await this.router.navigate(['/chat']);
   }
+
+
+  private parseBundle(data: ChatBundle): ParseResult {
+    return {
+      title: `Bundle (${data.chats.length} chat(s))`,
+      systemPrompt: null,
+      turns: [],
+      format: BUNDLE_FORMAT,
+      warnings: [],
+      kind: 'bundle',
+      bundle: data
+    } as ParseResult;
+  }
+
+  private async importBundle(bundle: ChatBundle): Promise<number> {
+    const projectMap = new Map<string, string>();
+    const personaMap = new Map<string, string>();
+    let created = 0;
+
+    for (const p of bundle.personas || []) {
+      const np = await this.chatService.createPersona({
+        name: p.name,
+        shortName: p.shortName,
+        description: p.description,
+        avatar: p.avatar
+      });
+      personaMap.set(p.id, np.id);
+    }
+
+    for (const p of bundle.projects || []) {
+      const np = await this.chatService.createProject({
+        name: p.name,
+        greeting: p.greeting,
+        systemPrompt: p.systemPrompt,
+        defaultModelId: p.defaultModelId,
+        personaIds: (p.personaIds || []).map(id => personaMap.get(id) || id)
+      });
+      projectMap.set(p.id, np.id);
+    }
+
+    for (const t of bundle.topics || []) {
+      await this.chatService.createTopic({
+        name: t.name,
+        description: t.description,
+        defaultModelId: t.defaultModelId,
+        defaultSystemPrompt: t.defaultSystemPrompt,
+        icon: t.icon,
+        projectIds: (t.projectIds || []).map(id => projectMap.get(id) || id)
+      });
+    }
+
+    for (const chat of bundle.chats) {
+      this.progress.set(`Importing “${chat.title}”…`);
+      const nc = await this.chatService.createChat(
+        chat.title,
+        chat.projectId ? projectMap.get(chat.projectId) ?? null : null
+      );
+
+      const idMap = new Map<string, string>();
+      const pending = [...(chat.nodes || [])];
+      const ready = (n: ChatNode) => !n.parentId || idMap.has(n.parentId);
+
+      while (pending.length) {
+        const idx = pending.findIndex(ready);
+        if (idx < 0) break;
+        const [n] = pending.splice(idx, 1);
+        const createdNode = await this.chatService.addNode(nc.id, {
+          parentId: n.parentId ? idMap.get(n.parentId) ?? null : null,
+          type: n.type,
+          content: n.content,
+          thinking: n.thinking || undefined,
+          modelId: n.modelId || undefined,
+          providerId: n.providerId || undefined,
+          attachments: n.attachments
+        });
+        idMap.set(n.id, createdNode.id);
+        created++;
+      }
+    }
+    return created;
+  }
+
+  readonly exportScope = signal<'chat' | 'project' | 'all'>('chat');
+  readonly isExporting = signal(false);
+
+  async exportBundle(): Promise<void> {
+    this.isExporting.set(true);
+    this.globalError.set(null);
+    try {
+      await Promise.all([
+        this.chatService.loadChats(),
+        this.chatService.loadProjects(),
+        this.chatService.loadTopics(),
+        this.chatService.loadPersonas()
+      ]);
+
+      const scope = this.exportScope();
+      const currentId = this.chatService.currentChatId();
+      const current = this.chatService.chats().find(c => c.id === currentId);
+
+      let chats = this.chatService.chats();
+      if (scope === 'chat') {
+        chats = current ? [current] : [];
+      } else if (scope === 'project') {
+        chats = chats.filter(c => c.projectId === (current?.projectId ?? null));
+      }
+
+      const packed = [];
+      for (const chat of chats) {
+        this.progress.set(`Exporting “${chat.title}”…`);
+        packed.push({ ...chat, nodes: await this.chatService.fetchNodes(chat.id) });
+      }
+
+      const usedProjects = new Set(packed.map(c => c.projectId).filter(Boolean));
+      const bundle: ChatBundle = {
+        format: BUNDLE_FORMAT,
+        version: BUNDLE_VERSION,
+        exportedAt: new Date().toISOString(),
+        projects: this.chatService.projects().filter(p => usedProjects.has(p.id)),
+        topics: this.chatService.topics().filter(t =>
+          t.projectIds?.some(id => usedProjects.has(id))
+        ),
+        personas: this.chatService.personas(),
+        chats: packed
+      };
+
+      const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `chat-bundle-${scope}-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+      this.progress.set(`Exported ${packed.length} chat(s).`);
+    } catch (err: any) {
+      this.globalError.set(err?.message || String(err));
+    } finally {
+      this.isExporting.set(false);
+    }
+  }
+
 }

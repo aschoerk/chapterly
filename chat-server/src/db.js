@@ -84,6 +84,7 @@ function initializeSchema(db) {
                                        project_id TEXT,
                                        created_at TEXT DEFAULT (datetime('now')),
       updated_at TEXT DEFAULT (datetime('now')),
+      node_number INTEGER DEFAULT 0,
       FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL
       );
 
@@ -145,12 +146,25 @@ function initializeSchema(db) {
       console.log('Migrated models: added catalog_json');
     }
     const nodeCols = db.prepare(`PRAGMA table_info(chat_nodes)`).all().map(c => c.name);
-    if (!nodeCols.includes('catalog_json')) {
+    if (!nodeCols.includes('thinking')) {
       db.exec(`ALTER TABLE chat_nodes ADD COLUMN thinking   TEXT`);
-      console.log('Migrated models: added catalog_json');
+      console.log('Migrated models: added thinking');
+    }
+    const chatCols = db.prepare(`PRAGMA table_info(chats)`).all().map(c => c.name);
+    if (!chatCols.includes('node_number')) {
+      db.exec(`ALTER TABLE chats ADD COLUMN node_number  INTEGER DEFAULT 1`);
+      console.log('Migrated models: added node_number');
+      db.exec(`UPDATE chats
+               SET node_number = COALESCE(node_counts.cnt, 0)
+               FROM (
+                      SELECT chat_id, COUNT(*) AS cnt
+                      FROM chat_nodes
+                      GROUP BY chat_id
+                    ) AS node_counts
+               WHERE chats.id = node_counts.chat_id `)
     }
   } catch (e) {
-    console.warn('models.catalog_json migration skipped', e.message);
+    console.warn('chats.node_number migration skipped', e.message);
   }
 
   console.log(`📦 SQLite initialized`);

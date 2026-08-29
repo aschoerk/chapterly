@@ -314,7 +314,7 @@ router.post('/:chatId/nodes', (req, res) => {
   `).run(id, chatId, parentId, type, content ?? '',
     thinking ?? null, modelId, providerId, attachmentsJson);
 
-  db.prepare(`UPDATE chats SET updated_at = datetime('now') WHERE id = ?`).run(chatId);
+  db.prepare(`UPDATE chats SET updated_at = datetime('now'), node_number = node_number + 1 WHERE id = ?`).run(chatId);
 
   const node = db.prepare('SELECT * FROM chat_nodes WHERE id = ?').get(id);
   res.status(201).json(mapNode(node));
@@ -379,7 +379,7 @@ function editNodeVersion(nodeId, expectedType, { content, thinking, attachments 
     );
 
     // 3. Update chat timestamp
-    db.prepare(`UPDATE chats SET updated_at = datetime('now') WHERE id = ?`).run(oldNode.chat_id);
+    db.prepare(`UPDATE chats SET updated_at = datetime('now'), node_number = node_number + 1 WHERE id = ?`).run(oldNode.chat_id);
 
     // 4. Re-parent existing child nodes from oldId to newId
     db.prepare(`UPDATE chat_nodes SET parent_id = ?, updated_at = datetime('now') WHERE parent_id = ?`).run(newId, nodeId);
@@ -578,7 +578,7 @@ router.post('/:chatId/nodes/:nodeId/branch-question', (req, res) => {
     attachmentsJson
   );
 
-  db.prepare(`UPDATE chats SET updated_at = datetime('now') WHERE id = ?`).run(oldNode.chat_id);
+  db.prepare(`UPDATE chats SET updated_at = datetime('now'), node_number = node_number + 1 WHERE id = ?`).run(oldNode.chat_id);
 
   const node = db.prepare('SELECT * FROM chat_nodes WHERE id = ?').get(newId);
   res.status(201).json(mapNode(node));
@@ -602,7 +602,7 @@ router.delete('/:chatId/nodes/:nodeId', (req, res) => {
   }
 
   // Touch the chat
-  db.prepare(`UPDATE chats SET updated_at = datetime('now') WHERE id = ?`).run(node.chat_id);
+  db.prepare(`UPDATE chats SET updated_at = datetime('now'), node_number = node_number - ? WHERE id = ?`).run(result, node.chat_id);
 
   res.status(204).end();
 });
@@ -679,6 +679,7 @@ function mapChat(row) {
     id: row.id,
     title: row.title,
     projectId: row.project_id || null,
+    node_number: row.node_number,
     created_at: row.created_at,
     updated_at: row.updated_at
   };

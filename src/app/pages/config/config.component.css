@@ -77,6 +77,13 @@
   cursor: not-allowed;
 }
 
+.btn.active {
+  background: #2563eb;
+  color: white;
+  border-color: #2563eb;
+}
+
+
 .btn.primary {
   background: #2563eb;
   color: white;

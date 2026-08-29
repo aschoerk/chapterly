@@ -149,6 +149,7 @@ export class IdbChatApiService implements ChatApiPort {
       id: this.id(),
       title,
       projectId,
+      node_number: 0,
       created_at: this.now(),
       updated_at: this.now()
     };
@@ -208,7 +209,7 @@ export class IdbChatApiService implements ChatApiPort {
     };
     await this.tx(['nodes', 'chats'], 'readwrite', async tx => {
       await this.req(tx.objectStore('nodes').put(row));
-      await this.touchChat(tx, chatId);
+      await this.touchChat(tx, chatId,1);
     });
     return row;
   }
@@ -252,7 +253,7 @@ export class IdbChatApiService implements ChatApiPort {
         attachments: data.attachments ?? old.attachments ?? []
       };
       await this.req(nodes.put(row));
-      await this.touchChat(tx, old.chatId);
+      await this.touchChat(tx, old.chatId,0);
       return row;
     });
   }
@@ -275,7 +276,7 @@ export class IdbChatApiService implements ChatApiPort {
         updatedAt: this.now()
       };
       await this.req(store.put(next));
-      await this.touchChat(tx, old.chatId);
+      await this.touchChat(tx, old.chatId,0);
       return next;
     });
   }
@@ -290,7 +291,7 @@ export class IdbChatApiService implements ChatApiPort {
       };
       walk(nodeId);
       for (const id of drop) await this.req(tx.objectStore('nodes').delete(id));
-      await this.touchChat(tx, chatId);
+      await this.touchChat(tx, chatId, drop.size);
     });
   }
 
@@ -406,15 +407,15 @@ export class IdbChatApiService implements ChatApiPort {
       for (const child of children) {
         await this.req(store.put({ ...child, parentId: next.id, updatedAt: this.now() }));
       }
-      await this.touchChat(tx, old.chatId);
+      await this.touchChat(tx, old.chatId, 1);
       return next;
     });
   }
 
-  private async touchChat(tx: IDBTransaction, chatId: string): Promise<void> {
+  private async touchChat(tx: IDBTransaction, chatId: string, node_number_diff: number): Promise<void> {
     const store = tx.objectStore('chats');
     const chat = await this.req<Chat>(store.get(chatId));
-    if (chat) await this.req(store.put({ ...chat, updated_at: this.now() }));
+    if (chat) await this.req(store.put({ ...chat, node_number: chat.node_number + node_number_diff, updated_at: this.now() }));
   }
 
   private async deleteChatTree(tx: IDBTransaction, chatId: string): Promise<void> {

@@ -110,8 +110,10 @@
             {{ project.name }}
           </span>
 
+
+
           <div class="project-actions">
-            <button class="btn-icon" (click)="createChatForProject(project, $event)" title="New chat">
+            <button class="btn-icon"  (click)="createChatForProject(project, $event)" title="New chat">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
                 <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
               </svg>
@@ -128,6 +130,11 @@
               </svg>
             </button>
           </div>
+          <span
+            class="item-count"
+            [title]="getChatCount(project.id) + ' chat' + (getChatCount(project.id) === 1 ? '' : 's')">
+                  {{ getChatCount(project.id) }}
+          </span>
         </div>
 
         @if (isExpanded(project.id)) {
@@ -150,6 +157,7 @@
                     </svg>
                   </button>
                 }
+
                 <!-- Reassign button -->
                 <button
                   class="btn-icon"
@@ -165,6 +173,11 @@
                     <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
                   </svg>
                 </button>
+                <span
+                  class="item-count"
+                  [title]="chat.node_number + ' node' + (chat.node_number === 1 ? '' : 's')">
+                  {{ chat.node_number }}
+                </span>
               </div>
 
               @if (reassigningChatId() === chat.id) {

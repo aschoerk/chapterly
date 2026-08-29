@@ -40,6 +40,73 @@ export class ChatComponent implements OnInit {
   readonly visibleNodeId = signal<string | null>(null);
 
   private readonly router = inject(Router);
+  private static readonly LS_SIDEBAR_WIDTH = 'chat-client.sidebar.width';
+  private static readonly SIDEBAR_WIDTH_DEFAULT = 290;
+  private static readonly SIDEBAR_WIDTH_MIN = 200;
+  private static readonly SIDEBAR_WIDTH_MAX = 720;
+
+  readonly sidebarWidth = signal(this.loadSidebarWidth());
+  readonly isResizing = signal(false);
+
+  private resizeStartX = 0;
+  private resizeStartWidth = 0;
+
+  private readonly onResizePointerMove = (event: PointerEvent) => {
+    if (!this.isResizing()) return;
+    event.preventDefault();
+    const delta = event.clientX - this.resizeStartX;
+    const max = Math.min(
+      ChatComponent.SIDEBAR_WIDTH_MAX,
+      Math.round(window.innerWidth * 0.6)
+    );
+    const next = Math.round(
+      Math.min(Math.max(this.resizeStartWidth + delta, ChatComponent.SIDEBAR_WIDTH_MIN), max)
+    );
+    this.sidebarWidth.set(next);
+  };
+
+  private readonly onResizePointerUp = () => this.endSidebarResize();
+
+  private loadSidebarWidth(): number {
+    const n = Number(localStorage.getItem('chat-client.sidebar.width'));
+    if (!Number.isFinite(n)) return 290;
+    return Math.min(720, Math.max(200, n));
+  }
+
+  startSidebarResize(event: PointerEvent) {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+
+    this.isResizing.set(true);
+    this.resizeStartX = event.clientX;
+    this.resizeStartWidth = this.sidebarWidth();
+
+    document.body.classList.add('sidebar-resizing');
+    document.addEventListener('pointermove', this.onResizePointerMove);
+    document.addEventListener('pointerup', this.onResizePointerUp);
+    document.addEventListener('pointercancel', this.onResizePointerUp);
+  }
+
+  endSidebarResize() {
+    if (!this.isResizing()) return;
+    this.isResizing.set(false);
+    document.body.classList.remove('sidebar-resizing');
+    document.removeEventListener('pointermove', this.onResizePointerMove);
+    document.removeEventListener('pointerup', this.onResizePointerUp);
+    document.removeEventListener('pointercancel', this.onResizePointerUp);
+    localStorage.setItem('chat-client.sidebar.width', String(this.sidebarWidth()));
+  }
+
+  resetSidebarWidth() {
+    this.sidebarWidth.set(290);
+    localStorage.setItem('chat-client.sidebar.width', '290');
+  }
+
+  ngOnDestroy() {
+    this.endSidebarResize();
+  }
+
 
   openReader() {
     void this.router.navigate(['/read']);

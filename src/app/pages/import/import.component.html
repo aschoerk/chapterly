@@ -1,5 +1,25 @@
 <!-- src/app/pages/import/import.component.html -->
-
+<section class="section export-box">
+  <h2>Export</h2>
+  <p class="drop-hint">
+    Writes a JSON bundle this page can import again (projects, chats, full node tree).
+  </p>
+  <div class="actions-bar">
+    <label class="project-select">
+      Scope
+      <select [ngModel]="exportScope()" (ngModelChange)="exportScope.set($event)">
+        <option value="chat">Current chat</option>
+        <option value="project">Current project</option>
+        <option value="all">All chats</option>
+      </select>
+    </label>
+    <button class="btn primary" type="button"
+            [disabled]="isExporting() || isImporting()"
+            (click)="exportBundle()">
+      {{ isExporting() ? 'Exporting…' : 'Download bundle' }}
+    </button>
+  </div>
+</section>
 <!-- ========== Drop zone ========== -->
 <section
   class="drop-zone"

@@ -25,6 +25,7 @@ export class ConfigComponent {
   readonly showAddPreset = signal(false);
   readonly searchTerm = signal('');
   readonly showEnabledOnly = signal(false);
+  readonly showDisabledOnly = signal(false);
   readonly testingId = signal<string | null>(null);
   readonly testResult = signal<{ id: string; ok: boolean; message: string } | null>(null);
   readonly fetchingId = signal<string | null>(null);
@@ -64,33 +65,54 @@ export class ConfigComponent {
 
   readonly filteredModels = computed(() => {
     const term = this.searchTerm().toLowerCase().trim();
-
+    const enabledOnly = this.showEnabledOnly();
+    const disabledOnly = this.showDisabledOnly();
     const allModels = this.models();
 
-    // 1. Enabled models – always visible, ignore search
-    const enabledModels = allModels
-      .filter(m => m.enabled)
-      .sort((a, b) =>
-        a.displayName.localeCompare(b.displayName, undefined, { sensitivity: 'base' })
-      );
+    const matchesSearch = (m: ModelEntry) =>
+      !term ||
+      m.displayName.toLowerCase().includes(term) ||
+      m.modelId.toLowerCase().includes(term);
 
-    // 2. Disabled models – apply search filter
-    let disabledModels = allModels.filter(m => !m.enabled);
+    const sortFn = (a: ModelEntry, b: ModelEntry) =>
+      a.displayName.localeCompare(b.displayName, undefined, { sensitivity: 'base' });
 
-    if (term) {
-      disabledModels = disabledModels.filter(m =>
-        m.displayName.toLowerCase().includes(term) ||
-        m.modelId.toLowerCase().includes(term)
-      );
+    // Enabled only → search applies to enabled models
+    if (enabledOnly) {
+      return allModels
+        .filter(m => m.enabled && matchesSearch(m))
+        .sort(sortFn);
     }
 
-    disabledModels = disabledModels.sort((a, b) =>
-      a.displayName.localeCompare(b.displayName, undefined, { sensitivity: 'base' })
-    );
+    // Not enabled only → search applies to disabled models
+    if (disabledOnly) {
+      return allModels
+        .filter(m => !m.enabled && matchesSearch(m))
+        .sort(sortFn);
+    }
 
-    // 3. Enabled first, then disabled
+    // Default: enabled always on top (ignore search), disabled filtered by search
+    const enabledModels = allModels
+      .filter(m => m.enabled)
+      .sort(sortFn);
+
+    const disabledModels = allModels
+      .filter(m => !m.enabled && matchesSearch(m))
+      .sort(sortFn);
+
     return [...enabledModels, ...disabledModels];
   });
+
+  setEnabledOnly(value: boolean) {
+    this.showEnabledOnly.set(value);
+    if (value) this.showDisabledOnly.set(false);
+  }
+
+  setDisabledOnly(value: boolean) {
+    this.showDisabledOnly.set(value);
+    if (value) this.showEnabledOnly.set(false);
+  }
+
 
   // ---------- Provider actions ----------
   openAddProvider() {

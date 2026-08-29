@@ -6,6 +6,7 @@ import { Router } from '@angular/router';
 import { LastModelService } from '../../core/last-model.service';
 import { SettingsService } from '../../core/settings.service';
 import { Chat, Project } from '../../models/chat';
+import {CHAT_API} from '../../api/chat-api.token';
 
 const LS_EXPANDED_KEY = 'chat-client.projects.expanded';
 const LS_TOPIC = 'chat.selectedTopicId';
@@ -22,6 +23,7 @@ export class SideBarComponent implements OnInit {
   private readonly settings = inject(SettingsService);
   private readonly lastModelService = inject(LastModelService);
   private readonly router = inject(Router);
+  private readonly api = inject(CHAT_API);
 
   readonly projects = this.chatService.projects;
   readonly currentChatId = this.chatService.currentChatId;
@@ -210,7 +212,8 @@ export class SideBarComponent implements OnInit {
 
   /** projects for the dropdown (current project excluded) */
   otherProjects(currentProjectId: string | null): Project[] {
-    return this.projects().filter(p => p.id !== currentProjectId);
+    return this.filteredProjects().filter(p => p.id !== currentProjectId);
+    // return this.projects().filter(p => p.id !== currentProjectId);
   }
 
 
@@ -336,6 +339,16 @@ export class SideBarComponent implements OnInit {
       return tb - ta;          // youngest first
     });
   }
+
+  getChatCount(projectId: string | null): number {
+    return this.getChatsForProject(projectId).length;
+  }
+
+  getAnswerCount(chat: Chat): number {
+    // let nodes = await this.api.getNodes(chat.id);
+    return 2; // nodes.filter(n => n.type == "answer").length;
+  }
+
 
   async goToConfig() {
     await this.router.navigate(['/config']);

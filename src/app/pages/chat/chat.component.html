@@ -1,6 +1,16 @@
 <div class="chat-layout">
+  <div class="sidebar-pane" [style.width.px]="sidebarWidth()">
+    <side-bar></side-bar>
+  </div>
 
-  <side-bar></side-bar>
+  <div
+    class="sidebar-resizer"
+    [class.active]="isResizing()"
+    (pointerdown)="startSidebarResize($event)"
+    (dblclick)="resetSidebarWidth()"
+    title="Drag to resize sidebar">
+  </div>
+
 
   <main class="main">
     @if (!currentChatId()) {

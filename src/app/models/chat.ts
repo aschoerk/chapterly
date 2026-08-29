@@ -28,6 +28,7 @@ export interface Chat {
   id: string;
   title: string;
   projectId?: string | null;
+  node_number: number;
   created_at: string;
   updated_at: string;
 }

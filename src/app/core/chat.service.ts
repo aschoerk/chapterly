@@ -607,4 +607,7 @@ export class ChatService {
       this.ensuringDraft = false;
     }
   }
+  async fetchNodes(chatId: string): Promise<ChatNode[]> {
+    return this.api.getNodes(chatId);
+  }
 }

@@ -39,6 +39,52 @@
   font-family: var(--font-family);
 }
 
+.chat-layout.is-resizing {
+  cursor: col-resize;
+  user-select: none;
+}
+
+.sidebar-pane {
+  flex: 0 0 auto;
+  height: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.sidebar-resizer {
+  flex: 0 0 8px;
+  width: 8px;
+  position: relative;
+  z-index: 40;
+  cursor: col-resize;
+  touch-action: none;
+  background: transparent;
+}
+
+.sidebar-resizer::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  transform: translateX(-50%);
+  background: var(--color-border, #e5e5e5);
+  transition: width 0.12s, background 0.12s;
+}
+
+.sidebar-resizer:hover::after,
+.sidebar-resizer.active::after {
+  width: 3px;
+  background: var(--color-primary, #2563eb);
+}
+
+body.sidebar-resizing,
+body.sidebar-resizing * {
+  cursor: col-resize !important;
+  user-select: none !important;
+}
+
 .main {
   flex: 1;
   display: flex;
