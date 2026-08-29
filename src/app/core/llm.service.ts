@@ -3,6 +3,7 @@ import { ModelEntry } from '../models/chat-config';
 import { getServerConfig } from './server-config';
 import { inject, Injectable } from '@angular/core';
 import { ChatService } from './chat.service';
+import { normalizeChatMessages } from './llm-message';
 
 export interface LlmChunk {
   content?: string;
@@ -23,6 +24,7 @@ export class LlmService {
     extras: Record<string, unknown> = {}
   ): Promise<{ content: string; thinking: string }> {
     const config = getServerConfig();
+    const payloadMessages = normalizeChatMessages(messages);
 
     const response = await fetch(`${config.proxyBase}/chat/completions`, {
       method: 'POST',
@@ -35,7 +37,7 @@ export class LlmService {
       },
       body: JSON.stringify({
         model: modelId,
-        messages,
+        messages: payloadMessages,
         temperature: 0.7,
         stream: true,
         ...extras

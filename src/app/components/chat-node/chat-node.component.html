@@ -226,10 +226,16 @@
     }
 
     @if (node().content?.trim()) {
-      <div class="node-content click-to-edit"
-           title="Click to edit"
-           (click)="onContentClick($event)"
+      @if (node().type === 'question') {
+      <div class="node-content empty-draft click-to-edit"
+           title="Click to write the next question"
+           (click)="onContentClick($event)">
+        <em>Write the next question…</em>
+      </div>
+      } @else {
+      <div class="node-content"
            [innerHTML]="renderedHtml()"></div>
+      }
     } @else if (isThinkingLive()) {
       <!-- spinner lives in thinking-content -->
     } @else if (node().type === 'question') {
@@ -239,9 +245,8 @@
         <em>Write the next question…</em>
       </div>
     } @else {
-      <div class="node-content empty-answer click-to-edit"
-           title="Click to edit"
-           (click)="onContentClick($event)">
+      <div class="node-content empty-answer"
+           >
         <em>Generation stopped</em>
       </div>
     }

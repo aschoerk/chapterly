@@ -105,6 +105,7 @@ export class SideBarComponent implements OnInit {
       this.settings.loadAll()
     ]);
     this.loadExpandedState();
+    this.scrollToActiveChat();
   }
 
   // ---------- Expand / collapse (localStorage) ----------
@@ -305,7 +306,25 @@ export class SideBarComponent implements OnInit {
   async selectChat(chat: Chat) {
     await this.chatService.selectChat(chat.id);
     this.lastModelService.setLastUsedModel();
+
+    // Auto-expand the project so the active chat is visible
+    const projectKey = chat.projectId ?? '__unassigned__';
+    if (!this.isExpanded(projectKey)) {
+      this.expanded.update(m => ({ ...m, [projectKey]: true }));
+      this.persistExpanded();
+    }
+    // this.chatService.currentChatId.(chat.id)
+    this.scrollToActiveChat();
   }
+
+  // Add this method
+  private scrollToActiveChat() {
+    setTimeout(() => {
+      const active = document.querySelector('.chat-item.active');
+      active?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }, 50);
+  }
+
 
   async deleteChat(chat: Chat, event: Event) {
     event.stopPropagation();

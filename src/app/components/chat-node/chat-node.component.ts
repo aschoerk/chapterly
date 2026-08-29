@@ -13,6 +13,7 @@ import {NodeEditSession} from '../../core/node-edit-session';
 import {ConfirmDialogComponent} from '../confirm-dialog/confirm-dialog.component';
 import {ConfirmService} from '../../core/confirm.service';
 import {LlmService} from '../../core/llm.service';
+import { inferMimeType, nodeToMessageContent } from '../../core/llm-message';
 
 @Component({
   selector: 'app-chat-node',
@@ -373,7 +374,7 @@ export class ChatNodeComponent {
     const contextMessages = this.buildContextMessagesUpTo(contextParentId);
     contextMessages.push({
       role: 'user',
-      content: this.nodeToMessageContent(
+      content: nodeToMessageContent(
         extra ? { ...question, content: extra.content ?? question.content, attachments: extra.attachments ?? question.attachments } : question
       )
     });
@@ -452,7 +453,10 @@ export class ChatNodeComponent {
       this.activate.emit(newQuestion.id);
 
       const contextParentId = node.type === 'question' ? node.parentId : node.id;
-      await this.streamForQuestion(chatId, newQuestion, contextParentId, provider, model);
+      await this.streamForQuestion(chatId, newQuestion, contextParentId, provider, model, {
+        content,
+        attachments
+      });
     });
   }
 
@@ -552,12 +556,12 @@ export class ChatNodeComponent {
         if (n.type === 'question') {
           messages.push({
             role: 'user',
-            content: this.nodeToMessageContent(n)
+            content: nodeToMessageContent(n)
           });
         } else if (n.type === 'answer' && n.isCurrent) {
           messages.push({
             role: 'assistant',
-            content: this.nodeToMessageContent(n)
+            content: nodeToMessageContent(n)
           });
         }
       }
@@ -652,7 +656,7 @@ export class ChatNodeComponent {
       result.push({
         id: crypto.randomUUID(),
         name: file.name,
-        mimeType: file.type || 'application/octet-stream',
+        mimeType: inferMimeType(file.name, file.type),
         size: file.size,
         dataUrl
       });
@@ -700,43 +704,6 @@ export class ChatNodeComponent {
 
   openImage(dataUrl: string) {
     window.open(dataUrl, '_blank');
-  }
-
-  private nodeToMessageContent(
-    node: ChatNode
-  ): string | Array<{ type: string; text?: string; image_url?: { url: string } }> {
-    const attachments = node.attachments || [];
-    if (attachments.length === 0) {
-      return node.content || '';
-    }
-
-    const images = attachments.filter(a => a.mimeType?.startsWith('image/'));
-    const other = attachments.filter(a => !a.mimeType?.startsWith('image/'));
-
-    const parts: Array<{ type: string; text?: string; image_url?: { url: string } }> = [];
-
-    let text = node.content || '';
-    if (other.length) {
-      text +=
-        (text ? '\n\n' : '') +
-        '[Attached files]\n' +
-        other.map(a => `- ${a.name} (${a.mimeType})`).join('\n');
-    }
-    if (text.trim()) {
-      parts.push({ type: 'text', text });
-    }
-
-    for (const img of images) {
-      parts.push({
-        type: 'image_url',
-        image_url: { url: img.dataUrl }
-      });
-    }
-
-    if (parts.length === 1 && parts[0].type === 'text') {
-      return parts[0].text!;
-    }
-    return parts;
   }
 
   hasUnsavedChanges(): boolean {

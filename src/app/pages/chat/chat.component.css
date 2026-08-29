@@ -1,34 +1,4 @@
-/* ==========================================================================
-   Design tokens
-   ========================================================================== */
-:root {
-  --font-family: system-ui, sans-serif;
 
-  --color-border: #e5e5e5;
-  --color-bg-sidebar: #fafafa;
-  --color-bg-hover: #f0f0f0;
-  --color-bg-active: #e0e7ff;
-  --color-text-muted: #888;
-  --color-text-secondary: #666;
-  --color-text-meta: #555;
-  --color-primary: #2563eb;
-  --color-danger: #b91c1c;
-  --color-danger-border: #fca5a5;
-  --color-badge-q-bg: #dbeafe;
-  --color-badge-q-text: #1e40af;
-  --color-badge-a-bg: #dcfce7;
-  --color-badge-a-text: #166534;
-  --color-tag-bg: #f3f4f6;
-  --color-input-border: #ccc;
-
-  --radius-sm: 4px;
-  --radius-md: 6px;
-  --space-xs: 0.25rem;
-  --space-sm: 0.4rem;
-  --space-md: 0.75rem;
-  --space-lg: 1rem;
-  --space-xl: 1.5rem;
-}
 
 /* ==========================================================================
    Layout

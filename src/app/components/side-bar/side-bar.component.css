@@ -1,7 +1,10 @@
 :host {
-  display: block;
-  width: 100%;
-  height: 100%;
+  /* Make sure these variables are available inside this component */
+  --bg-active: #e0e7ff;
+  --text-active: #1e40af;
+  --accent: #2563eb;
+  --bg-hover: #f0f0f0;
+  --bg-hover-strong: #e5e7eb;
 }
 
 .sidebar {
@@ -135,6 +138,7 @@
 .chat-item.active {
   background: var(--bg-active);
   color: var(--text-active);
+  font-weight: 500;
 }
 
 .chat-item.active::before {
@@ -143,9 +147,10 @@
   left: 0;
   top: 4px;
   bottom: 4px;
-  width: 3px;
-  border-radius: 0 3px 3px 0;
+  width: 4px;
   background: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+  border-radius: 0 3px 3px 0;
 }
 
 .chat-title {

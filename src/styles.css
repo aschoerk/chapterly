@@ -1,3 +1,44 @@
+/* ==========================================================================
+   Design tokens
+   ========================================================================== */
+:root {
+  --font-family: system-ui, sans-serif;
+
+  --color-border: #e5e5e5;
+  --color-bg-sidebar: #fafafa;
+  --color-bg-hover: #f0f0f0;
+  --color-bg-active: #e0e7ff;
+  --color-text-muted: #888;
+  --color-text-secondary: #666;
+  --color-text-meta: #555;
+  --color-primary: #2563eb;
+  --color-danger: #b91c1c;
+  --color-danger-border: #fca5a5;
+  --color-badge-q-bg: #dbeafe;
+  --color-badge-q-text: #1e40af;
+  --color-badge-a-bg: #dcfce7;
+  --color-badge-a-text: #166534;
+  --color-tag-bg: #f3f4f6;
+  --color-input-border: #ccc;
+  --bg-active: #e0e7ff;
+  --text-active: #1e40af;
+  --accent: #2563eb;
+  --bg-hover: #f0f0f0;
+  --bg-hover-strong: #e5e7eb;
+  --bg-input: #ffffff;
+  --bg-sidebar: #fafafa;
+  --border: #e5e5e5;
+  --text: #111111;
+  --text-muted: #666666;
+
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --space-xs: 0.25rem;
+  --space-sm: 0.4rem;
+  --space-md: 0.75rem;
+  --space-lg: 1rem;
+  --space-xl: 1.5rem;
+}
 /* You can add global styles to this file, and also import other style files */
 
 /* Tighter reading rhythm for chat nodes */
