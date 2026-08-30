@@ -230,7 +230,8 @@
       <div class="node-content empty-draft click-to-edit"
            title="Click to write the next question"
            (click)="onContentClick($event)">
-        <em>Write the next question…</em>
+        <div class="node-content"
+             [innerHTML]="renderedHtml()"></div>
       </div>
       } @else {
       <div class="node-content"

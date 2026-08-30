@@ -7,7 +7,7 @@
 
 .projects-layout {
   display: flex;
-  height: calc(100vh - var(--header-height, 0px));
+  height: calc(100vh - var(--app-nav-height, 44px));
 }
 
 .project-pane {

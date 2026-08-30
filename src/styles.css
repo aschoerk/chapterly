@@ -30,6 +30,7 @@
   --border: #e5e5e5;
   --text: #111111;
   --text-muted: #666666;
+  --app-nav-height: 44px;
 
   --radius-sm: 4px;
   --radius-md: 6px;
@@ -40,6 +41,16 @@
   --space-xl: 1.5rem;
 }
 /* You can add global styles to this file, and also import other style files */
+
+html, body {
+  height: 100%;
+  margin: 0;
+}
+
+app-root {
+  display: block;
+  height: 100%;
+}
 
 /* Tighter reading rhythm for chat nodes */
 .node-content p {
