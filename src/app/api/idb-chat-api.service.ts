@@ -495,12 +495,34 @@ export class IdbChatApiService implements ChatApiPort {
       if (old.type !== expectedType) {
         throw Object.assign(new Error(`Only ${expectedType}s can be versioned this way`), { status: 400 });
       }
+
+      const children = await this.req<ChatNode[]>(store.index('by-parent').getAll(old.id));
+      const isEmptyNode = !String(old.content || '').trim();
+      const nextThinking = data.thinking !== undefined ? data.thinking : old.thinking;
+      const nextAttachments = data.attachments !== undefined
+        ? data.attachments
+        : (old.attachments ?? []);
+
+      // Empty leaf: keep the same row. Otherwise insert a successor version.
+      if (isEmptyNode && children.length === 0) {
+        const updated: ChatNode = {
+          ...old,
+          content: data.content,
+          thinking: nextThinking,
+          attachments: nextAttachments,
+          updatedAt: this.now()
+        };
+        await this.req(store.put(updated));
+        await this.touchChat(tx, old.chatId, 0);
+        return updated;
+      }
+
       const next: ChatNode = {
         ...old,
         id: this.id(),
         content: data.content,
-        thinking: data.thinking !== undefined ? data.thinking : old.thinking,
-        attachments: data.attachments !== undefined ? data.attachments : (old.attachments ?? []),
+        thinking: nextThinking,
+        attachments: nextAttachments,
         version: (old.version || 1) + 1,
         previousVersionId: old.id,
         isCurrent: true,
@@ -509,7 +531,6 @@ export class IdbChatApiService implements ChatApiPort {
       };
       await this.req(store.put({ ...old, isCurrent: false }));
       await this.req(store.put(next));
-      const children = await this.req<ChatNode[]>(store.index('by-parent').getAll(old.id));
       for (const child of children) {
         await this.req(store.put({ ...child, parentId: next.id, updatedAt: this.now() }));
       }

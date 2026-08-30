@@ -137,7 +137,7 @@ describe('API Routes (in-memory DB)', () => {
       expect(res.status).toBe(204);
       const getRes = await request(app).get('/api/providers');
       expect(getRes.body).toHaveLength(0);
-      });
+    });
 
     test('DELETE /api/providers/:id returns 404 for unknown id', async () => {
       const res = await request(app).delete(`/api/providers/${uuidv4()}`);
@@ -593,6 +593,186 @@ describe('API Routes (in-memory DB)', () => {
         const deepAnswerNode = nodesRes.body.find(node => node.id === deepAnswerId);
 
         expect(deepAnswerNode.parentId).toBe(newChildVersionId);
+      });
+
+      test('Editing an empty answer with no children updates the current version in place', async () => {
+        const emptyAnswerRes = await request(app)
+          .post(`/api/chats/${chatId}/nodes`)
+          .send({
+            content: '',
+            type: 'answer',
+            parentId: childQuestionId,
+            thinking: null
+          });
+        expect(emptyAnswerRes.status).toBe(201);
+        const emptyAnswerId = emptyAnswerRes.body.id;
+        expect(emptyAnswerRes.body.version).toBe(1);
+
+        const beforeNodes = await request(app).get(`/api/chats/${chatId}/nodes`);
+        const beforeCount = beforeNodes.body.length;
+        const beforeChat = await request(app).get(`/api/chats/${chatId}`);
+        const beforeNodeNumber = beforeChat.body.node_number ?? beforeChat.body.nodeNumber;
+
+        const editRes = await request(app)
+          .post(`/api/chats/${chatId}/nodes/${emptyAnswerId}/edit-answer`)
+          .send({ content: 'Filled empty leaf answer', thinking: 'now thinking' });
+
+        expect(editRes.status).toBe(201);
+        expect(editRes.body.id).toBe(emptyAnswerId);
+        expect(editRes.body.content).toBe('Filled empty leaf answer');
+        expect(editRes.body.thinking).toBe('now thinking');
+        expect(editRes.body.version).toBe(1);
+        expect(editRes.body.previousVersionId).toBeNull();
+        expect(editRes.body.isCurrent).toBe(true);
+
+        const afterNodes = await request(app).get(`/api/chats/${chatId}/nodes`);
+        const matches = afterNodes.body.filter(n => n.id === emptyAnswerId);
+        expect(matches).toHaveLength(1);
+        expect(afterNodes.body.length).toBe(beforeCount);
+        expect(afterNodes.body.some(n => n.previousVersionId === emptyAnswerId)).toBe(false);
+
+        const afterChat = await request(app).get(`/api/chats/${chatId}`);
+        const afterNodeNumber = afterChat.body.node_number ?? afterChat.body.nodeNumber;
+        if (beforeNodeNumber !== undefined && afterNodeNumber !== undefined) {
+          expect(afterNodeNumber).toBe(beforeNodeNumber);
+        }
+      });
+
+      test('Editing an empty question with no children updates the current version in place', async () => {
+        const emptyQuestionRes = await request(app)
+          .post(`/api/chats/${chatId}/nodes`)
+          .send({ content: '   ', type: 'question' });
+        expect(emptyQuestionRes.status).toBe(201);
+        const emptyQuestionId = emptyQuestionRes.body.id;
+
+        const beforeNodes = await request(app).get(`/api/chats/${chatId}/nodes`);
+        const beforeCount = beforeNodes.body.length;
+
+        const editRes = await request(app)
+          .post(`/api/chats/${chatId}/nodes/${emptyQuestionId}/edit-question`)
+          .send({ content: 'Now a real question' });
+
+        expect(editRes.status).toBe(201);
+        expect(editRes.body.id).toBe(emptyQuestionId);
+        expect(editRes.body.content).toBe('Now a real question');
+        expect(editRes.body.version).toBe(1);
+        expect(editRes.body.previousVersionId).toBeNull();
+        expect(editRes.body.isCurrent).toBe(true);
+        expect(editRes.body.type).toBe('question');
+
+        const afterNodes = await request(app).get(`/api/chats/${chatId}/nodes`);
+        expect(afterNodes.body.length).toBe(beforeCount);
+        const oldRow = afterNodes.body.find(n => n.id === emptyQuestionId);
+        expect(oldRow.isCurrent).toBe(true);
+        expect(oldRow.content).toBe('Now a real question');
+      });
+
+      test('Editing a non-empty answer with no children still creates a new version', async () => {
+        const leafAnswerRes = await request(app)
+          .post(`/api/chats/${chatId}/nodes`)
+          .send({
+            content: 'Already filled leaf',
+            type: 'answer',
+            parentId: childQuestionId
+          });
+        const leafAnswerId = leafAnswerRes.body.id;
+
+        const editRes = await request(app)
+          .post(`/api/chats/${chatId}/nodes/${leafAnswerId}/edit-answer`)
+          .send({ content: 'Revised leaf answer' });
+
+        expect(editRes.status).toBe(201);
+        expect(editRes.body.id).not.toBe(leafAnswerId);
+        expect(editRes.body.content).toBe('Revised leaf answer');
+        expect(editRes.body.version).toBe(2);
+        expect(editRes.body.previousVersionId).toBe(leafAnswerId);
+        expect(editRes.body.isCurrent).toBe(true);
+
+        const nodesRes = await request(app).get(`/api/chats/${chatId}/nodes`);
+        const oldNode = nodesRes.body.find(n => n.id === leafAnswerId);
+        expect(oldNode.isCurrent).toBe(false);
+        expect(oldNode.content).toBe('Already filled leaf');
+      });
+
+      test('Editing an empty answer that already has a child creates a new version', async () => {
+        const emptyParentRes = await request(app)
+          .post(`/api/chats/${chatId}/nodes`)
+          .send({
+            content: '',
+            type: 'answer',
+            parentId: childQuestionId
+          });
+        const emptyParentId = emptyParentRes.body.id;
+
+        const grandchildRes = await request(app)
+          .post(`/api/chats/${chatId}/nodes`)
+          .send({
+            content: 'Follow-up under empty answer',
+            type: 'question',
+            parentId: emptyParentId
+          });
+        const grandchildId = grandchildRes.body.id;
+
+        const editRes = await request(app)
+          .post(`/api/chats/${chatId}/nodes/${emptyParentId}/edit-answer`)
+          .send({ content: 'Parent now has text' });
+
+        expect(editRes.status).toBe(201);
+        expect(editRes.body.id).not.toBe(emptyParentId);
+        expect(editRes.body.version).toBe(2);
+        expect(editRes.body.previousVersionId).toBe(emptyParentId);
+        expect(editRes.body.isCurrent).toBe(true);
+
+        const nodesRes = await request(app).get(`/api/chats/${chatId}/nodes`);
+        const oldNode = nodesRes.body.find(n => n.id === emptyParentId);
+        expect(oldNode.isCurrent).toBe(false);
+        const movedChild = nodesRes.body.find(n => n.id === grandchildId);
+        expect(movedChild.parentId).toBe(editRes.body.id);
+      });
+
+      test('In-place empty-leaf edit keeps attachments when omitted and replaces them when sent', async () => {
+        const originalAttachments = [{
+          id: uuidv4(),
+          name: 'kept.txt',
+          mimeType: 'text/plain',
+          size: 4,
+          dataUrl: 'data:text/plain;base64,a2VwdA=='
+        }];
+        const replacementAttachments = [{
+          id: uuidv4(),
+          name: 'new.txt',
+          mimeType: 'text/plain',
+          size: 3,
+          dataUrl: 'data:text/plain;base64,bmV3'
+        }];
+
+        const emptyRes = await request(app)
+          .post(`/api/chats/${chatId}/nodes`)
+          .send({
+            content: '',
+            type: 'question',
+            attachments: originalAttachments
+          });
+        const emptyId = emptyRes.body.id;
+
+        const keepRes = await request(app)
+          .post(`/api/chats/${chatId}/nodes/${emptyId}/edit-question`)
+          .send({ content: 'First fill' });
+        expect(keepRes.status).toBe(201);
+        expect(keepRes.body.id).toBe(emptyId);
+        expect(keepRes.body.attachments).toEqual(originalAttachments);
+
+        const filledLeafRes = await request(app)
+          .post(`/api/chats/${chatId}/nodes`)
+          .send({ content: '', type: 'question' });
+        const filledLeafId = filledLeafRes.body.id;
+
+        const replaceRes = await request(app)
+          .post(`/api/chats/${chatId}/nodes/${filledLeafId}/edit-question`)
+          .send({ content: 'Second fill', attachments: replacementAttachments });
+        expect(replaceRes.status).toBe(201);
+        expect(replaceRes.body.id).toBe(filledLeafId);
+        expect(replaceRes.body.attachments).toEqual(replacementAttachments);
       });
 
       test('Editing non-existent node returns 404', async () => {
