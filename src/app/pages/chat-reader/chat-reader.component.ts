@@ -57,6 +57,22 @@ export class ChatReaderComponent implements OnInit, OnDestroy {
     return !!(n.content?.trim() || n.attachments?.length);
   }
 
+  private childIdsByParent(nodes: ChatNode[]): Map<string, string[]> {
+    const map = new Map<string, string[]>();
+    for (const n of nodes) {
+      if (!n.parentId) continue;
+      const list = map.get(n.parentId) ?? [];
+      list.push(n.id);
+      map.set(n.parentId, list);
+    }
+    return map;
+  }
+
+  /** Empty node with no children: a draft leaf, not a document version. */
+  private isEmptyLeaf(n: ChatNode, childIds: Map<string, string[]>): boolean {
+    return !this.isUsable(n) && !(childIds.get(n.id)?.length);
+  }
+
   private allChildren(parentId: string | null): ChatNode[] {
     return this.chatService.currentNodes()
       .filter(n => (n.parentId ?? null) === parentId && this.isUsable(n))
@@ -153,7 +169,12 @@ export class ChatReaderComponent implements OnInit, OnDestroy {
   }
 
   readonly documents = computed(() => {
-    const nodes = this.chatService.currentNodes().filter(n => this.isUsable(n));
+    const allNodes = this.chatService.currentNodes();
+    const childIds = this.childIdsByParent(allNodes);
+
+    // Keep empty nodes that still have children so the chain stays connected.
+    // Drop empty childless nodes — they must not spawn extra document versions.
+    const nodes = allNodes.filter(n => !this.isEmptyLeaf(n, childIds));
     const byId = new Map(nodes.map(n => [n.id, n]));
 
     const familyKids = new Map<string, ChatNode[]>();
@@ -186,7 +207,11 @@ export class ChatReaderComponent implements OnInit, OnDestroy {
 
     const walk = (famMembers: ChatNode[], acc: ChatNode[]) => {
       for (const pick of famMembers) {
-        const nextAcc = [...acc, pick];
+        // Empty childless versions are already filtered out. An empty node
+        // that only exists to hold children must not appear in the book and
+        // must not start a document of its own.
+        const structuralOnly = !this.isUsable(pick);
+        const nextAcc = structuralOnly ? acc : [...acc, pick];
         const fid = this.familyId(pick, byId);
         const rawKids = familyKids.get(fid) ?? [];
         // group kids into families (branches + their versions)
@@ -196,7 +221,7 @@ export class ChatReaderComponent implements OnInit, OnDestroy {
           kidFam.set(kfid, this.familyOf(kid, byId));
         }
         if (kidFam.size === 0) {
-          paths.push(nextAcc);
+          if (!structuralOnly && nextAcc.length) paths.push(nextAcc);
           continue;
         }
         for (const members of kidFam.values()) {
