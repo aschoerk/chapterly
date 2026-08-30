@@ -1,4 +1,5 @@
 import {NodeAttachment} from '../models/chat';
+import { ProviderConfig, ModelEntry, ModelArchitecture } from '../models/chat-config';
 
 export interface CreateProjectRequest {
   name: string;
@@ -85,4 +86,26 @@ export interface AskLlmOptions {
   onChunk?: (chunk: string) => void;
   signal?: AbortSignal;
   temperature?: number;
+}
+
+export type CreateProviderRequest = Omit<ProviderConfig, 'id'>;
+export type UpdateProviderRequest = Partial<Omit<ProviderConfig, 'id'>>;
+
+export interface CreateModelRequest {
+  displayName: string;
+  modelId: string;
+  providerId: string;
+  type: 'fetched' | 'preset' | 'discontinued';
+  enabled: boolean;
+  architecture?: ModelArchitecture;
+  contextLength?: number;
+  description?: string;
+  // allow extra catalog fields
+  [key: string]: any;
+}
+export type UpdateModelRequest = Partial<Omit<ModelEntry, 'id'>>;
+
+export interface ToggleModelResponse {
+  id: string;
+  enabled: boolean;
 }

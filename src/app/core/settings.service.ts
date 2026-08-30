@@ -3,6 +3,14 @@ import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import { ProviderConfig, ModelEntry, ModelArchitecture } from '../models/chat-config';
 import { getServerConfig } from './server-config';
+import { CHAT_API } from '../api/chat-api.token';
+import { ChatApiPort } from '../api/chat-api.port';
+import {
+  CreateProviderRequest,
+  UpdateProviderRequest,
+  CreateModelRequest,
+  UpdateModelRequest
+} from '../api/chat-api.types';
 
 function mapProviderModel(raw: any, providerId: string): Omit<ModelEntry, 'id' | 'enabled'> & { enabled?: boolean } {
   const architecture: ModelArchitecture | undefined = raw.architecture
@@ -64,6 +72,7 @@ function mapProviderModel(raw: any, providerId: string): Omit<ModelEntry, 'id' |
 export class SettingsService {
   private readonly http = inject(HttpClient);
   private readonly serverConfig = getServerConfig();
+  private readonly api = inject(CHAT_API);
 
   private readonly _providers = signal<ProviderConfig[]>([]);
   private readonly _models = signal<ModelEntry[]>([]);
@@ -87,8 +96,8 @@ export class SettingsService {
   async loadAll(): Promise<void> {
     try {
       const [providers, models] = await Promise.all([
-        firstValueFrom(this.http.get<ProviderConfig[]>(`${this.API_BASE}/providers`)),
-        firstValueFrom(this.http.get<ModelEntry[]>(`${this.API_BASE}/models`))
+        this.api.getProviders(),
+        this.api.getModels()
       ]);
       this._providers.set(providers);
       this._models.set(models);
@@ -98,22 +107,18 @@ export class SettingsService {
   }
 
   async addProvider(provider: Omit<ProviderConfig, 'id'>): Promise<ProviderConfig> {
-    const created = await firstValueFrom(
-      this.http.post<ProviderConfig>(`${this.API_BASE}/providers`, provider)
-    );
+    const created = await this.api.createProvider(provider as CreateProviderRequest);
     this._providers.update(list => [...list, created]);
     return created;
   }
 
   async updateProvider(id: string, changes: Partial<ProviderConfig>): Promise<void> {
-    const updated = await firstValueFrom(
-      this.http.put<ProviderConfig>(`${this.API_BASE}/providers/${id}`, changes)
-    );
+    const updated = await this.api.updateProvider(id, changes as UpdateProviderRequest);
     this._providers.update(list => list.map(p => (p.id === id ? updated : p)));
   }
 
   async deleteProvider(id: string): Promise<void> {
-    await firstValueFrom(this.http.delete(`${this.API_BASE}/providers/${id}`));
+    await this.api.deleteProvider(id);
     this._providers.update(list => list.filter(p => p.id !== id));
     this._models.update(list => list.filter(m => m.providerId !== id));
   }
@@ -124,28 +129,24 @@ export class SettingsService {
     providerId: string,
     architecture?: ModelArchitecture
   ): Promise<void> {
-    const created = await firstValueFrom(
-      this.http.post<ModelEntry>(`${this.API_BASE}/models`, {
-        displayName,
-        modelId,
-        providerId,
-        type: 'preset',
-        enabled: true,
-        architecture
-      })
-    );
+    const created = await this.api.createModel({
+      displayName,
+      modelId,
+      providerId,
+      type: 'preset',
+      enabled: true,
+      architecture
+    } as CreateModelRequest);
     this._models.update(list => [...list, created]);
   }
 
   async deleteModel(id: string): Promise<void> {
-    await firstValueFrom(this.http.delete(`${this.API_BASE}/models/${id}`));
+    await this.api.deleteModel(id);
     this._models.update(list => list.filter(m => m.id !== id));
   }
 
   async toggleModelEnabled(id: string): Promise<void> {
-    const result = await firstValueFrom(
-      this.http.patch<{ id: string; enabled: boolean }>(`${this.API_BASE}/models/${id}/toggle`, {})
-    );
+    const result = await this.api.toggleModelEnabled(id);
     this._models.update(list =>
       list.map(m => (m.id === id ? { ...m, enabled: result.enabled } : m))
     );
@@ -230,21 +231,17 @@ export class SettingsService {
         const fresh = freshById.get(existing.modelId);
         if (!fresh) {
           if (existing.enabled) {
-            await firstValueFrom(
-              this.http.put(`${this.API_BASE}/models/${existing.id}`, { type: 'discontinued' })
-            );
+            await this.api.updateModel(existing.id, { type: 'discontinued' } as UpdateModelRequest);
           } else {
-            await firstValueFrom(this.http.delete(`${this.API_BASE}/models/${existing.id}`));
+            await this.api.deleteModel(existing.id);
           }
           continue;
         }
 
-        await firstValueFrom(
-          this.http.put(`${this.API_BASE}/models/${existing.id}`, {
-            ...fresh,
-            type: existing.type === 'discontinued' ? 'fetched' : existing.type
-          })
-        );
+        await this.api.updateModel(existing.id, {
+          ...fresh,
+          type: existing.type === 'discontinued' ? 'fetched' : existing.type
+        } as UpdateModelRequest);
       }
 
       const existingIds = new Set(currentModels.map(m => m.modelId));
@@ -252,12 +249,10 @@ export class SettingsService {
         if (existingIds.has(model.modelId)) {
           continue;
         }
-        await firstValueFrom(
-          this.http.post(`${this.API_BASE}/models`, {
-            ...model,
-            enabled: false
-          })
-        );
+        await this.api.createModel({
+          ...model,
+          enabled: false
+        } as CreateModelRequest);
       }
 
       await this.loadAll();

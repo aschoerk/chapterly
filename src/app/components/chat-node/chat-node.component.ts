@@ -47,7 +47,7 @@ export class ChatNodeComponent {
   readonly editDismissed = signal(false);
   readonly enabledModels = this.settings.enabledModels;
   private readonly editSession = inject(NodeEditSession);
-  readonly thinkingOpen = signal(true);
+  readonly thinkingClosed = signal(true);
 
   private readonly editArea = viewChild<ElementRef<HTMLTextAreaElement>>('editArea');
 
@@ -579,22 +579,6 @@ export class ChatNodeComponent {
       this.updateRendered(content);
     });
 
-    // Leaf questions open ready to type / edit, unless the user just cancelled.
-    effect(() => {
-      const n = this.node();
-      if (n?.type === 'question') {
-        this.branchModelId.set(n.modelId ?? '');
-      }
-      if (
-        n.type === 'question' &&
-        this.isLeafNode() &&
-        !this.isEditing() &&
-        !this.editDismissed() &&
-        !this.chatService.isGenerating(n.id)
-      ) {
-        this.startEdit('auto');
-      }
-    });
   }
 
   updateRendered(content: string): void {

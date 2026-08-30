@@ -10,14 +10,20 @@ import {
   PatchChatRequest,
   UpdatePersonaRequest,
   UpdateProjectRequest,
-  UpdateTopicRequest
+  UpdateTopicRequest,
+  CreateProviderRequest,
+  UpdateProviderRequest,
+  CreateModelRequest,
+  UpdateModelRequest,
+  ToggleModelResponse
 } from './chat-api.types';
 import { ChatApiPort } from './chat-api.port';
+import { ProviderConfig, ModelEntry } from '../models/chat-config';
 
 const DB_NAME = 'chat-client';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
-type StoreName = 'projects' | 'topics' | 'personas' | 'chats' | 'nodes';
+type StoreName = 'projects' | 'topics' | 'personas' | 'chats' | 'nodes' | 'providers' | 'models';
 
 @Injectable({ providedIn: 'root' })
 export class IdbChatApiService implements ChatApiPort {
@@ -40,6 +46,8 @@ export class IdbChatApiService implements ChatApiPort {
           s.createIndex('by-chat', 'chatId');
           s.createIndex('by-parent', 'parentId');
         }
+        if (!db.objectStoreNames.contains('providers')) db.createObjectStore('providers', { keyPath: 'id' });
+        if (!db.objectStoreNames.contains('models')) db.createObjectStore('models', { keyPath: 'id' });
       };
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
@@ -367,6 +375,104 @@ export class IdbChatApiService implements ChatApiPort {
     return this.updateTopic(topicId, {
       projectIds: t.projectIds.filter(id => id !== projectId)
     } as UpdateTopicRequest);
+  }
+
+  // ---------- Providers ----------
+  async getProviders(): Promise<ProviderConfig[]> {
+    return this.tx(['providers'], 'readonly', tx =>
+      this.all<ProviderConfig>(tx.objectStore('providers'))
+    );
+  }
+
+  async createProvider(data: CreateProviderRequest): Promise<ProviderConfig> {
+    const row: ProviderConfig = {
+      id: this.id(),
+      name: data.name,
+      type: data.type,
+      baseUrl: data.baseUrl,
+      apiKey: data.apiKey,
+      enabled: data.enabled ?? true
+    };
+    await this.tx(['providers'], 'readwrite', tx =>
+      this.req(tx.objectStore('providers').put(row))
+    );
+    return row;
+  }
+
+  async updateProvider(id: string, data: UpdateProviderRequest): Promise<ProviderConfig> {
+    return this.tx(['providers'], 'readwrite', async tx => {
+      const store = tx.objectStore('providers');
+      const row = await this.req<ProviderConfig>(store.get(id));
+      if (!row) throw Object.assign(new Error('Provider not found'), { status: 404 });
+      const next = { ...row, ...data, id };
+      await this.req(store.put(next));
+      return next;
+    });
+  }
+
+  async deleteProvider(id: string): Promise<void> {
+    await this.tx(['providers', 'models'], 'readwrite', async tx => {
+      await this.req(tx.objectStore('providers').delete(id));
+      const models = await this.all<ModelEntry>(tx.objectStore('models'));
+      for (const m of models) {
+        if (m.providerId === id) await this.req(tx.objectStore('models').delete(m.id));
+      }
+    });
+  }
+
+  // ---------- Models ----------
+  async getModels(): Promise<ModelEntry[]> {
+    return this.tx(['models'], 'readonly', tx =>
+      this.all<ModelEntry>(tx.objectStore('models'))
+    );
+  }
+
+  async createModel(data: CreateModelRequest): Promise<ModelEntry> {
+    const row: ModelEntry = {
+      id: this.id(),
+      displayName: data.displayName,
+      modelId: data.modelId,
+      providerId: data.providerId,
+      type: data.type,
+      enabled: data.enabled ?? true,
+      architecture: data.architecture,
+      contextLength: (data as any).contextLength,
+      description: (data as any).description,
+      // spread other possible catalog fields
+      ...(data as any)
+    } as ModelEntry;
+    await this.tx(['models'], 'readwrite', tx =>
+      this.req(tx.objectStore('models').put(row))
+    );
+    return row;
+  }
+
+  async updateModel(id: string, data: UpdateModelRequest): Promise<ModelEntry> {
+    return this.tx(['models'], 'readwrite', async tx => {
+      const store = tx.objectStore('models');
+      const row = await this.req<ModelEntry>(store.get(id));
+      if (!row) throw Object.assign(new Error('Model not found'), { status: 404 });
+      const next = { ...row, ...data, id };
+      await this.req(store.put(next));
+      return next;
+    });
+  }
+
+  async deleteModel(id: string): Promise<void> {
+    await this.tx(['models'], 'readwrite', tx =>
+      this.req(tx.objectStore('models').delete(id))
+    );
+  }
+
+  async toggleModelEnabled(id: string): Promise<ToggleModelResponse> {
+    return this.tx(['models'], 'readwrite', async tx => {
+      const store = tx.objectStore('models');
+      const row = await this.req<ModelEntry>(store.get(id));
+      if (!row) throw Object.assign(new Error('Model not found'), { status: 404 });
+      const next: ModelEntry = { ...row, enabled: !row.enabled };
+      await this.req(store.put(next));
+      return { id, enabled: next.enabled };
+    });
   }
 
   // ---------- internals ----------

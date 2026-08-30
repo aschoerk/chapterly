@@ -1,6 +1,7 @@
 import {
   Chat, ChatNode, CreateNodeRequest, Project, Persona, Topic, NodeAttachment
 } from '../models/chat';
+import { ProviderConfig, ModelEntry } from '../models/chat-config';
 import {
   BranchQuestionRequest,
   CreatePersonaRequest,
@@ -9,7 +10,12 @@ import {
   PatchChatRequest,
   UpdatePersonaRequest,
   UpdateProjectRequest,
-  UpdateTopicRequest
+  UpdateTopicRequest,
+  CreateProviderRequest,
+  UpdateProviderRequest,
+  CreateModelRequest,
+  UpdateModelRequest,
+  ToggleModelResponse
 } from './chat-api.types';
 
 export interface ChatApiPort {
@@ -51,4 +57,16 @@ export interface ChatApiPort {
   deleteTopic(id: string): Promise<Topic | void>;
   addProjectToTopic(topicId: string, projectId: string): Promise<Topic>;
   removeProjectFromTopic(topicId: string, projectId: string): Promise<Topic>;
+
+  // Providers & Models (for local IDB + cloud parity)
+  getProviders(): Promise<ProviderConfig[]>;
+  createProvider(data: CreateProviderRequest): Promise<ProviderConfig>;
+  updateProvider(id: string, data: UpdateProviderRequest): Promise<ProviderConfig>;
+  deleteProvider(id: string): Promise<void>;
+
+  getModels(): Promise<ModelEntry[]>;
+  createModel(data: CreateModelRequest): Promise<ModelEntry>;
+  updateModel(id: string, data: UpdateModelRequest): Promise<ModelEntry>;
+  deleteModel(id: string): Promise<void>;
+  toggleModelEnabled(id: string): Promise<ToggleModelResponse>;
 }

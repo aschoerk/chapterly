@@ -2,6 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import {Chat, ChatNode, CreateNodeRequest, Project, Persona, Topic, NodeAttachment} from '../models/chat';
+import { ProviderConfig, ModelEntry } from '../models/chat-config';
 import { getServerConfig } from '../core/server-config';
 import {
   AskLlmOptions,
@@ -13,7 +14,12 @@ import {
   PatchChatRequest,
   UpdatePersonaRequest,
   UpdateProjectRequest,
-  UpdateTopicRequest
+  UpdateTopicRequest,
+  CreateProviderRequest,
+  UpdateProviderRequest,
+  CreateModelRequest,
+  UpdateModelRequest,
+  ToggleModelResponse
 } from './chat-api.types';
 
 /**
@@ -296,6 +302,49 @@ export class ChatApiService {
 
     return fullContent.trim() || '(no response)';
   }
+
+
+  // ---------- Providers ----------
+  getProviders(): Promise<ProviderConfig[]> {
+    return firstValueFrom(this.http.get<ProviderConfig[]>(this.api('/providers')));
+  }
+
+  createProvider(data: CreateProviderRequest): Promise<ProviderConfig> {
+    return firstValueFrom(this.http.post<ProviderConfig>(this.api('/providers'), data));
+  }
+
+  updateProvider(id: string, data: UpdateProviderRequest): Promise<ProviderConfig> {
+    return firstValueFrom(this.http.put<ProviderConfig>(this.api(`/providers/${id}`), data));
+  }
+
+  deleteProvider(id: string): Promise<void> {
+    return firstValueFrom(this.http.delete<void>(this.api(`/providers/${id}`)));
+  }
+
+  // ---------- Models ----------
+  getModels(): Promise<ModelEntry[]> {
+    return firstValueFrom(this.http.get<ModelEntry[]>(this.api('/models')));
+  }
+
+  createModel(data: CreateModelRequest): Promise<ModelEntry> {
+    return firstValueFrom(this.http.post<ModelEntry>(this.api('/models'), data));
+  }
+
+  updateModel(id: string, data: UpdateModelRequest): Promise<ModelEntry> {
+    return firstValueFrom(this.http.put<ModelEntry>(this.api(`/models/${id}`), data));
+  }
+
+  deleteModel(id: string): Promise<void> {
+    return firstValueFrom(this.http.delete<void>(this.api(`/models/${id}`)));
+  }
+
+  toggleModelEnabled(id: string): Promise<ToggleModelResponse> {
+    return firstValueFrom(this.http.patch<ToggleModelResponse>(this.api(`/models/${id}/toggle`), {}));
+  }
+
+  // Note: fetchModels, testProvider, testModel, addPreset remain in SettingsService
+  // as they orchestrate proxy + multiple api calls.
+
 }
 
 export type { LlmChatMessage };

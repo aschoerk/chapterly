@@ -344,8 +344,13 @@ function editNodeVersion(nodeId, expectedType, { content, thinking, attachments 
     throw err;
   }
 
-  const newId = uuidv4();
-  const newVersion = (oldNode.version || 1) + 1;
+
+  childNode = undefined
+
+  if (oldNode.type == "answer") {
+    childNode = db.prepare("select * from chat_nodes where parent_id = ?").get(nodeId);
+  }
+
   const attachmentsJson = attachments !== undefined
     ? JSON.stringify(Array.isArray(attachments) ? attachments : [])
     : (oldNode.attachments || '[]');
@@ -356,38 +361,54 @@ function editNodeVersion(nodeId, expectedType, { content, thinking, attachments 
   // Wrap inside a transaction for atomicity
   const executeEditTransaction = db.transaction(() => {
     // 1. Mark existing node as no longer current
-    db.prepare('UPDATE chat_nodes SET is_current = 0 WHERE id = ?').run(nodeId);
+    db.prepare('UPDATE chat_nodes SET is_current = 0 WHERE id = ?').run(oldNode.id);
 
-    // 2. Insert new version node
-    db.prepare(`
+    if (!childNode) {
+      db.prepare(`UPDATE chat_nodes SET content = ?, thinking = ?, attachments = ? WHERE id = ?`).run(
+        content,
+        newThinking,
+        attachmentsJson,
+        nodeId
+      );
+      // 3. Update chat timestamp
+      db.prepare(`UPDATE chats SET updated_at = datetime('now') WHERE id = ?`).run(oldNode.chat_id);
+      // 4. Re-parent existing child nodes from oldId to newId
+      db.prepare(`UPDATE chat_nodes SET updated_at = datetime('now') WHERE parent_id = ?`).run(nodeId);
+      return db.prepare('SELECT * FROM chat_nodes WHERE id = ?').get(nodeId);
+    } else {
+      const newId = uuidv4();
+      const newVersion = (oldNode.version || 1) + 1;
+      // 2. Insert new version node
+      db.prepare(`
       INSERT INTO chat_nodes (
         id, chat_id, parent_id, type, content, thinking,
         model_id, provider_id, version, previous_version_id, is_current, attachments
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
     `).run(
-      newId,
-      oldNode.chat_id,
-      oldNode.parent_id,
-      expectedType,
-      content,
-      newThinking,
-      oldNode.model_id,
-      oldNode.provider_id,
-      newVersion,
-      nodeId,
-      attachmentsJson
-    );
+        newId,
+        oldNode.chat_id,
+        oldNode.parent_id,
+        expectedType,
+        content,
+        newThinking,
+        oldNode.model_id,
+        oldNode.provider_id,
+        newVersion,
+        nodeId,
+        attachmentsJson
+      );
+      // 3. Update chat timestamp
+      db.prepare(`UPDATE chats SET updated_at = datetime('now'), node_number = node_number + 1 WHERE id = ?`).run(oldNode.chat_id);
+      // 4. Re-parent existing child nodes from oldId to newId
+      db.prepare(`UPDATE chat_nodes SET parent_id = ?, updated_at = datetime('now') WHERE parent_id = ?`).run(newId, nodeId);
+      return db.prepare('SELECT * FROM chat_nodes WHERE id = ?').get(newId);
 
-    // 3. Update chat timestamp
-    db.prepare(`UPDATE chats SET updated_at = datetime('now'), node_number = node_number + 1 WHERE id = ?`).run(oldNode.chat_id);
+    }
 
-    // 4. Re-parent existing child nodes from oldId to newId
-    db.prepare(`UPDATE chat_nodes SET parent_id = ?, updated_at = datetime('now') WHERE parent_id = ?`).run(newId, nodeId);
   });
 
   executeEditTransaction();
 
-  return db.prepare('SELECT * FROM chat_nodes WHERE id = ?').get(newId);
 }
 
 

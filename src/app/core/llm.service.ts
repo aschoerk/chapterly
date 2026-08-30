@@ -4,11 +4,9 @@ import { getServerConfig } from './server-config';
 import { inject, Injectable } from '@angular/core';
 import { ChatService } from './chat.service';
 import { normalizeChatMessages } from './llm-message';
+import { LlmChunk, readSseStream } from './llm-sse';
 
-export interface LlmChunk {
-  content?: string;
-  thinking?: string;
-}
+export type { LlmChunk };
 
 @Injectable({ providedIn: 'root' })
 export class LlmService {
@@ -53,59 +51,18 @@ export class LlmService {
       throw new Error('No response body for streaming');
     }
 
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let content = '';
-    let thinking = '';
-    let buffer = '';
-
     try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() ?? '';
-
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (!trimmed || trimmed === 'data: [DONE]') continue;
-          if (!trimmed.startsWith('data: ')) continue;
-
-          try {
-            const json = JSON.parse(trimmed.slice(6));
-            const delta = json.choices?.[0]?.delta ?? {};
-            const contentBit = this.asText(delta.content);
-            const thinkingBit = this.extractThinking(delta);
-            if (!contentBit && !thinkingBit) continue;
-
-            if (contentBit) content += contentBit;
-            if (thinkingBit) thinking += thinkingBit;
-            onChunk?.({
-              content: contentBit || undefined,
-              thinking: thinkingBit || undefined
-            });
-          } catch {
-            // incomplete SSE line
-          }
-        }
-      }
+      const assembled = await readSseStream(response.body, onChunk);
+      return {
+        content: assembled.content.trim() || (assembled.thinking.trim() ? '' : '(no response)'),
+        thinking: assembled.thinking.trim()
+      };
     } catch (err: any) {
       if (err?.name === 'AbortError') {
-        return { content: content.trim(), thinking: thinking.trim() };
+        return { content: '', thinking: '' };
       }
       throw err;
-    } finally {
-      try {
-        reader.releaseLock();
-      } catch { /* ignore */ }
     }
-
-    return {
-      content: content.trim() || (thinking.trim() ? '' : '(no response)'),
-      thinking: thinking.trim()
-    };
   }
 
   async streamAnswer(
@@ -198,27 +155,5 @@ export class LlmService {
     if (effort) extras['reasoning'] = { effort };
     else extras['reasoning'] = { enabled: true };
     return extras;
-  }
-
-  private extractThinking(delta: any): string {
-    return this.asText(
-      delta?.reasoning_content ??
-      delta?.reasoning ??
-      delta?.thinking ??
-      delta?.reasoning_text
-    );
-  }
-
-  private asText(value: unknown): string {
-    if (typeof value === 'string') return value;
-    if (Array.isArray(value)) {
-      return value.map(part => this.asText(
-        typeof part === 'string' ? part : (part as any)?.text ?? (part as any)?.content
-      )).join('');
-    }
-    if (value && typeof value === 'object' && 'text' in (value as any)) {
-      return this.asText((value as any).text);
-    }
-    return '';
   }
 }
