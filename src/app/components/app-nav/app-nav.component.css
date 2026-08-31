@@ -15,6 +15,9 @@
 }
 
 .brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
   font-size: 0.85rem;
   font-weight: 700;
   letter-spacing: 0.02em;
@@ -61,6 +64,9 @@
 
 @media (max-width: 720px) {
   .brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
     display: none;
   }
   .label {
@@ -71,3 +77,14 @@
   }
 }
 
+
+
+.brand-mark {
+  flex: 0 0 auto;
+  color: var(--text, currentColor);
+}
+
+.brand-name {
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}

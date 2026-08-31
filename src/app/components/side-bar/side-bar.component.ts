@@ -188,9 +188,9 @@ export class SideBarComponent implements OnInit {
     const chatCount = this.getChatsForProject(project.id).length;
 
     const msg = chatCount === 0
-      ? `Delete project “${project.name}”?`
-      : `Project “${project.name}” contains ${chatCount} chat(s).\n\n` +
-      `OK = delete project AND all its chats\n` +
+      ? `Delete environment “${project.name}”?`
+      : `Environment “${project.name}” contains ${chatCount} stor${chatCount === 1 ? 'y' : 'ies'}.\n\n` +
+      `OK = delete the environment AND all its stories\n` +
       `Cancel = abort`;
 
     if (!confirm(msg)) return;
@@ -340,7 +340,7 @@ export class SideBarComponent implements OnInit {
 
   async deleteChat(chat: Chat, event: Event) {
     event.stopPropagation();
-    if (confirm(`Delete chat "${chat.title}"?`)) {
+    if (confirm(`Delete story "${chat.title}"?`)) {
       await this.chatService.deleteChat(chat.id);
     }
   }
@@ -392,7 +392,7 @@ export class SideBarComponent implements OnInit {
     const chats = this.getChatCount(project.id);
     return [
       project.name,
-      `${chats} chat${chats === 1 ? '' : 's'}`,
+      `${chats} stor${chats === 1 ? 'y' : 'ies'}`,
       `Created: ${this.formatWhen(project.createdAt)}`,
       `Updated: ${this.formatWhen(project.updatedAt)}`,
       `Default model: ${this.modelLabel(project.defaultModelId)}`
@@ -401,8 +401,8 @@ export class SideBarComponent implements OnInit {
 
   chatTooltip(chat: Chat): string {
     return [
-      chat.title || 'Untitled chat',
-      `${chat.node_number ?? 0} node${chat.node_number === 1 ? '' : 's'}`,
+      chat.title || 'Untitled story',
+      `${chat.node_number ?? 0} beat${chat.node_number === 1 ? '' : 's'}`,
       `Created: ${this.formatWhen(chat.created_at)}`,
       `Updated: ${this.formatWhen(chat.updated_at)}`
     ].join('\n');

@@ -96,7 +96,7 @@ export class ProjectsComponent implements OnInit {
       ]);
     } catch (e) {
       console.error('Failed to load projects', e);
-      this.error.set('Failed to load projects from server.');
+      this.error.set('Failed to load books from server.');
     }
     this.openFromQuery();
   }
@@ -234,14 +234,14 @@ export class ProjectsComponent implements OnInit {
   }
 
   async deleteProject(project: Project) {
-    if (!confirm(`Delete project "${project.name}"?\nChats will become unassigned.`)) {
+    if (!confirm(`Delete environment "${project.name}"?\nDrafts will become unfiled.`)) {
       return;
     }
     try {
       await this.chatService.deleteProject(project.id);
     } catch (e) {
       console.error(e);
-      alert('Failed to delete project');
+      alert('Failed to delete environment');
     }
   }
 
@@ -416,7 +416,7 @@ export class ProjectsComponent implements OnInit {
 
     const projectCount = topic.projectIds?.length ?? 0;
     const msg = projectCount > 0
-      ? `Delete topic “${topic.name}”?\nIt currently contains ${projectCount} project(s).\nProjects themselves will NOT be deleted.`
+      ? `Delete topic “${topic.name}”?\nIt currently contains ${projectCount} environment(s).\nEnvironments themselves will NOT be deleted.`
       : `Delete topic “${topic.name}”?`;
 
     if (!confirm(msg)) return;
@@ -446,7 +446,7 @@ export class ProjectsComponent implements OnInit {
       await this.chatService.addProjectToTopic(topicId, projectId);
     } catch (err: any) {
       console.error(err);
-      alert('Could not add project to topic');
+      alert('Could not add environment to topic');
     }
   }
 
@@ -458,7 +458,7 @@ export class ProjectsComponent implements OnInit {
       await this.chatService.removeProjectFromTopic(topicId, projectId);
     } catch (err: any) {
       console.error(err);
-      alert('Could not remove project from topic');
+      alert('Could not remove environment from topic');
     }
   }
 

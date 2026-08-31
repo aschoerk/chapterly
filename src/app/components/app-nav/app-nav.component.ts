@@ -17,9 +17,9 @@ interface AppNavLink {
 })
 export class AppNavComponent {
   readonly links: AppNavLink[] = [
-    { path: '/chat', label: 'Chat', title: 'Chats', icon: 'chat' },
+    { path: '/chat', label: 'Stories', title: 'Stories', icon: 'chat' },
     { path: '/read', label: 'Read', title: 'Book view', icon: 'read' },
-    { path: '/projects', label: 'Projects', title: 'Projects & topics', icon: 'projects' },
+    { path: '/projects', label: 'Environments', title: 'Environments & topics', icon: 'projects' },
     { path: '/personas', label: 'Personas', title: 'Personas', icon: 'personas' },
     { path: '/import', label: 'Import', title: 'Import & export', icon: 'import' },
     { path: '/config', label: 'Settings', title: 'Settings', icon: 'config' }

@@ -37,7 +37,7 @@
           <!-- Delete (NEW) -->
           <button class="btn-icon small danger"
                   (click)="deleteTopic(t, $event)"
-                  title="Delete topic (projects are kept)">
+                  title="Delete topic (environments are kept)">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
                  stroke="currentColor" stroke-width="2">
               <polyline points="3 6 5 6 21 6"/>
@@ -52,11 +52,11 @@
   <main class="project-pane">
     <div class="pane-header">
       <h2>
-        @if (selectedTopicId() === 'all') { All Projects }
-        @else if (selectedTopicId() === 'unassigned') { Unassigned Projects }
+        @if (selectedTopicId() === 'all') { All environments }
+        @else if (selectedTopicId() === 'unassigned') { Unfiled environments }
         @else { {{ topics().find(t => t.id === selectedTopicId())?.name }} }
       </h2>
-      <button class="btn primary" (click)="openCreate()">+ New Project</button>
+      <button class="btn primary" (click)="openCreate()">+ New environment</button>
     </div>
 
     <div class="project-grid">
@@ -112,10 +112,10 @@
                 Remove from this topic
               </button>
             } @else {
-              <!-- All or Unassigned view → offer “Add to topic…” -->
+              <!-- All or Unassigned view → offer “Add environment to topic…” -->
               <select class="add-to-topic"
                       (change)="onAddToTopic(p.id, $event)">
-                <option value="">Add to topic…</option>
+                <option value="">Add environment to topic…</option>
                 @for (t of sortedTopics(); track t.id) {
                   @if (!t.projectIds.includes(p.id)) {
                     <option [value]="t.id">{{ t.name }}</option>
@@ -133,13 +133,13 @@
       @if (visibleProjects().length === 0) {
         <div class="empty-state">
           @if (selectedTopicId() === 'unassigned') {
-            <p>All projects are assigned to at least one topic.</p>
+            <p>All environments are assigned to at least one topic.</p>
           } @else if (selectedTopicId() === 'all') {
-            <p>No projects yet.</p>
-            <button class="btn primary" (click)="openCreate()">Create the first project</button>
+            <p>No environments yet.</p>
+            <button class="btn primary" (click)="openCreate()">Create the first environment</button>
           } @else {
-            <p>This topic has no projects yet.</p>
-            <p class="hint">Use “Add to topic…” on a project card, or create a new project.</p>
+            <p>This topic has no environments yet.</p>
+            <p class="hint">Use “Add environment to topic…” on an environment card, or create a new environment.</p>
           }
         </div>
       }
@@ -149,7 +149,7 @@
 @if (showForm()) {
   <div class="modal-backdrop" (click)="closeForm()">
     <div class="modal" (click)="$event.stopPropagation()">
-      <h3>{{ editingId() ? 'Edit Project' : 'New Project' }}</h3>
+      <h3>{{ editingId() ? 'Edit environment' : 'New environment' }}</h3>
 
       @if (error()) {
         <div class="error-banner">{{ error() }}</div>
@@ -207,7 +207,7 @@
         <textarea
           [(ngModel)]="form.systemPrompt"
           rows="5"
-          placeholder="Optional instructions applied to every chat in this project…"
+          placeholder="Optional instructions applied to every story in this environment…"
         ></textarea>
       </label>
 
@@ -346,7 +346,7 @@
       <textarea rows="5"
                 [ngModel]="topicDefaultSystemPrompt()"
                 (ngModelChange)="topicDefaultSystemPrompt.set($event)"
-                placeholder="Optional system prompt that can be used by projects of this topic">
+                placeholder="Optional system prompt that can be used by environments in this topic">
     </textarea>
     </label>
 

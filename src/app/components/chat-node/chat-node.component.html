@@ -11,7 +11,7 @@
     <span class="badge"
           [class.question]="node().type === 'question'"
           [class.answer]="node().type === 'answer'">
-      {{ node().type === 'question' ? 'Q' : 'A' }}
+      {{ node().type === 'question' ? 'Dir' : 'Ch' }}
     </span>
 
     @if (node().modelId) {
@@ -137,7 +137,7 @@
                   (keydown.escape)="cancelEdit()"
                   [disabled]="isLoading()"
                   rows="6"
-                  [placeholder]="isUnsentQuestion() ? 'Write the next question…' : 'Edit this node…'">
+                  [placeholder]="isUnsentQuestion() ? 'Write the next direction…' : 'Edit this beat…'">
         </textarea>
 
         @if (showPreview()) {
@@ -247,7 +247,7 @@
       <div class="node-content empty-draft click-to-edit"
            title="Click to write the next question"
            (click)="onContentClick($event)">
-        <em>Write the next question…</em>
+        <em>Write the next direction…</em>
         @if (showClosedContinue()) {
           <button class="btn small continue-closed"
                   type="button"

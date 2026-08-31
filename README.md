@@ -1,24 +1,86 @@
-# Chat Client
+# Chapterly
 
-A desktop chat client for Large Language Models focused on **recreating and managing multi-version conversation threads**.
+A local writing studio for scene-by-scene story work with language models.
 
-The application lets you explore different answer versions, branch conversations, and keep a clear history of how a discussion evolved.
+You do not chat with the model. You give a short direction for the next scene,
+read what comes back, and keep going. When a plot could go two ways, you fork
+the thread and keep both versions. When you want to read, you open the book
+view instead of the prompt.
+
+Chapterly is for steering stories — not for claiming authorship. The model
+drafts the beat; you decide what happens next.
 
 ---
 
-## Intentions
+## What it is for
 
-- Provide a clean interface for chatting with different LLM providers
-- Treat conversation threads as first-class citizens (including multiple versions of answers)
-- Keep all chat data local (SQLite)
-- Work as a real desktop application (currently distributed as AppImage)
+- Direct a scene in a few lines, then read the result
+- Keep topics, books, and personas as the spine of a longer work
+- Branch a draft when a scene could go another way
+- Reread the active path as a continuous text
+- Stay local: SQLite on disk, or IndexedDB in the browser
 
-The Angular frontend talks exclusively to a local **chat-server**.  
-The chat-server is responsible for:
+The Angular client talks only to a local **chat-server**. The server stores
+threads and versions, proxies provider requests, and exposes a small REST API.
 
-- Storing chats and message versions in SQLite
-- Proxying requests to LLM providers
-- Exposing a simple REST API used by the Angular client
+---
+
+## Words on the screen
+
+Code and URLs still say project / chat / question / answer.
+What you see in the UI:
+
+| In the UI | Means |
+|---|---|
+| Topic | A body of work (world, series, campaign) |
+| Environment | Setting, cast, and standing rules inside a topic |
+| Story | One narrative thread you can fork |
+| Direction | The cue you give for the next beat |
+| Chapter | The draft that comes back |
+
+## Example topic system prompt
+
+Paste this into a topic’s default system prompt if you want Chapterly to
+direct scenes and keep them open for the next cue.
+
+```text
+You are a collaborative narrator for this topic. The user gives scene directions. You continue the scene. You do not lecture, summarize the assignment, or break character unless asked.
+
+Keyword / hint handling
+- Take the intent of a hint, then write it in new wording, action, and dialogue.
+- Do not echo the user's exact phrases or labels back at them.
+
+Descriptive variety
+- Do not reuse full sentences or blocks from earlier turns.
+- Rotate focus: sight, sound, smell, touch, temperature, motion, emotion.
+- Re-describe a place, body, or mood only when it has changed, and then with fresh prose.
+
+Response freshness
+- Each answer must move the scene forward.
+- Prefer active voice and short concrete sentences.
+- Mix close first-person narration with third-person on the world and other characters when that keeps the beat clear.
+
+Keep the scene open
+- Stay inside the scene the user started.
+- Do not wrap up, time-skip, fade to the next day, or send everyone home unless the user asks.
+- End on an unfinished beat — a look, a line, a choice — so the user can steer the next direction.
+
+Length and pace
+- Write a full scene beat, not a sketch. Aim for a long, detailed passage.
+- After the draft is already long, do not rush to a conclusion. Stop mid-action.
+
+Collaboration
+- If the user offers a persona or a hint, use it.
+- You may speak or act that persona when the user allows it.
+- The user can override or correct at any time. Follow the correction from then on.
+- A line that starts with (REMINDER: …) is a standing rule. Apply it immediately and keep it.
+
+Tone for this topic
+- Immersive, specific, consequence-aware.
+- No lecture, no meta recap, no “as an AI.”
+- Keep the work readable in public: no explicit sexual content. Tension, conflict, and complicated motives are fine.
+```
+
 
 ---
 
@@ -35,8 +97,8 @@ chmod +x Chat\ Client-*.AppImage
 ./Chat\ Client-*.AppImage
 ```
 
-The application starts its own local server automatically.  
-Your chat data is stored in:
+The application starts its own local server automatically.
+Your data is stored in:
 
 ```
 ~/.config/chat/data/chat.db
@@ -78,72 +140,3 @@ npm run electron:build
 ```
 
 The resulting AppImage can be found in the `dist/` folder.
-
----
-
-## Architecture
-
-```
-┌─────────────────────┐
-│   Angular Frontend  │
-│  (Electron window)  │
-└──────────┬──────────┘
-           │ HTTP
-           ▼
-┌─────────────────────┐
-│    chat-server      │
-│  (Express + API)    │
-└──────────┬──────────┘
-           │
-           ▼
-┌─────────────────────┐
-│      SQLite         │
-│  (chat history &    │
-│   message versions) │
-└─────────────────────┘
-```
-
-- The **Angular client** never talks directly to LLM providers.
-- All communication goes through the **chat-server**.
-- The chat-server uses **SQLite** to store chats, nodes, and version history.
-
----
-
-## How to extend the project
-
-### Adding a new API endpoint
-
-1. Add the route in `chat-server/src/routes/`
-2. Register it in `chat-server/src/app.js`
-3. Call it from an Angular service
-
-### Changing the database schema
-
-Edit `chat-server/src/db.js`.  
-The tables are created with `CREATE TABLE IF NOT EXISTS`, so you can extend them carefully.
-
-### Adding a new LLM provider
-
-The proxy layer lives in `chat-server/src/routes/proxy.js`.  
-You can extend the provider handling there and expose the new provider through the existing API.
-
-### UI changes
-
-The Angular application lives under `src/`.  
-Main chat-related components are located in `src/app/pages/chat/`.
-
----
-
-## Scripts
-
-| Command                  | Description                          |
-|--------------------------|--------------------------------------|
-| `npm run electron:dev`   | Start development mode               |
-| `npm run build`          | Build the Angular frontend           |
-| `npm run electron:build` | Build the production AppImage        |
-
----
-
-## License
-
-This project is licensed under the **Apache License 2.0**.

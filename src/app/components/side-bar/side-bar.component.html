@@ -17,7 +17,7 @@
           }
         </div>
       }
-      <h2>Chats</h2>
+      <h2>Stories</h2>
     </div>
   </div>
 
@@ -49,14 +49,14 @@
   <div class="sidebar-search">
     <input
       type="search"
-      placeholder="Filter projects & chats…"
+      placeholder="Filter environments & stories…"
       [ngModel]="searchQuery()"
       (ngModelChange)="searchQuery.set($event)" />
 
     <button
       class="btn-icon collapse-all-btn"
       (click)="collapseAll($event)"
-      title="Collapse all projects">
+      title="Collapse all environments">
       <!-- double-chevron / collapse icon -->
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <polyline points="17 11 12 6 7 11"/>
@@ -96,13 +96,13 @@
 
 
           <div class="project-actions">
-            <button class="btn-icon" type="button" (click)="editProject(project, $event)" title="Edit project">
+            <button class="btn-icon" type="button" (click)="editProject(project, $event)" title="Edit environment">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
                 <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
               </svg>
             </button>
-            <button class="btn-icon"  (click)="createChatForProject(project, $event)" title="New chat">
+            <button class="btn-icon"  (click)="createChatForProject(project, $event)" title="New story">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
                 <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
               </svg>
@@ -110,7 +110,7 @@
             <button
               class="btn-icon danger"
               (click)="deleteProject(project, $event)"
-              title="Delete project">
+              title="Delete book">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <polyline points="3 6 5 6 21 6"/>
                 <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
@@ -121,7 +121,7 @@
           </div>
           <span
             class="item-count count-chats"
-            [title]="getChatCount(project.id) + ' chat' + (getChatCount(project.id) === 1 ? '' : 's')">
+            [title]="getChatCount(project.id) + ' story' + (getChatCount(project.id) === 1 ? '' : 's')">
                   {{ getChatCount(project.id) }}
           </span>
         </div>
@@ -152,7 +152,7 @@
                 <button
                   class="btn-icon"
                   (click)="toggleReassign(chat.id, $event)"
-                  title="Move to another project">
+                  title="Move to another environment">
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <path d="M17 11l-5-5-5 5M17 18l-5-5-5 5"/>
                   </svg>
@@ -190,7 +190,7 @@
         }
       </div>
     } @empty {
-      <p class="empty">No projects yet. Create one to organize your chats.</p>
+      <p class="empty">No books yet. Create one to organize your drafts.</p>
     }
 
     <!-- Unassigned chats (legacy / chats without project) -->
@@ -203,7 +203,7 @@
             [title]="isExpanded('__unassigned__') ? 'Hide chats' : 'Show chats'">
             {{ isExpanded('__unassigned__') ? '▼' : '▶' }}
           </button>
-          <span class="project-name">Unassigned</span>
+          <span class="project-name">Unfiled stories</span>
         </div>
 
         @if (isExpanded('__unassigned__')) {
@@ -219,7 +219,7 @@
                 <button
                   class="btn-icon"
                   (click)="toggleReassign(chat.id, $event)"
-                  title="Move to another project">
+                  title="Move to another environment">
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <path d="M17 11l-5-5-5 5M17 18l-5-5-5 5"/>
                   </svg>

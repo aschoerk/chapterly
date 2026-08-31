@@ -1,6 +1,6 @@
 {
-  "name": "chat",
-  "version": "0.4.5",
+  "name": "chapterly",
+  "version": "0.5.0",
   "author": "Andreas Schörk",
   "main": "electron/main.js",
   "scripts": {
@@ -48,8 +48,8 @@
     "wait-on": "^9.1.0"
   },
   "build": {
-    "appId": "de.aschoerk.chat",
-    "productName": "Chat Client",
+    "appId": "de.aschoerk.chapterly",
+    "productName": "Chapterly",
     "files": [
       "electron/**/*",
       "chat-server/**/*",
