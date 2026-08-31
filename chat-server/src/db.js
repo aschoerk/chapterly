@@ -205,7 +205,7 @@ function createPersistentDB(verbose = false) {
     fs.mkdirSync(dataDir, { recursive: true });
   }
 
-  const dbPath = path.join(dataDir, 'chat.db');
+  const dbPath = path.join(dataDir, 'chapterly.db');
   const db = new Database(dbPath, {
     verbose: verbose ? (sql) => console.log(`[SQL ${new Date().toISOString()}] ${sql}`) : null
   });

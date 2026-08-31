@@ -21,6 +21,7 @@ import {
   UpdateModelRequest,
   ToggleModelResponse
 } from './chat-api.types';
+import { ChatParameters, ChatParametersDraft } from '../models/chat-parameters';
 
 /**
  * Thin HTTP client for the chat-server REST API and the LLM proxy.
@@ -344,7 +345,27 @@ export class ChatApiService {
 
   // Note: fetchModels, testProvider, testModel, addPreset remain in SettingsService
   // as they orchestrate proxy + multiple api calls.
+// ---------- Chat parameters ----------
 
+  getChatParameters(): Promise<ChatParameters[]> {
+    return firstValueFrom(this.http.get<ChatParameters[]>(this.api('/chat-parameters')));
+  }
+
+  getChatParameter(id: string): Promise<ChatParameters> {
+    return firstValueFrom(this.http.get<ChatParameters>(this.api(`/chat-parameters/${id}`)));
+  }
+
+  createChatParameters(data: ChatParametersDraft): Promise<ChatParameters> {
+    return firstValueFrom(this.http.post<ChatParameters>(this.api('/chat-parameters'), data));
+  }
+
+  updateChatParameters(id: string, data: ChatParametersDraft): Promise<ChatParameters> {
+    return firstValueFrom(this.http.patch<ChatParameters>(this.api(`/chat-parameters/${id}`), data));
+  }
+
+  deleteChatParameters(id: string): Promise<void> {
+    return firstValueFrom(this.http.delete<void>(this.api(`/chat-parameters/${id}`)));
+  }
 }
 
 export type { LlmChatMessage };

@@ -150,7 +150,7 @@ Tone for this topic
 
 ### AppImage (Linux)
 
-1. Go to the [Releases](https://github.com/aschoerk/chat/releases) page
+1. Go to the [Releases](https://github.com/aschoerk/chapterly/releases) page
 2. Download the latest `.AppImage`
 3. Make it executable and start it:
 
@@ -163,12 +163,12 @@ The application starts its own local server automatically.
 Your data is stored in:
 
 ```
-~/.config/chat/data/chat.db
+~/.config/chapterly/data/chapterly.db
 ```
 
 ### Windows
 
-1. Go to the [Releases](https://github.com/aschoerk/chat/releases) page
+1. Go to the [Releases](https://github.com/aschoerk/chapterly/releases) page
 2. Download the latest Windows installer (`Chapterly Setup *.exe`, NSIS)
 3. Run the installer. You can choose the folder; it is not a one-click-only install.
 4. Start **Chapterly** from the Start menu or the desktop shortcut.
@@ -177,7 +177,7 @@ The application starts its own local server automatically.
 Your data is stored in:
 
 ```
-%APPDATA%\chat\data\chat.db
+%APPDATA%\chapterly\data\chapterly.db
 ```
 
 If Windows Defender SmartScreen warns about an unknown publisher, choose
@@ -205,8 +205,8 @@ The `.exe` installer is written to the `dist/` folder.
 ### Setup
 
 ```bash
-git clone https://github.com/aschoerk/chat.git
-cd chat
+git clone https://github.com/aschoerk/chapterly.git
+cd chapterly
 npm install
 ```
 

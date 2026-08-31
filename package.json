@@ -1,6 +1,6 @@
 {
   "name": "chapterly",
-  "version": "0.5.2",
+  "version": "0.9.1",
   "author": "Andreas Schörk",
   "main": "electron/main.js",
   "scripts": {

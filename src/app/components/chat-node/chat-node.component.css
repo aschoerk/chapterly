@@ -28,11 +28,11 @@
 }
 
 .node.draft {
-  background: color-mix(in srgb, #3b82f6 6%, transparent);
+  background: color-mix(in srgb, var(--accent, #3b82f6) 6%, transparent);
 }
 
 .empty-draft {
-  color: #64748b;
+  color: var(--text-muted, #64748b);
   font-size: 0.9rem;
   padding: 0.25rem 0;
 }
@@ -47,7 +47,7 @@
 
 .editor-toolbar .btn.active {
   background: var(--accent, #3b82f6);
-  color: white;
+  color: #fff;
 }
 
 .model-select {
@@ -55,9 +55,9 @@
   max-width: 16rem;
   height: 28px;
   border-radius: 6px;
-  border: 1px solid var(--border-color, #cbd5e1);
-  background: var(--input-bg, Field);
-  color: inherit;
+  border: 1px solid var(--color-input-border, #cbd5e1);
+  background: var(--bg-input, Field);
+  color: var(--text, inherit);
   font-size: 0.8rem;
 }
 
@@ -82,9 +82,9 @@
   font-size: 0.95rem;
   white-space: pre-wrap;
   word-wrap: break-word;
-  background-color: var(--input-bg, Field);
-  color: var(--input-color, FieldText);
-  border: 1px solid var(--border-color, #555);
+  background-color: var(--bg-input, Field);
+  color: var(--text, FieldText);
+  border: 1px solid var(--color-input-border, #555);
   border-radius: 8px;
   scrollbar-width: thin;
 }
@@ -101,9 +101,9 @@
   padding: 12px 14px;
   border-radius: 8px;
   line-height: 1.55;
-  background-color: var(--bg-secondary, Field);
-  color: var(--text-primary, FieldText);
-  border: 1px solid var(--border-color, #555);
+  background-color: var(--panel, Field);
+  color: var(--text, FieldText);
+  border: 1px solid var(--color-input-border, #555);
 }
 
 .inline-content-editor:not(.with-preview) .editor-textarea {
@@ -130,7 +130,7 @@
 }
 .editor-textarea::-webkit-scrollbar-thumb,
 .editor-preview::-webkit-scrollbar-thumb {
-  background-color: var(--scrollbar-thumb, #666);
+  background-color: var(--text-muted, #666);
   border-radius: 4px;
 }
 
@@ -143,11 +143,11 @@
 }
 
 .question-node {
-  border-left-color: #3b82f6;
+  border-left-color: var(--accent, #3b82f6);
 }
 
 .answer-node {
-  border-left-color: #22c55e;
+  border-left-color: var(--color-badge-a-text, #22c55e);
   background: var(--bg-answer, #f8fafc);
   color: var(--text, inherit);
   padding: 0.6rem 0.75rem;
@@ -161,7 +161,7 @@
   align-items: center;
   margin-bottom: 0.35rem;
   font-size: 0.8rem;
-  color: #64748b;
+  color: var(--text-muted, #64748b);
 }
 
 .node-content {
@@ -230,13 +230,14 @@
   padding: 0.5rem 1rem;
   border-radius: var(--radius-md, 6px);
   border: 1px solid var(--color-input-border, #cbd5e1);
-  background: white;
+  background: var(--panel, #fff);
+  color: var(--text);
   cursor: pointer;
 }
 
 .btn.primary {
   background: var(--color-primary, #2563eb);
-  color: white;
+  color: #fff;
   border-color: var(--color-primary, #2563eb);
 }
 
@@ -266,7 +267,7 @@
 }
 
 .empty-answer {
-  color: #94a3b8;
+  color: var(--text-muted, #94a3b8);
   font-size: 0.9rem;
   padding: 0.25rem 0;
 }
@@ -310,8 +311,8 @@
 .spinner {
   width: 16px;
   height: 16px;
-  border: 2px solid #cbd5e1;
-  border-top-color: #3b82f6;
+  border: 2px solid var(--color-input-border, #cbd5e1);
+  border-top-color: var(--accent, #3b82f6);
   border-radius: 50%;
   animation: spin 0.7s linear infinite;
   flex-shrink: 0;
@@ -356,9 +357,9 @@
 }
 
 .btn-icon.danger:hover:not(:disabled) {
-  background: rgba(185, 28, 28, 0.08);
+  background: color-mix(in srgb, var(--color-danger, #b91c1c) 12%, transparent);
   border-color: var(--color-danger-border, #fca5a5);
-  color: #991b1b;
+  color: var(--color-danger, #991b1b);
 }
 
 .btn-icon svg {
@@ -396,7 +397,8 @@
   padding: 0.15rem 0.4rem;
   border: 1px solid var(--border, #e2e8f0);
   border-radius: 999px;
-  background: var(--bg-secondary, #f8fafc);
+  background: var(--bg-hover, #f8fafc);
+  color: var(--text);
   font-size: 0.75rem;
 }
 
@@ -418,7 +420,7 @@
   border: 0;
   background: transparent;
   cursor: pointer;
-  color: #64748b;
+  color: var(--text-muted, #64748b);
   font-size: 0.95rem;
   line-height: 1;
 }
@@ -440,20 +442,20 @@
 }
 
 .badge.question {
-  background: #dbeafe;
-  color: #1d4ed8;
+  background: var(--color-badge-q-bg, #dbeafe);
+  color: var(--color-badge-q-text, #1d4ed8);
 }
 
 .badge.answer {
-  background: #dcfce7;
-  color: #15803d;
+  background: var(--color-badge-a-bg, #dcfce7);
+  color: var(--color-badge-a-text, #15803d);
 }
 
 
 .params-footnote {
   padding: 0 0.75rem 0.35rem;
   font-size: 0.72rem;
-  color: var(--muted, #888);
+  color: var(--color-text-muted, #888);
 }
 
 
