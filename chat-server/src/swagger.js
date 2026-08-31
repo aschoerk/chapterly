@@ -6,7 +6,7 @@ const options = {
     info: {
       title: 'Chat Server API',
       version: '1.0.0',
-      description: 'API for the Chat Client (providers, models, chats, nodes, projects, personas)'
+      description: 'API for the Chat Client (providers, models, chats, nodes, projects, personas, chat parameters)'
     },
     servers: [
       {
@@ -21,7 +21,8 @@ const options = {
       { name: 'Topics', description: 'Topic / grouping management for projects' },
       { name: 'Nodes', description: 'Chat nodes (questions & answers)' },
       { name: 'Projects', description: 'Project / workspace management' },
-      { name: 'Personas', description: 'Reusable personas / characters for chats' }
+      { name: 'Personas', description: 'Reusable personas / characters for chats' },
+      { name: 'ChatParameters', description: 'Reusable LLM generation parameters (OpenAI-compatible extensions)' }
     ],
     components: {
       schemas: {
@@ -87,6 +88,12 @@ const options = {
               type: 'integer',
               nullable: true,
               example: 200000
+            },
+            chatParametersId: {
+              type: 'string',
+              format: 'uuid',
+              nullable: true,
+              description: 'Optional owned chat_parameters set'
             }
           }
         },
@@ -109,6 +116,11 @@ const options = {
             updated_at: {
               type: 'string',
               format: 'date-time'
+            },
+            chatParametersId: {
+              type: 'string',
+              format: 'uuid',
+              nullable: true
             }
           }
         },
@@ -214,7 +226,56 @@ const options = {
                 $ref: '#/components/schemas/NodeAttachment'
               },
               default: []
+            },
+            chatParametersId: {
+              type: 'string',
+              format: 'uuid',
+              nullable: true
             }
+          }
+        },
+
+        ChatParameters: {
+          type: 'object',
+          properties: {
+            id: { type: 'string', format: 'uuid' },
+            name: { type: 'string', example: 'Creative streaming' },
+            temperature: { type: 'number', nullable: true, example: 0.7, description: 'OpenAI temperature (0-2)' },
+            topK: { type: 'integer', nullable: true, example: 40, description: 'OpenAI-compatible top_k extension' },
+            topM: { type: 'number', nullable: true, example: 0.95, description: 'Nucleus-style cap stored as top_m' },
+            topP: { type: 'number', nullable: true, example: 0.95, description: 'OpenAI top_p alias of topM' },
+            stream: { type: 'boolean', nullable: true, example: true },
+            thinking: { type: 'boolean', nullable: true, example: false, description: 'Enable model reasoning / thinking output' },
+            thinkingLevel: {
+              type: 'string',
+              nullable: true,
+              enum: ['none', 'minimal', 'low', 'medium', 'high'],
+              description: 'Maps to OpenAI reasoning_effort'
+            },
+            reasoningEffort: {
+              type: 'string',
+              nullable: true,
+              enum: ['none', 'minimal', 'low', 'medium', 'high']
+            },
+            createdAt: { type: 'string', format: 'date-time' },
+            updatedAt: { type: 'string', format: 'date-time' }
+          }
+        },
+        ChatParametersInput: {
+          type: 'object',
+          properties: {
+            name: { type: 'string' },
+            temperature: { type: 'number', nullable: true },
+            topK: { type: 'integer', nullable: true },
+            top_k: { type: 'integer', nullable: true },
+            topM: { type: 'number', nullable: true },
+            top_m: { type: 'number', nullable: true },
+            topP: { type: 'number', nullable: true },
+            top_p: { type: 'number', nullable: true },
+            stream: { type: 'boolean', nullable: true },
+            thinking: { type: 'boolean', nullable: true },
+            thinkingLevel: { type: 'string', nullable: true, enum: ['none', 'minimal', 'low', 'medium', 'high'] },
+            reasoningEffort: { type: 'string', nullable: true, enum: ['none', 'minimal', 'low', 'medium', 'high'] }
           }
         },
         Error: {
@@ -250,6 +311,11 @@ const options = {
               type: 'string',
               nullable: true,
               description: 'Optional default model id for chats in this project'
+            },
+            chatParametersId: {
+              type: 'string',
+              format: 'uuid',
+              nullable: true
             },
             avatar: {
               type: 'string',
@@ -292,6 +358,11 @@ const options = {
               type: 'string',
               nullable: true
             },
+            chatParametersId: {
+              type: 'string',
+              format: 'uuid',
+              nullable: true
+            },
             defaultSystemPrompt: {
               type: 'string'
             },
@@ -314,7 +385,7 @@ const options = {
               format: 'date-time'
             }
           }
-          },
+        },
         Persona: {
           type: 'object',
           properties: {

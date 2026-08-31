@@ -6,6 +6,7 @@ const chatsRoutes = require('./routes/chats');
 const projectsRoutes = require('./routes/projects');
 const personasRoutes = require('./routes/personas');
 const topicsRoutes = require('./routes/topics');
+const chatParametersRoutes = require('./routes/chat_parameters');
 // ...
 require('./db');          // ← this initializes the database
 
@@ -40,6 +41,7 @@ function createApp() {
   app.use('/api/projects', projectsRoutes);
   app.use('/api/personas', personasRoutes);
   app.use('/api/topics', topicsRoutes);
+  app.use('/api/chat-parameters', chatParametersRoutes);
 
   app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 

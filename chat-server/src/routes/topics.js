@@ -1,6 +1,7 @@
 const express = require('express');
 const { v4: uuidv4 } = require('uuid');
 const db = require('../db');
+const { resolveChatParametersId, assertChatParametersExists } = require('../chatParameters');
 
 const router = express.Router();
 
@@ -16,6 +17,7 @@ function mapTopic(row) {
     name: row.name,
     description: row.description || '',
     defaultModelId: row.default_model_id || null,
+    chatParametersId: row.chat_parameters_id || null,
     defaultSystemPrompt: row.default_system_prompt || '',
     icon: row.icon || '',
     projectIds,
@@ -141,13 +143,18 @@ router.post('/', (req, res) => {
     return res.status(400).json({ error: 'name is required' });
   }
 
+  const chatParametersId = resolveChatParametersId(req.body, null);
+  if (!assertChatParametersExists(chatParametersId)) {
+    return res.status(400).json({ error: 'chatParametersId does not exist' });
+  }
+
   const id = uuidv4();
   const now = new Date().toISOString();
 
   db.prepare(`
     INSERT INTO topics
-    (id, name, description, default_model_id, default_system_prompt, icon, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    (id, name, description, default_model_id, default_system_prompt, icon, chat_parameters_id, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     id,
     name.trim(),
@@ -155,6 +162,7 @@ router.post('/', (req, res) => {
     defaultModelId,
     defaultSystemPrompt,
     icon,
+    chatParametersId,
     now,
     now
   );
@@ -225,14 +233,20 @@ router.put('/:id', (req, res) => {
     icon
   } = req.body;
 
+  const chatParametersId = resolveChatParametersId(req.body, existing.chat_parameters_id);
+  if (!assertChatParametersExists(chatParametersId)) {
+    return res.status(400).json({ error: 'chatParametersId does not exist' });
+  }
+
   db.prepare(`
     UPDATE topics SET
-      name                  = COALESCE(?, name),
-      description           = COALESCE(?, description),
-      default_model_id      = COALESCE(?, default_model_id),
-      default_system_prompt = COALESCE(?, default_system_prompt),
-      icon                  = COALESCE(?, icon),
-      updated_at            = datetime('now')
+                    name                  = COALESCE(?, name),
+                    description           = COALESCE(?, description),
+                    default_model_id      = COALESCE(?, default_model_id),
+                    default_system_prompt = COALESCE(?, default_system_prompt),
+                    icon                  = COALESCE(?, icon),
+                    chat_parameters_id    = ?,
+                    updated_at            = datetime('now')
     WHERE id = ?
   `).run(
     name !== undefined ? name.trim() : null,
@@ -240,6 +254,7 @@ router.put('/:id', (req, res) => {
     defaultModelId !== undefined ? defaultModelId : null,
     defaultSystemPrompt !== undefined ? defaultSystemPrompt : null,
     icon !== undefined ? icon : null,
+    chatParametersId,
     id
   );
 

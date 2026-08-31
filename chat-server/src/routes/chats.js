@@ -1,6 +1,7 @@
 const express = require('express');
 const { v4: uuidv4 } = require('uuid');
 const db = require('../db');
+const { resolveChatParametersId, assertChatParametersExists } = require('../chatParameters');
 const router = express.Router();
 
 // ---------- Chats ----------
@@ -93,10 +94,14 @@ router.get('/', (req, res) => {
  */
 router.post('/', (req, res) => {
   const { title = 'New Chat', projectId = null } = req.body;
+  const chatParametersId = resolveChatParametersId(req.body, null);
+  if (!assertChatParametersExists(chatParametersId)) {
+    return res.status(400).json({ error: 'chatParametersId does not exist' });
+  }
   const id = uuidv4();
   db.prepare(`
-    INSERT INTO chats (id, title, project_id) VALUES (?, ?, ?)
-  `).run(id, title, projectId || null);
+    INSERT INTO chats (id, title, project_id, chat_parameters_id) VALUES (?, ?, ?, ?)
+  `).run(id, title, projectId || null, chatParametersId);
   const chat = db.prepare('SELECT * FROM chats WHERE id = ?').get(id);
   res.status(201).json(mapChat(chat));
 });
@@ -295,6 +300,10 @@ router.post('/:chatId/nodes', (req, res) => {
     providerId = null,
     attachments = []
   } = req.body;
+  const chatParametersId = resolveChatParametersId(req.body, null);
+  if (!assertChatParametersExists(chatParametersId)) {
+    return res.status(400).json({ error: 'chatParametersId does not exist' });
+  }
 
   if (!type) {
     return res.status(400).json({ error: 'type is required' });
@@ -309,10 +318,10 @@ router.post('/:chatId/nodes', (req, res) => {
   db.prepare(`
     INSERT INTO chat_nodes (
       id, chat_id, parent_id, type, content, thinking,
-      model_id, provider_id, version, is_current, attachments
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 1, ?)
+      model_id, provider_id, version, is_current, attachments, chat_parameters_id
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 1, ?, ?)
   `).run(id, chatId, parentId, type, content ?? '',
-    thinking ?? null, modelId, providerId, attachmentsJson);
+    thinking ?? null, modelId, providerId, attachmentsJson, chatParametersId);
 
   db.prepare(`UPDATE chats SET updated_at = datetime('now'), node_number = node_number + 1 WHERE id = ?`).run(chatId);
 
@@ -377,8 +386,8 @@ function editNodeVersion(nodeId, expectedType, { content, thinking, attachments 
     db.prepare(`
       INSERT INTO chat_nodes (
         id, chat_id, parent_id, type, content, thinking,
-        model_id, provider_id, version, previous_version_id, is_current, attachments
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
+        model_id, provider_id, version, previous_version_id, is_current, attachments, chat_parameters_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
     `).run(
       newId,
       oldNode.chat_id,
@@ -390,7 +399,8 @@ function editNodeVersion(nodeId, expectedType, { content, thinking, attachments 
       oldNode.provider_id,
       newVersion,
       nodeId,
-      attachmentsJson
+      attachmentsJson,
+      oldNode.chat_parameters_id || null
     );
     db.prepare(`UPDATE chats SET updated_at = datetime('now'), node_number = node_number + 1 WHERE id = ?`).run(oldNode.chat_id);
     db.prepare(`UPDATE chat_nodes SET parent_id = ?, updated_at = datetime('now') WHERE parent_id = ?`).run(newId, nodeId);
@@ -564,6 +574,10 @@ router.post('/:chatId/nodes/:nodeId/branch-question', (req, res) => {
   if (oldNode.type !== 'question') {
     return res.status(400).json({ error: 'Only questions can be branched this way' });
   }
+  const chatParametersId = resolveChatParametersId(req.body, oldNode.chat_parameters_id);
+  if (!assertChatParametersExists(chatParametersId)) {
+    return res.status(400).json({ error: 'chatParametersId does not exist' });
+  }
 
   const newId = uuidv4();
 
@@ -575,8 +589,8 @@ router.post('/:chatId/nodes/:nodeId/branch-question', (req, res) => {
   db.prepare(`
     INSERT INTO chat_nodes (
       id, chat_id, parent_id, type, content, thinking,
-      model_id, provider_id, version, is_current, attachments
-    ) VALUES (?, ?, ?, 'question', ?, ?, ?, ?, 1, 1, ?)
+      model_id, provider_id, version, is_current, attachments, chat_parameters_id
+    ) VALUES (?, ?, ?, 'question', ?, ?, ?, ?, 1, 1, ?, ?)
   `).run(
     newId,
     oldNode.chat_id,
@@ -585,7 +599,8 @@ router.post('/:chatId/nodes/:nodeId/branch-question', (req, res) => {
     thinking,
     modelId || oldNode.model_id,
     providerId || oldNode.provider_id,
-    attachmentsJson
+    attachmentsJson,
+    chatParametersId
   );
 
   db.prepare(`UPDATE chats SET updated_at = datetime('now'), node_number = node_number + 1 WHERE id = ?`).run(oldNode.chat_id);
@@ -626,6 +641,10 @@ router.patch('/:id', (req, res) => {
   if (!chat) {
     return res.status(404).json({ error: 'Chat not found' });
   }
+  const chatParametersId = resolveChatParametersId(req.body, chat.chat_parameters_id);
+  if (!assertChatParametersExists(chatParametersId)) {
+    return res.status(400).json({ error: 'chatParametersId does not exist' });
+  }
 
   // only update title when a non-empty string is provided
   const newTitle =
@@ -644,9 +663,10 @@ router.patch('/:id', (req, res) => {
     UPDATE chats
     SET title      = ?,
         project_id = ?,
+        chat_parameters_id = ?,
         updated_at = datetime('now')
     WHERE id = ?
-  `).run(newTitle, newProjectId, id);
+  `).run(newTitle, newProjectId, chatParametersId, id);
 
   const updated = db.prepare('SELECT * FROM chats WHERE id = ?').get(id);
   res.json(mapChat(updated));
@@ -658,6 +678,10 @@ router.patch('/:chatId/nodes/:nodeId', (req, res) => {
 
   const oldNode = db.prepare('SELECT * FROM chat_nodes WHERE id = ?').get(nodeId);
   if (!oldNode) return res.status(404).json({ error: 'Node not found' });
+  const chatParametersId = resolveChatParametersId(req.body || {}, oldNode.chat_parameters_id);
+  if (!assertChatParametersExists(chatParametersId)) {
+    return res.status(400).json({ error: 'chatParametersId does not exist' });
+  }
 
   const nextContent = content !== undefined ? content : oldNode.content;
   const nextThinking = thinking !== undefined ? thinking : oldNode.thinking;
@@ -670,9 +694,10 @@ router.patch('/:chatId/nodes/:nodeId', (req, res) => {
   db.prepare(`
     UPDATE chat_nodes
     SET content = ?, thinking = ?, attachments = ?, model_id = ?, provider_id = ?,
+        chat_parameters_id = ?,
         updated_at = datetime('now')
     WHERE id = ?
-  `).run(nextContent, nextThinking, nextAttachments, nextModel, nextProvider, nodeId);
+  `).run(nextContent, nextThinking, nextAttachments, nextModel, nextProvider, chatParametersId, nodeId);
 
   db.prepare(`UPDATE chats SET updated_at = datetime('now') WHERE id = ?`).run(oldNode.chat_id);
 
@@ -689,6 +714,7 @@ function mapChat(row) {
     id: row.id,
     title: row.title,
     projectId: row.project_id || null,
+    chatParametersId: row.chat_parameters_id || null,
     node_number: row.node_number,
     created_at: row.created_at,
     updated_at: row.updated_at
@@ -712,7 +738,8 @@ function mapNode(row) {
     updatedAt: row.updated_at,
     promptTokens: row.prompt_tokens ?? null,
     completionTokens: row.completion_tokens ?? null,
-    attachments: JSON.parse(row.attachments || '[]')
+    attachments: JSON.parse(row.attachments || '[]'),
+    chatParametersId: row.chat_parameters_id || null
   };
 }
 

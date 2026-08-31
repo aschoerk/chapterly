@@ -68,7 +68,7 @@ function initializeSchema(db) {
       updated_at TEXT DEFAULT (datetime('now'))
       );
 
-      CREATE TABLE IF NOT EXISTS personas (
+    CREATE TABLE IF NOT EXISTS personas (
                                           id TEXT PRIMARY KEY,
                                           name TEXT NOT NULL,
                                           short_name TEXT NOT NULL,
@@ -136,6 +136,22 @@ function initializeSchema(db) {
 
     CREATE INDEX IF NOT EXISTS idx_topic_projects_topic   ON topic_projects(topic_id);
     CREATE INDEX IF NOT EXISTS idx_topic_projects_project ON topic_projects(project_id);
+
+    CREATE TABLE IF NOT EXISTS chat_parameters (
+      id              TEXT PRIMARY KEY,
+      name            TEXT DEFAULT '',
+      temperature     REAL,
+      top_k           INTEGER,
+      top_m           REAL,
+      stream          INTEGER,
+      thinking        INTEGER,
+      thinking_level  TEXT,
+      created_at      TEXT DEFAULT (datetime('now')),
+      updated_at      TEXT DEFAULT (datetime('now'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_chat_parameters_updated
+      ON chat_parameters(updated_at);
   `);
 
   // Migration example
@@ -162,6 +178,16 @@ function initializeSchema(db) {
                       GROUP BY chat_id
                     ) AS node_counts
                WHERE chats.id = node_counts.chat_id `)
+    }
+
+    const paramOwnerTables = ['models', 'topics', 'projects', 'chats', 'chat_nodes'];
+    for (const table of paramOwnerTables) {
+      const cols = db.prepare(`PRAGMA table_info(${table})`).all().map(c => c.name);
+      if (!cols.includes('chat_parameters_id')) {
+        db.exec(`ALTER TABLE ${table} ADD COLUMN chat_parameters_id TEXT REFERENCES chat_parameters(id) ON DELETE SET NULL`);
+        db.exec(`CREATE INDEX IF NOT EXISTS idx_${table}_chat_parameters_id ON ${table}(chat_parameters_id)`);
+        console.log(`Migrated ${table}: added chat_parameters_id`);
+      }
     }
   } catch (e) {
     console.warn('chats.node_number migration skipped', e.message);
@@ -205,4 +231,3 @@ const IS_TEST = process.env.NODE_ENV === 'test';
 const db = IS_TEST ? createInMemoryDB() : createPersistentDB(true);
 
 module.exports = db;
-

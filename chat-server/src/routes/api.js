@@ -1,6 +1,7 @@
 const express = require('express');
 const { v4: uuidv4 } = require('uuid');
 const db = require('../db');
+const { resolveChatParametersId, assertChatParametersExists } = require('../chatParameters');
 
 const router = express.Router();
 
@@ -267,7 +268,8 @@ function mapModelRow(row) {
     perRequestLimits: catalog.perRequestLimits ?? null,
     pricing_prompt: catalog.pricing_prompt ?? catalog.pricing?.prompt,
     pricing_completion: catalog.pricing_completion ?? catalog.pricing?.completion,
-    pricing_input_cache_read: catalog.pricing_input_cache_read ?? catalog.pricing?.input_cache_read
+    pricing_input_cache_read: catalog.pricing_input_cache_read ?? catalog.pricing?.input_cache_read,
+    chatParametersId: row.chat_parameters_id || null
   };
 }
 
@@ -350,9 +352,14 @@ router.post('/models', (req, res) => {
   const id = uuidv4();
   const catalog = extractCatalog(req.body);
 
+  const chatParametersId = resolveChatParametersId(req.body, null);
+  if (!assertChatParametersExists(chatParametersId)) {
+    return res.status(400).json({ error: 'chatParametersId does not exist' });
+  }
+
   db.prepare(`
-    INSERT INTO models (id, display_name, model_id, provider_id, type, enabled, context_length, catalog_json)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO models (id, display_name, model_id, provider_id, type, enabled, context_length, catalog_json, chat_parameters_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     id,
     displayName,
@@ -361,7 +368,8 @@ router.post('/models', (req, res) => {
     type,
     enabled ? 1 : 0,
     contextLength ?? null,
-    Object.keys(catalog).length ? JSON.stringify(catalog) : null
+    Object.keys(catalog).length ? JSON.stringify(catalog) : null,
+    chatParametersId
   );
 
   const row = db.prepare('SELECT * FROM models WHERE id = ?').get(id);
@@ -391,6 +399,11 @@ router.put('/models/:id', (req, res) => {
     ? { ...previousCatalog, ...incomingCatalog }
     : previousCatalog;
 
+  const chatParametersId = resolveChatParametersId(req.body, existing.chat_parameters_id);
+  if (!assertChatParametersExists(chatParametersId)) {
+    return res.status(400).json({ error: 'chatParametersId does not exist' });
+  }
+
   db.prepare(`
     UPDATE models
     SET display_name = ?,
@@ -398,7 +411,8 @@ router.put('/models/:id', (req, res) => {
         type = ?,
         enabled = ?,
         context_length = ?,
-        catalog_json = ?
+        catalog_json = ?,
+        chat_parameters_id = ?
     WHERE id = ?
   `).run(
     nextDisplayName,
@@ -407,6 +421,7 @@ router.put('/models/:id', (req, res) => {
     nextEnabled,
     nextContext ?? null,
     Object.keys(catalog).length ? JSON.stringify(catalog) : null,
+    chatParametersId,
     id
   );
 

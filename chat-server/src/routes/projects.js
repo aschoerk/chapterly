@@ -1,6 +1,7 @@
 const express = require('express');
 const { v4: uuidv4 } = require('uuid');
 const db = require('../db');
+const { resolveChatParametersId, assertChatParametersExists } = require('../chatParameters');
 
 const router = express.Router();
 
@@ -110,10 +111,15 @@ router.post('/', (req, res) => {
     return res.status(400).json({ error: 'name is required' });
   }
 
+  const chatParametersId = resolveChatParametersId(req.body, null);
+  if (!assertChatParametersExists(chatParametersId)) {
+    return res.status(400).json({ error: 'chatParametersId does not exist' });
+  }
+
   const id = uuidv4();
   db.prepare(`
-    INSERT INTO projects (id, name, greeting, system_prompt, default_model_id, avatar, persona_ids)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO projects (id, name, greeting, system_prompt, default_model_id, avatar, persona_ids, chat_parameters_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     id,
     name.trim(),
@@ -121,7 +127,8 @@ router.post('/', (req, res) => {
     systemPrompt || '',
     defaultModelId || null,
     avatar || '',
-    serializePersonaIds(personaIds)
+    serializePersonaIds(personaIds),
+    chatParametersId
   );
 
   const row = db.prepare('SELECT * FROM projects WHERE id = ?').get(id);
@@ -226,25 +233,32 @@ router.put('/:id', (req, res) => {
   const existing = db.prepare('SELECT * FROM projects WHERE id = ?').get(id);
   if (!existing) return res.status(404).json({ error: 'Project not found' });
 
+  const chatParametersId = resolveChatParametersId(req.body, existing.chat_parameters_id);
+  if (!assertChatParametersExists(chatParametersId)) {
+    return res.status(400).json({ error: 'chatParametersId does not exist' });
+  }
+
   try {
 
     db.prepare(`
-    UPDATE projects
-    SET name = COALESCE(?, name),
-        greeting = COALESCE(?, greeting),
-        system_prompt = COALESCE(?, system_prompt),
-        default_model_id = COALESCE(?, default_model_id),
-        avatar = COALESCE(?, avatar),
-        persona_ids = COALESCE(?, persona_ids),
-        updated_at = datetime('now')
-    WHERE id = ?
-  `).run(
+      UPDATE projects
+      SET name = COALESCE(?, name),
+          greeting = COALESCE(?, greeting),
+          system_prompt = COALESCE(?, system_prompt),
+          default_model_id = COALESCE(?, default_model_id),
+          avatar = COALESCE(?, avatar),
+          persona_ids = COALESCE(?, persona_ids),
+          chat_parameters_id = ?,
+          updated_at = datetime('now')
+      WHERE id = ?
+    `).run(
       name !== undefined ? name.trim() : null,
       greeting !== undefined ? greeting : null,
       systemPrompt !== undefined ? systemPrompt : null,
       defaultModelId !== undefined ? defaultModelId : null,
       avatar !== undefined ? avatar : null,
       personaIds !== undefined ? serializePersonaIds(personaIds) : null,
+      chatParametersId,
       id
     );
   } catch (err) {
@@ -303,6 +317,7 @@ function mapProject(row) {
     defaultModelId: row.default_model_id || null,
     avatar: row.avatar || '',
     personaIds: parsePersonaIds(row.persona_ids),
+    chatParametersId: row.chat_parameters_id || null,
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };

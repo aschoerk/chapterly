@@ -33,7 +33,8 @@ function clearDatabase() {
     'personas',
     'projects',
     'models',
-    'providers'
+    'providers',
+    'chat_parameters'
   ];
 
   // Disable foreign key constraints temporarily
@@ -970,6 +971,108 @@ describe('API Routes (in-memory DB)', () => {
       expect(res.status).toBe(204);
       const getRes = await request(app).get(`/api/topics/${topicId}`);
       expect(getRes.status).toBe(404);
+    });
+  });
+
+  // ------------------------------------------------------------------------
+  // Chat parameters
+  // ------------------------------------------------------------------------
+  describe('ChatParameters', () => {
+    let parameterId;
+    let projectId;
+
+    test('GET /api/chat-parameters starts empty', async () => {
+      const res = await request(app).get('/api/chat-parameters');
+      expect(res.status).toBe(200);
+      expect(Array.isArray(res.body)).toBe(true);
+    });
+
+    test('POST /api/chat-parameters creates a set with OpenAI-style aliases', async () => {
+      const res = await request(app).post('/api/chat-parameters').send({
+        name: 'Creative',
+        temperature: 0.8,
+        top_k: 40,
+        top_p: 0.9,
+        stream: true,
+        thinking: true,
+        reasoning_effort: 'high'
+      });
+      expect(res.status).toBe(201);
+      expect(res.body.temperature).toBe(0.8);
+      expect(res.body.topK).toBe(40);
+      expect(res.body.topM).toBe(0.9);
+      expect(res.body.topP).toBe(0.9);
+      expect(res.body.stream).toBe(true);
+      expect(res.body.thinking).toBe(true);
+      expect(res.body.thinkingLevel).toBe('high');
+      expect(res.body.reasoningEffort).toBe('high');
+      parameterId = res.body.id;
+    });
+
+    test('GET /api/chat-parameters/:id returns the set', async () => {
+      const res = await request(app).get(`/api/chat-parameters/${parameterId}`);
+      expect(res.status).toBe(200);
+      expect(res.body.id).toBe(parameterId);
+    });
+
+    test('PATCH /api/chat-parameters/:id updates thinking flags', async () => {
+      const res = await request(app)
+        .patch(`/api/chat-parameters/${parameterId}`)
+        .send({ stream: false, thinkingLevel: 'low' });
+      expect(res.status).toBe(200);
+      expect(res.body.stream).toBe(false);
+      expect(res.body.thinkingLevel).toBe('low');
+      expect(res.body.temperature).toBe(0.8);
+    });
+
+    test('projects can own a parameter set', async () => {
+      const project = await request(app).post('/api/projects').send({
+        name: 'Params Project',
+        chatParametersId: parameterId
+      });
+      expect(project.status).toBe(201);
+      expect(project.body.chatParametersId).toBe(parameterId);
+      projectId = project.body.id;
+
+      const owners = await request(app).get(`/api/chat-parameters/${parameterId}/owners`);
+      expect(owners.status).toBe(200);
+      expect(owners.body).toEqual(
+        expect.arrayContaining([expect.objectContaining({ type: 'project', id: projectId })])
+      );
+
+      const filtered = await request(app).get(
+        `/api/chat-parameters?ownerType=project&ownerId=${projectId}`
+      );
+      expect(filtered.status).toBe(200);
+      expect(filtered.body).toHaveLength(1);
+      expect(filtered.body[0].id).toBe(parameterId);
+    });
+
+    test('nested chatParameters on create inserts and attaches', async () => {
+      const chat = await request(app).post('/api/chats').send({
+        title: 'Param chat',
+        chatParameters: {
+          temperature: 0.2,
+          topM: 0.5,
+          stream: true,
+          thinking: false,
+          thinkingLevel: 'none'
+        }
+      });
+      expect(chat.status).toBe(201);
+      expect(chat.body.chatParametersId).toBeTruthy();
+      const params = await request(app).get(`/api/chat-parameters/${chat.body.chatParametersId}`);
+      expect(params.status).toBe(200);
+      expect(params.body.temperature).toBe(0.2);
+      expect(params.body.topM).toBe(0.5);
+    });
+
+    test('DELETE /api/chat-parameters/:id nulls owners', async () => {
+      const res = await request(app).delete(`/api/chat-parameters/${parameterId}`);
+      expect(res.status).toBe(204);
+      const project = await request(app).get(`/api/projects/${projectId}`);
+      expect(project.status).toBe(200);
+      expect(project.body.chatParametersId).toBeNull();
     });
   });
 });
