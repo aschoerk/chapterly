@@ -196,7 +196,7 @@ export class SettingsService {
               'Content-Type': 'application/json',
               'x-target-base': provider.baseUrl,
               'HTTP-Referer': 'https://chat-client.local',
-              'X-Title': 'Chat Client'
+              'X-Title': 'Chapterly'
             }
           }
         )
