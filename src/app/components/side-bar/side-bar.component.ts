@@ -375,6 +375,39 @@ export class SideBarComponent implements OnInit {
     return this.getChatsForProject(projectId).length;
   }
 
+  formatWhen(value: string | null | undefined): string {
+    if (!value) return '—';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return value;
+    return date.toLocaleString();
+  }
+
+  modelLabel(id: string | null | undefined): string {
+    if (!id) return 'none';
+    const model = this.enabledModels().find(m => m.id === id || m.modelId === id);
+    return model?.displayName || id;
+  }
+
+  projectTooltip(project: Project): string {
+    const chats = this.getChatCount(project.id);
+    return [
+      project.name,
+      `${chats} chat${chats === 1 ? '' : 's'}`,
+      `Created: ${this.formatWhen(project.createdAt)}`,
+      `Updated: ${this.formatWhen(project.updatedAt)}`,
+      `Default model: ${this.modelLabel(project.defaultModelId)}`
+    ].join('\n');
+  }
+
+  chatTooltip(chat: Chat): string {
+    return [
+      chat.title || 'Untitled chat',
+      `${chat.node_number ?? 0} node${chat.node_number === 1 ? '' : 's'}`,
+      `Created: ${this.formatWhen(chat.created_at)}`,
+      `Updated: ${this.formatWhen(chat.updated_at)}`
+    ].join('\n');
+  }
+
   isCurrentProject(projectId: string | null): boolean {
     const chatId = this.currentChatId();
     if (!chatId) return false;

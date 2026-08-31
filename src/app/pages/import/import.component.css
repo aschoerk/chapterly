@@ -455,12 +455,12 @@
   min-width: 160px;
 }
 .btn.danger {
+  color: var(--color-danger, #b91c1c);
+  border-color: var(--color-danger-border, #fecaca);
   background: var(--panel, #fff);
-  color: #b91c1c;
-  border-color: #fecaca;
 }
 .btn.danger:hover:not(:disabled) {
-  background: #fef2f2;
+  background: color-mix(in srgb, var(--color-danger, #b91c1c) 12%, var(--panel));
 }
 .btn.small {
   padding: 0.25rem 0.55rem;
@@ -470,7 +470,7 @@
   padding-left: 1.1rem;
 }
 .summary-list .err {
-  color: #b91c1c;
+  color: var(--color-danger, #b91c1c);
 }
 .summary-list li.error {
   color: #7f1d1d;

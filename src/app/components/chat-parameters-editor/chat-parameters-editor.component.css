@@ -3,6 +3,7 @@
   margin-top: 0.75rem;
   padding-top: 0.75rem;
   border-top: 1px solid var(--border, #3333);
+  color: var(--text);
 }
 
 .params-editor.compact {
@@ -17,6 +18,7 @@
   gap: 0.45rem;
   font-weight: 600;
   font-size: 0.92rem;
+  color: var(--text);
 }
 
 .override-row label {
@@ -24,13 +26,14 @@
   align-items: center;
   gap: 0.45rem;
   margin: 0;
+  color: inherit;
 }
 
 .inherit-hint {
   position: relative;
   margin: 0.35rem 0 0.6rem;
   font-size: 0.8rem;
-  color: var(--muted, #888);
+  color: var(--text-muted, var(--muted, #888));
 }
 
 .params-grid {
@@ -45,6 +48,7 @@
   flex-direction: column;
   gap: 0.2rem;
   font-size: 0.8rem;
+  color: var(--text);
 }
 
 .field-label {
@@ -58,12 +62,17 @@
 .params-grid select {
   width: 100%;
   box-sizing: border-box;
+  background: var(--bg-input);
+  color: var(--text);
+  border: 1px solid var(--color-input-border, var(--border));
+  border-radius: 6px;
+  padding: 0.3rem 0.45rem;
 }
 
 .hint {
   margin: 0.5rem 0 0;
   font-size: 0.75rem;
-  color: var(--muted, #888);
+  color: var(--text-muted, var(--muted, #888));
 }
 
 .info-btn {
@@ -72,9 +81,9 @@
   height: 1.05rem;
   padding: 0;
   border-radius: 50%;
-  border: 1px solid #8aa0c2;
-  background: #eef3fb;
-  color: #2b4d7a;
+  border: 1px solid var(--border);
+  background: var(--bg-hover);
+  color: var(--text-active, var(--accent));
   font-size: 0.68rem;
   font-weight: 700;
   font-style: italic;
@@ -83,7 +92,8 @@
 }
 
 .info-btn:hover {
-  background: #d7e4f7;
+  background: var(--bg-active);
+  color: var(--text-active);
 }
 
 .info-pop {
@@ -94,12 +104,12 @@
   right: 0;
   min-width: 180px;
   padding: 0.45rem 0.55rem;
-  border: 1px solid #c5d2e6;
+  border: 1px solid var(--border);
   border-radius: 6px;
-  background: #fff;
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.12);
+  background: var(--panel);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.24);
   font-weight: 400;
-  color: #333;
+  color: var(--text);
 }
 
 .info-pop.inline {
@@ -113,11 +123,12 @@
   display: block;
   font-size: 0.75rem;
   margin-bottom: 0.2rem;
+  color: var(--text);
 }
 
 .info-pop p {
   margin: 0;
   font-size: 0.72rem;
   line-height: 1.35;
-  color: #555;
+  color: var(--text-muted);
 }

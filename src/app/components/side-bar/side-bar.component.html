@@ -81,7 +81,7 @@
   <div class="project-list">
     @for (project of filteredProjects(); track project.id) {
       <div class="project-block" [class.expanded]="isExpanded(project.id)">
-        <div class="project-header" [class.current]="isCurrentProject(project.id)" (click)="toggleExpanded(project.id)">
+        <div class="project-header" [class.current]="isCurrentProject(project.id)" [title]="projectTooltip(project)" (click)="toggleExpanded(project.id)">
           <button class="btn-icon expand-btn" (click)="toggleExpanded(project.id, $event)">
             <svg class="chevron" [class.open]="isExpanded(project.id)" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
               <polyline points="9 18 15 12 9 6"/>
@@ -120,7 +120,7 @@
             </button>
           </div>
           <span
-            class="item-count"
+            class="item-count count-chats"
             [title]="getChatCount(project.id) + ' chat' + (getChatCount(project.id) === 1 ? '' : 's')">
                   {{ getChatCount(project.id) }}
           </span>
@@ -131,6 +131,7 @@
             @for (chat of getChatsForProject(project.id); track chat.id) {
               <div class="chat-item"
                    [class.active]="chat.id === currentChatId()"
+                   [title]="chatTooltip(chat)"
                    (click)="selectChat(chat)">
                 <span class="chat-title">{{ chat.title }}</span>
                 @if (chat.projectId) {
@@ -163,7 +164,7 @@
                   </svg>
                 </button>
                 <span
-                  class="item-count"
+                  class="item-count count-nodes"
                   [title]="chat.node_number + ' node' + (chat.node_number === 1 ? '' : 's')">
                   {{ chat.node_number }}
                 </span>
@@ -211,6 +212,7 @@
               <div
                 class="chat-item"
                 [class.active]="chat.id === currentChatId()"
+                [title]="chatTooltip(chat)"
                 (click)="selectChat(chat)">
                 <span class="chat-title">{{ chat.title }}</span>
                 <!-- Reassign button -->

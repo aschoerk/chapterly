@@ -19,11 +19,12 @@ import {
 } from './chat-api.types';
 import { ChatApiPort } from './chat-api.port';
 import { ProviderConfig, ModelEntry } from '../models/chat-config';
+import { ChatParameters, ChatParametersDraft } from '../models/chat-parameters';
 
 const DB_NAME = 'chat-client';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 
-type StoreName = 'projects' | 'topics' | 'personas' | 'chats' | 'nodes' | 'providers' | 'models';
+type StoreName = 'projects' | 'topics' | 'personas' | 'chats' | 'nodes' | 'providers' | 'models' | 'chatParameters';
 
 @Injectable({ providedIn: 'root' })
 export class IdbChatApiService implements ChatApiPort {
@@ -48,6 +49,18 @@ export class IdbChatApiService implements ChatApiPort {
         }
         if (!db.objectStoreNames.contains('providers')) db.createObjectStore('providers', { keyPath: 'id' });
         if (!db.objectStoreNames.contains('models')) db.createObjectStore('models', { keyPath: 'id' });
+        if (!db.objectStoreNames.contains('chatParameters')) {
+          const store = db.createObjectStore('chatParameters', { keyPath: 'id' });
+          try {
+            const raw = localStorage.getItem('chat.parameters.cache');
+            const rows = raw ? JSON.parse(raw) : [];
+            if (Array.isArray(rows)) {
+              for (const row of rows) {
+                if (row?.id) store.put(row);
+              }
+            }
+          } catch { /* ignore broken cache */ }
+        }
       };
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
@@ -104,6 +117,7 @@ export class IdbChatApiService implements ChatApiPort {
       greeting: data.greeting ?? '',
       systemPrompt: data.systemPrompt ?? '',
       defaultModelId: data.defaultModelId ?? null,
+      chatParametersId: data.chatParametersId ?? null,
       avatar: data.avatar ?? '',
       personaIds: data.personaIds ?? [],
       createdAt: this.now(),
@@ -157,6 +171,7 @@ export class IdbChatApiService implements ChatApiPort {
       id: this.id(),
       title,
       projectId,
+      chatParametersId: null,
       node_number: 0,
       created_at: this.now(),
       updated_at: this.now()
@@ -183,6 +198,7 @@ export class IdbChatApiService implements ChatApiPort {
         ...row,
         title: data.title?.trim() ? data.title.trim() : row.title,
         projectId: data.projectId !== undefined ? data.projectId : row.projectId,
+        chatParametersId: data.chatParametersId !== undefined ? data.chatParametersId : row.chatParametersId,
         updated_at: this.now()
       };
       await this.req(store.put(next));
@@ -213,7 +229,8 @@ export class IdbChatApiService implements ChatApiPort {
       isCurrent: true,
       createdAt: this.now(),
       updatedAt: this.now(),
-      attachments: data.attachments ?? []
+      attachments: data.attachments ?? [],
+      chatParametersId: (data as any).chatParametersId ?? null
     };
     await this.tx(['nodes', 'chats'], 'readwrite', async tx => {
       await this.req(tx.objectStore('nodes').put(row));
@@ -344,6 +361,7 @@ export class IdbChatApiService implements ChatApiPort {
       description: data.description ?? '',
       defaultModelId: data.defaultModelId ?? null,
       defaultSystemPrompt: data.defaultSystemPrompt ?? '',
+      chatParametersId: data.chatParametersId ?? null,
       icon: data.icon ?? '',
       projectIds: data.projectIds ?? [],
       createdAt: this.now(),
@@ -462,6 +480,91 @@ export class IdbChatApiService implements ChatApiPort {
     await this.tx(['models'], 'readwrite', tx =>
       this.req(tx.objectStore('models').delete(id))
     );
+  }
+
+  // ---------- Chat parameters ----------
+  async getChatParameters(): Promise<ChatParameters[]> {
+    return this.tx(['chatParameters'], 'readonly', tx =>
+      this.all<ChatParameters>(tx.objectStore('chatParameters'))
+    );
+  }
+
+  async getChatParameter(id: string): Promise<ChatParameters> {
+    const row = await this.tx(['chatParameters'], 'readonly', tx =>
+      this.req<ChatParameters>(tx.objectStore('chatParameters').get(id))
+    );
+    if (!row) throw Object.assign(new Error('Chat parameters not found'), { status: 404 });
+    return row;
+  }
+
+  async createChatParameters(data: ChatParametersDraft): Promise<ChatParameters> {
+    const now = this.now();
+    const row: ChatParameters = {
+      id: this.id(),
+      name: data.name || '',
+      temperature: data.temperature ?? null,
+      topK: data.topK ?? null,
+      topM: data.topM ?? null,
+      topP: data.topM ?? null,
+      stream: data.stream ?? null,
+      thinking: data.thinking ?? null,
+      thinkingLevel: data.thinkingLevel ?? null,
+      reasoningEffort: data.thinkingLevel ?? null,
+      createdAt: now,
+      updatedAt: now
+    };
+    await this.tx(['chatParameters'], 'readwrite', tx =>
+      this.req(tx.objectStore('chatParameters').put(row))
+    );
+    return row;
+  }
+
+  async updateChatParameters(id: string, data: ChatParametersDraft): Promise<ChatParameters> {
+    return this.tx(['chatParameters'], 'readwrite', async tx => {
+      const store = tx.objectStore('chatParameters');
+      const row = await this.req<ChatParameters>(store.get(id));
+      if (!row) throw Object.assign(new Error('Chat parameters not found'), { status: 404 });
+      const next: ChatParameters = {
+        ...row,
+        name: data.name ?? row.name,
+        temperature: data.temperature,
+        topK: data.topK,
+        topM: data.topM,
+        topP: data.topM,
+        stream: data.stream,
+        thinking: data.thinking,
+        thinkingLevel: data.thinkingLevel,
+        reasoningEffort: data.thinkingLevel,
+        updatedAt: this.now()
+      };
+      await this.req(store.put(next));
+      return next;
+    });
+  }
+
+  async deleteChatParameters(id: string): Promise<void> {
+    await this.tx(
+      ['chatParameters', 'projects', 'topics', 'chats', 'nodes', 'models'],
+      'readwrite',
+      async tx => {
+        await this.req(tx.objectStore('chatParameters').delete(id));
+        await this.clearOwnerParam(tx, 'projects', id);
+        await this.clearOwnerParam(tx, 'topics', id);
+        await this.clearOwnerParam(tx, 'chats', id);
+        await this.clearOwnerParam(tx, 'nodes', id);
+        await this.clearOwnerParam(tx, 'models', id);
+      }
+    );
+  }
+
+  private async clearOwnerParam(tx: IDBTransaction, storeName: StoreName, paramId: string): Promise<void> {
+    const store = tx.objectStore(storeName);
+    const rows = await this.all<any>(store);
+    for (const row of rows) {
+      if (row.chatParametersId === paramId) {
+        await this.req(store.put({ ...row, chatParametersId: null }));
+      }
+    }
   }
 
   async toggleModelEnabled(id: string): Promise<ToggleModelResponse> {

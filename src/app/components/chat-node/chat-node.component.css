@@ -251,8 +251,9 @@
 }
 
 .btn.danger {
-  color: #b91c1c;
-  border-color: #fca5a5;
+  color: var(--color-danger, #b91c1c);
+  border-color: var(--color-danger-border, #fca5a5);
+  background: var(--panel);
 }
 
 .stop-btn {
@@ -351,12 +352,12 @@
 }
 
 .btn-icon.danger {
-  color: #b91c1c;
+  color: var(--color-danger, #b91c1c);
 }
 
 .btn-icon.danger:hover:not(:disabled) {
   background: rgba(185, 28, 28, 0.08);
-  border-color: #fca5a5;
+  border-color: var(--color-danger-border, #fca5a5);
   color: #991b1b;
 }
 

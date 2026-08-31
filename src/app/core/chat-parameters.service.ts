@@ -1,7 +1,4 @@
 import { Injectable, inject, signal } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
-import { firstValueFrom } from 'rxjs';
-import { getServerConfig } from './server-config';
 import {
   ChatParameters,
   ChatParametersDraft,
@@ -14,23 +11,13 @@ import {
 } from '../models/chat-parameters';
 import { Chat, Project, Topic } from '../models/chat';
 import { ModelEntry } from '../models/chat-config';
-
-const LS_KEY = 'chat.parameters.cache';
+import { CHAT_API } from '../api/chat-api.token';
 
 @Injectable({ providedIn: 'root' })
 export class ChatParametersService {
-  private readonly http = inject(HttpClient);
-  private readonly config = getServerConfig();
+  private readonly api = inject(CHAT_API);
 
   private readonly _byId = signal<Record<string, ChatParameters>>({});
-
-  private api(path: string): string {
-    return `${this.config.apiBase}${path}`;
-  }
-
-  private get useHttp(): boolean {
-    return this.config.mode !== 'cloud';
-  }
 
   peek(id: string | null | undefined): ChatParameters | null {
     if (!id) return null;
@@ -40,11 +27,8 @@ export class ChatParametersService {
   async get(id: string): Promise<ChatParameters | null> {
     const cached = this.peek(id);
     if (cached) return cached;
-    if (!this.useHttp) {
-      return this.readLocal().find(p => p.id === id) ?? null;
-    }
     try {
-      const row = await firstValueFrom(this.http.get<ChatParameters>(this.api(`/chat-parameters/${id}`)));
+      const row = await this.api.getChatParameter(id);
       this.remember(row);
       return row;
     } catch {
@@ -53,72 +37,25 @@ export class ChatParametersService {
   }
 
   async list(): Promise<ChatParameters[]> {
-    if (!this.useHttp) return this.readLocal();
-    const rows = await firstValueFrom(this.http.get<ChatParameters[]>(this.api('/chat-parameters')));
+    const rows = await this.api.getChatParameters();
     rows.forEach(r => this.remember(r));
     return rows;
   }
 
   async create(draft: ChatParametersDraft): Promise<ChatParameters> {
-    if (!this.useHttp) {
-      const row: ChatParameters = {
-        id: crypto.randomUUID(),
-        name: draft.name || '',
-        temperature: draft.temperature,
-        topK: draft.topK,
-        topM: draft.topM,
-        topP: draft.topM,
-        stream: draft.stream,
-        thinking: draft.thinking,
-        thinkingLevel: draft.thinkingLevel,
-        reasoningEffort: draft.thinkingLevel,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      };
-      this.writeLocal([...this.readLocal(), row]);
-      this.remember(row);
-      return row;
-    }
-    const row = await firstValueFrom(this.http.post<ChatParameters>(this.api('/chat-parameters'), draft));
+    const row = await this.api.createChatParameters(draft);
     this.remember(row);
     return row;
   }
 
   async update(id: string, draft: ChatParametersDraft): Promise<ChatParameters> {
-    if (!this.useHttp) {
-      const rows = this.readLocal();
-      const next = rows.map(r => r.id === id
-        ? {
-          ...r,
-          ...draft,
-          topP: draft.topM,
-          reasoningEffort: draft.thinkingLevel,
-          updatedAt: new Date().toISOString()
-        }
-        : r);
-      this.writeLocal(next);
-      const row = next.find(r => r.id === id)!;
-      this.remember(row);
-      return row;
-    }
-    const row = await firstValueFrom(
-      this.http.patch<ChatParameters>(this.api(`/chat-parameters/${id}`), draft)
-    );
+    const row = await this.api.updateChatParameters(id, draft);
     this.remember(row);
     return row;
   }
 
   async remove(id: string): Promise<void> {
-    if (!this.useHttp) {
-      this.writeLocal(this.readLocal().filter(r => r.id !== id));
-      this._byId.update(map => {
-        const copy = { ...map };
-        delete copy[id];
-        return copy;
-      });
-      return;
-    }
-    await firstValueFrom(this.http.delete(this.api(`/chat-parameters/${id}`)));
+    await this.api.deleteChatParameters(id);
     this._byId.update(map => {
       const copy = { ...map };
       delete copy[id];
@@ -184,6 +121,7 @@ export class ChatParametersService {
     if (resolved.temperature != null) extras['temperature'] = resolved.temperature;
     if (resolved.topK != null) extras['top_k'] = resolved.topK;
     if (resolved.topM != null) extras['top_p'] = resolved.topM;
+    extras['stream'] = resolved.stream ?? true;
 
     if (resolved.thinking === false) {
       extras['include_reasoning'] = false;
@@ -207,18 +145,6 @@ export class ChatParametersService {
     this._byId.update(map => ({ ...map, [row.id]: row }));
   }
 
-  private readLocal(): ChatParameters[] {
-    try {
-      const raw = localStorage.getItem(LS_KEY);
-      return raw ? JSON.parse(raw) : [];
-    } catch {
-      return [];
-    }
-  }
-
-  private writeLocal(rows: ChatParameters[]): void {
-    localStorage.setItem(LS_KEY, JSON.stringify(rows));
-  }
 }
 
 export function cloneDraft(draft?: ChatParametersDraft | null): ChatParametersDraft {

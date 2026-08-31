@@ -168,3 +168,20 @@ app-root {
 .node-content pre {
   border: 1px solid var(--border);
 }
+
+
+.btn.danger {
+  color: var(--color-danger);
+  border-color: var(--color-danger-border);
+  background: var(--panel);
+}
+
+.btn.danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-danger) 12%, var(--panel));
+}
+
+.btn.primary.danger {
+  background: var(--color-danger);
+  border-color: var(--color-danger);
+  color: #fff;
+}

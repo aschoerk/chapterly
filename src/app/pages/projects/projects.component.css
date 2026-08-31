@@ -312,11 +312,11 @@
 }
 
 .card-menu button.danger {
-  color: #b91c1c;
+  color: var(--color-danger, #b91c1c);
 }
 
 .card-menu button.danger:hover {
-  background: #fef2f2;
+  background: color-mix(in srgb, var(--color-danger, #b91c1c) 12%, var(--panel));
 }
 
 .btn {
@@ -550,8 +550,8 @@
 }
 
 .error-banner {
-  background: #fef2f2;
-  color: #b91c1c;
+  background: color-mix(in srgb, var(--color-danger, #b91c1c) 12%, var(--panel));
+  color: var(--color-danger, #b91c1c);
   border: 1px solid #fecaca;
   border-radius: 8px;
   padding: 0.6rem 0.8rem;

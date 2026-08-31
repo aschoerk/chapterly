@@ -17,6 +17,7 @@ import {
   UpdateModelRequest,
   ToggleModelResponse
 } from './chat-api.types';
+import { ChatParameters, ChatParametersDraft } from '../models/chat-parameters';
 
 export interface ChatApiPort {
   getProjects(): Promise<Project[]>;
@@ -69,4 +70,10 @@ export interface ChatApiPort {
   updateModel(id: string, data: UpdateModelRequest): Promise<ModelEntry>;
   deleteModel(id: string): Promise<void>;
   toggleModelEnabled(id: string): Promise<ToggleModelResponse>;
+
+  getChatParameters(): Promise<ChatParameters[]>;
+  getChatParameter(id: string): Promise<ChatParameters>;
+  createChatParameters(data: ChatParametersDraft): Promise<ChatParameters>;
+  updateChatParameters(id: string, data: ChatParametersDraft): Promise<ChatParameters>;
+  deleteChatParameters(id: string): Promise<void>;
 }
