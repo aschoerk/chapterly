@@ -1,4 +1,4 @@
-const { app, BrowserWindow } = require('electron');
+const { app, BrowserWindow, Menu } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const net = require('net');
@@ -53,11 +53,30 @@ async function createWindow() {
   const { port, server } = await startServer();
   serverInstance = server;
 
+  // In-app nav already has Stories / Read / … — hide the native File/Window menu
+  // that otherwise sits on top of the Chapterly header.
+  Menu.setApplicationMenu(null);
+
+  const iconCandidates = [
+    path.join(__dirname, 'icon.png'),
+    path.join(__dirname, '..', 'public', 'favicon.png'),
+    path.join(__dirname, 'renderer', 'browser', 'favicon.png'),
+    path.join(__dirname, '..', 'public', 'favicon.svg'),
+  ];
+  const icon = iconCandidates.find(candidate => fs.existsSync(candidate));
+  if (!icon) {
+    console.warn('Chapterly window icon not found. Looked in:', iconCandidates);
+  } else {
+    console.log('Chapterly window icon:', icon);
+  }
+
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 860,
-    show: true,                    // ← force visible immediately
-    autoHideMenuBar: false,
+    show: true,
+    title: 'Chapterly',
+    autoHideMenuBar: true,
+    icon: icon || undefined,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
