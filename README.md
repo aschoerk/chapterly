@@ -15,7 +15,7 @@ drafts the beat; you decide what happens next.
 ## What it is for
 
 - Direct a scene in a few lines, then read the result
-- Keep topics, books, and personas as the spine of a longer work
+- Keep topics, environments, and personas as the spine of a longer work
 - Branch a draft when a scene could go another way
 - Reread the active path as a continuous text
 - Stay local: SQLite on disk, or IndexedDB in the browser
@@ -66,8 +66,9 @@ Keep the scene open
 - End on an unfinished beat — a look, a line, a choice — so the user can steer the next direction.
 
 Length and pace
-- Write a full scene beat, not a sketch. Aim for a long, detailed passage.
-- After the draft is already long, do not rush to a conclusion. Stop mid-action.
+- Write a fully realized, detailed scene—never a brief summary or sketch. Aim for a substantial response of at least 2,000 tokens.
+- Avoid rushing to a conclusion. Once the response reaches approximately 1,000 to 1,500 tokens, begin looking for an appropriate mid-action point to stop.
+- Always end mid-action (in the middle of active dialogue, tension, or motion) so the user can steer the next direction.
 
 Collaboration
 - If the user offers a persona or a hint, use it.
