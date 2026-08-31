@@ -221,6 +221,13 @@
         </select>
       </label>
 
+      <app-chat-parameters-editor
+        [initial]="projectParamsDraft()"
+        [initialOverride]="projectParamsOverride()"
+        [inherited]="projectParamsInherited()"
+        (changed)="onProjectParamsChanged($event)"
+      />
+
       <div class="persona-picker">
         <div class="picker-label">Personas</div>
         @if (personas().length === 0) {
@@ -342,6 +349,13 @@
                 placeholder="Optional system prompt that can be used by projects of this topic">
     </textarea>
     </label>
+
+    <app-chat-parameters-editor
+      [initial]="topicParamsDraft()"
+      [initialOverride]="topicParamsOverride()"
+      [inherited]="topicParamsInherited()"
+      (changed)="onTopicParamsChanged($event)"
+    />
 
     <div class="modal-actions">
       <button class="btn" (click)="closeTopicForm()" [disabled]="topicSaving()">

@@ -17,6 +17,7 @@ import { firstValueFrom } from "rxjs";
 import {NodeEditSession} from './node-edit-session';
 
 const LS_CHAT  = 'chat.currentChatId';
+const LS_SCROLL = 'chat.scrollByChatId';
 
 @Injectable({
   providedIn: 'root'
@@ -66,6 +67,55 @@ export class ChatService {
     if (!chatId) return [];
     return this._nodes().filter(n => n.chatId === chatId);
   });
+
+  private loadViewPref(key: string, fallback: boolean): boolean {
+    const raw = localStorage.getItem(key);
+    if (raw === '1') return true;
+    if (raw === '0') return false;
+    return fallback;
+  }
+
+  readonly followStreaming = signal(this.loadViewPref('chat.view.followStreaming', true));
+  readonly followThinking = signal(this.loadViewPref('chat.view.followThinking', true));
+  readonly alwaysOpenAtLeaf = signal(this.loadViewPref('chat.view.alwaysOpenAtLeaf', false));
+
+  setFollowStreaming(on: boolean) {
+    this.followStreaming.set(on);
+    localStorage.setItem('chat.view.followStreaming', on ? '1' : '0');
+  }
+
+  setFollowThinking(on: boolean) {
+    this.followThinking.set(on);
+    localStorage.setItem('chat.view.followThinking', on ? '1' : '0');
+  }
+
+  setAlwaysOpenAtLeaf(on: boolean) {
+    this.alwaysOpenAtLeaf.set(on);
+    localStorage.setItem('chat.view.alwaysOpenAtLeaf', on ? '1' : '0');
+  }
+
+  private readScrollMap(): Record<string, number> {
+    try {
+      const raw = localStorage.getItem(LS_SCROLL);
+      const parsed = raw ? JSON.parse(raw) : {};
+      return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch {
+      return {};
+    }
+  }
+
+  getSavedScroll(chatId: string | null | undefined): number | null {
+    if (!chatId) return null;
+    const value = this.readScrollMap()[chatId];
+    return typeof value === 'number' && Number.isFinite(value) ? value : null;
+  }
+
+  saveScroll(chatId: string | null | undefined, top: number): void {
+    if (!chatId) return;
+    const map = this.readScrollMap();
+    map[chatId] = Math.max(0, Math.round(top));
+    localStorage.setItem(LS_SCROLL, JSON.stringify(map));
+  }
 
   scrollToNode(nodeId: string) {
     const el = document.querySelector(`[data-node-id="${nodeId}"]`) as HTMLElement | null;
@@ -149,6 +199,14 @@ export class ChatService {
 
   async reassignChat(chatId: string, projectId: string | null): Promise<Chat> {
     const chat = await this.api.patchChat(chatId, {projectId});
+    this._chats.update(list =>
+      list.map(c => (c.id === chatId ? chat : c))
+    );
+    return chat;
+  }
+
+  async reassignChatParams(chatId: string, chatParametersId: string | null): Promise<Chat> {
+    const chat = await this.api.patchChat(chatId, { chatParametersId });
     this._chats.update(list =>
       list.map(c => (c.id === chatId ? chat : c))
     );

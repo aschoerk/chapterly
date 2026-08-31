@@ -1,10 +1,7 @@
 :host {
-  /* Make sure these variables are available inside this component */
-  --bg-active: #e0e7ff;
-  --text-active: #1e40af;
-  --accent: #2563eb;
-  --bg-hover: #f0f0f0;
-  --bg-hover-strong: #e5e7eb;
+  display: block;
+  height: 100%;
+  color: var(--text);
 }
 
 .sidebar {
@@ -74,8 +71,8 @@
 .project-header {
   display: flex;
   align-items: center;
-  gap: 0.25rem;
-  padding: 0.35rem 0.6rem 0.35rem 0.4rem;
+  gap: var(--space-tight, 0.05rem);
+  padding: 0.35rem 0.45rem 0.35rem 0.3rem;
   border-radius: 6px;
   cursor: pointer;
   user-select: none;
@@ -99,7 +96,9 @@
 
 .project-actions {
   display: flex;
-  gap: 0.1rem;
+  align-items: center;
+  gap: var(--icon-btn-gap, 0);
+  margin-left: var(--space-xs, 0.25rem);
   opacity: 0;
   transition: opacity 0.12s ease;
 }
@@ -119,7 +118,7 @@
 .chat-item {
   display: flex;
   align-items: center;
-  gap: 0.35rem;
+  gap: var(--space-tight, 0.05rem);
   padding: 0.32rem 0.55rem;
   margin: 1px 0.4rem 1px 0;
   border-radius: 5px;
@@ -135,10 +134,25 @@
   opacity: 1;
 }
 
+.project-header.current {
+  background: var(--bg-active);
+  color: var(--text-active);
+}
+
+.project-header.current .project-name,
+.project-header.current .item-count {
+  color: var(--text-active);
+}
+
 .chat-item.active {
   background: var(--bg-active);
   color: var(--text-active);
   font-weight: 500;
+}
+
+.chat-item.active .chat-title,
+.chat-item.active .item-count {
+  color: var(--text-active);
 }
 
 .chat-item.active::before {
@@ -161,7 +175,7 @@
   font-size: 0.875rem;
 }
 
-CSS.reassign-dropdown {
+.reassign-dropdown {
   padding: 0.25rem 0.6rem 0.4rem 1.4rem;
 }
 
@@ -180,8 +194,8 @@ CSS.reassign-dropdown {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 26px;
-  height: 26px;
+  width: var(--icon-btn-size, 22px);
+  height: var(--icon-btn-size, 22px);
   border: none;
   border-radius: 5px;
   background: transparent;
@@ -277,15 +291,34 @@ CSS.reassign-dropdown {
 }
 
 .sidebar-topic-filter {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
   padding: 0.5rem 0.85rem 0.15rem;
 }
 
 .sidebar-topic-filter select {
-  width: 100%;
+  flex: 1;
+  min-width: 0;
+  width: auto;
   padding: 0.35rem 0.5rem;
   border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--bg-input);
   color: var(--text);
   font-size: 0.85rem;
+}
+
+
+.item-count {
+  flex: 0 0 var(--count-width, 3ch);
+  width: var(--count-width, 3ch);
+  min-width: var(--count-width, 3ch);
+  margin-left: var(--space-xs, 0.25rem);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.72rem;
+  line-height: 1;
+  color: var(--text-muted);
+  font-weight: 600;
 }

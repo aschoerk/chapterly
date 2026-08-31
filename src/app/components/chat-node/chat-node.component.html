@@ -65,6 +65,10 @@
     </button>
   </div>
 
+  @if (parametersFootnote(); as footnote) {
+    <div class="params-footnote">{{ footnote }}</div>
+  }
+
   @if (isEditing()) {
     <!-- In-place editor: lives inside the node, no modal / backdrop -->
     <div class="inline-content-editor"
@@ -227,15 +231,15 @@
 
     @if (node().content?.trim()) {
       @if (node().type === 'question') {
-      <div class="node-content empty-draft click-to-edit"
-           title="Click to write the next question"
-           (click)="onContentClick($event)">
+        <div class="node-content empty-draft click-to-edit"
+             title="Click to write the next question"
+             (click)="onContentClick($event)">
+          <div class="node-content"
+               [innerHTML]="renderedHtml()"></div>
+        </div>
+      } @else {
         <div class="node-content"
              [innerHTML]="renderedHtml()"></div>
-      </div>
-      } @else {
-      <div class="node-content"
-           [innerHTML]="renderedHtml()"></div>
       }
     } @else if (isThinkingLive()) {
       <!-- spinner lives in thinking-content -->
@@ -244,13 +248,28 @@
            title="Click to write the next question"
            (click)="onContentClick($event)">
         <em>Write the next question…</em>
+        @if (showClosedContinue()) {
+          <button class="btn small continue-closed"
+                  type="button"
+                  [disabled]="isLoading()"
+                  (click)="continueDraft(); $event.stopPropagation()"
+                  title="Fill “continue” and send to the default model">
+            @if (isLoading() && pendingAction() === 'continue') {
+              Continuing…
+            } @else {
+              Continue
+            }
+          </button>
+        }
       </div>
     } @else {
       <div class="node-content empty-answer"
-           >
+      >
         <em>Generation stopped</em>
       </div>
     }
+
+    <div #streamEnd class="stream-end"></div>
 
     @if (node().attachments?.length) {
       <div class="attachment-chips read-only">
@@ -285,6 +304,15 @@
           <span>Copy</span>
         }
       </button>
+
+      @if (showClosedContinue()) {
+        <button class="btn-icon" type="button"
+                [disabled]="isLoading()"
+                (click)="continueDraft(); $event.stopPropagation()"
+                title="Fill “continue” and send to the default model">
+          <span>{{ isLoading() && pendingAction() === 'continue' ? 'Continuing…' : 'Continue' }}</span>
+        </button>
+      }
 
       <button class="btn-icon" (click)="startEdit()" type="button"
               title="Edit this node in place">

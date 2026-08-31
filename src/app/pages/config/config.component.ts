@@ -4,17 +4,23 @@ import { FormsModule } from '@angular/forms';
 import { SettingsService } from '../../core/settings.service';
 import { ProviderConfig, ModelEntry, ModelArchitecture } from '../../models/chat-config';
 import { Router } from '@angular/router';
+import { ThemeService } from '../../core/theme.service';
+import { ChatParametersService } from '../../core/chat-parameters.service';
+import { ChatParametersEditorComponent } from '../../components/chat-parameters-editor/chat-parameters-editor.component';
+import { ChatParametersDraft, ResolvedChatParameters, draftFromParameters, emptyParametersDraft } from '../../models/chat-parameters';
 
 @Component({
   selector: 'app-config',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, ChatParametersEditorComponent],
   templateUrl: './config.component.html',
   styleUrl: './config.component.css'
 })
 export class ConfigComponent {
   private readonly settings = inject(SettingsService);
+  private readonly parameters = inject(ChatParametersService);
   private readonly router = inject(Router);
+  readonly theme = inject(ThemeService);
 
   // Signals from service
   readonly providers = this.settings.providers;
@@ -23,6 +29,9 @@ export class ConfigComponent {
   // UI state
   readonly showAddProvider = signal(false);
   readonly showAddPreset = signal(false);
+  readonly editingPresetId = signal<string | null>(null);
+  readonly showFetchedParams = signal(false);
+  readonly fetchedModel = signal<ModelEntry | null>(null);
   readonly searchTerm = signal('');
   readonly showEnabledOnly = signal(false);
   readonly showDisabledOnly = signal(false);
@@ -42,8 +51,16 @@ export class ConfigComponent {
   newPreset = {
     displayName: '',
     modelId: '',
-    providerId: ''
+    providerId: '',
+    chatParametersId: null as string | null
   };
+
+  readonly presetParamsOverride = signal(false);
+  readonly presetParamsDraft = signal<ChatParametersDraft>(emptyParametersDraft());
+  readonly presetParamsInherited = signal<ResolvedChatParameters | null>(null);
+  readonly fetchedParamsOverride = signal(false);
+  readonly fetchedParamsDraft = signal<ChatParametersDraft>(emptyParametersDraft());
+  readonly fetchedParamsInherited = signal<ResolvedChatParameters | null>(null);
 
   // Architecture form fields for new presets
   presetArchitecture = {
@@ -164,11 +181,16 @@ export class ConfigComponent {
   // ---------- Preset actions ----------
   openAddPreset() {
     const firstProvider = this.providers()[0];
+    this.editingPresetId.set(null);
     this.newPreset = {
       displayName: '',
       modelId: '',
-      providerId: firstProvider?.id || ''
+      providerId: firstProvider?.id || '',
+      chatParametersId: null
     };
+    this.presetParamsOverride.set(false);
+    this.presetParamsDraft.set(emptyParametersDraft());
+    this.presetParamsInherited.set(this.parameters.resolveForChat({}));
     // Reset architecture form
     this.presetArchitecture = {
       input_modalities: [],
@@ -203,7 +225,7 @@ export class ConfigComponent {
     this.testingPreset.set(false);
   }
 
-  savePreset() {
+  async savePreset() {
     if (!this.newPreset.displayName.trim() || !this.newPreset.modelId.trim()) {
       alert('Display Name and Model ID are required');
       return;
@@ -213,7 +235,6 @@ export class ConfigComponent {
       return;
     }
 
-    // Create architecture object
     const architecture: ModelArchitecture = {
       modality: this.createModalityString(
         this.presetArchitecture.input_modalities,
@@ -223,14 +244,83 @@ export class ConfigComponent {
       output_modalities: [...this.presetArchitecture.output_modalities]
     };
 
-    // Pass architecture to addPreset
-    this.settings.addPreset(
-      this.newPreset.displayName.trim(),
-      this.newPreset.modelId.trim(),
-      this.newPreset.providerId,
-      architecture
+    const chatParametersId = await this.parameters.persistDraft(
+      this.newPreset.chatParametersId,
+      this.presetParamsOverride(),
+      this.presetParamsDraft()
     );
+
+    const editingId = this.editingPresetId();
+    if (editingId) {
+      await this.settings.updateModel(editingId, {
+        displayName: this.newPreset.displayName.trim(),
+        modelId: this.newPreset.modelId.trim(),
+        providerId: this.newPreset.providerId,
+        architecture,
+        chatParametersId
+      });
+    } else {
+      await this.settings.addPreset(
+        this.newPreset.displayName.trim(),
+        this.newPreset.modelId.trim(),
+        this.newPreset.providerId,
+        architecture,
+        chatParametersId
+      );
+    }
     this.showAddPreset.set(false);
+    this.editingPresetId.set(null);
+  }
+
+  async openEditPreset(model: ModelEntry) {
+    this.editingPresetId.set(model.id);
+    this.newPreset = {
+      displayName: model.displayName,
+      modelId: model.modelId,
+      providerId: model.providerId,
+      chatParametersId: model.chatParametersId || null
+    };
+    this.presetArchitecture = {
+      input_modalities: [...(model.architecture?.input_modalities ?? [])],
+      output_modalities: [...(model.architecture?.output_modalities ?? [])]
+    };
+    const row = model.chatParametersId ? await this.parameters.get(model.chatParametersId) : null;
+    this.presetParamsOverride.set(!!row);
+    this.presetParamsDraft.set(draftFromParameters(row));
+    this.presetParamsInherited.set(this.parameters.resolveForChat({}));
+    this.showAddPreset.set(true);
+  }
+
+  async openFetchedParams(model: ModelEntry) {
+    this.fetchedModel.set(model);
+    const row = model.chatParametersId ? await this.parameters.get(model.chatParametersId) : null;
+    this.fetchedParamsOverride.set(!!row);
+    this.fetchedParamsDraft.set(draftFromParameters(row));
+    this.fetchedParamsInherited.set(this.parameters.resolveForChat({}));
+    this.showFetchedParams.set(true);
+  }
+
+  async saveFetchedParams() {
+    const model = this.fetchedModel();
+    if (!model) return;
+    const chatParametersId = await this.parameters.persistDraft(
+      model.chatParametersId,
+      this.fetchedParamsOverride(),
+      this.fetchedParamsDraft()
+    );
+    await this.settings.updateModel(model.id, { chatParametersId });
+    this.showFetchedParams.set(false);
+    this.fetchedModel.set(null);
+  }
+
+  onPresetParamsChanged(event: { override: boolean; draft: ChatParametersDraft }) {
+    this.presetParamsOverride.set(event.override);
+    this.presetParamsDraft.set(event.draft);
+  }
+
+  onFetchedParamsChanged(event: { override: boolean; draft: ChatParametersDraft }) {
+    this.fetchedParamsOverride.set(event.override);
+    this.fetchedParamsDraft.set(event.draft);
   }
 
   deleteModel(id: string) {

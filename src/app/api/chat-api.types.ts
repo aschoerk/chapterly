@@ -6,6 +6,7 @@ export interface CreateProjectRequest {
   greeting: string;
   systemPrompt?: string;
   defaultModelId?: string | null;
+  chatParametersId?: string | null;
   avatar?: string;
   personaIds?: string[];
 }
@@ -15,6 +16,7 @@ export type UpdateProjectRequest = Partial<{
   greeting: string;
   systemPrompt: string;
   defaultModelId: string | null;
+  chatParametersId: string | null;
   avatar: string;
   personaIds: string[];
   attachments?: NodeAttachment[];
@@ -23,6 +25,7 @@ export type UpdateProjectRequest = Partial<{
 export interface PatchChatRequest {
   title?: string;
   projectId?: string | null;
+  chatParametersId?: string | null;
 }
 
 export interface BranchQuestionRequest {
@@ -51,6 +54,7 @@ export interface CreateTopicRequest {
   name: string;
   description?: string;
   defaultModelId?: string | null;
+  chatParametersId?: string | null;
   defaultSystemPrompt?: string;
   icon?: string;
   projectIds?: string[];
@@ -60,6 +64,7 @@ export type UpdateTopicRequest = Partial<{
   name: string;
   description: string;
   defaultModelId: string | null;
+  chatParametersId: string | null;
   defaultSystemPrompt: string;
   icon: string;
 }>;

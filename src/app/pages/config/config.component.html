@@ -1,5 +1,33 @@
 <div class="config-page">
 
+  <section class="section">
+    <div class="section-header">
+      <h2>Appearance</h2>
+    </div>
+    <p class="hint">Theme is stored in this browser. System follows the OS light/dark setting.</p>
+    <div class="theme-picker">
+      <label class="theme-option" [class.on]="theme.preference() === 'light'">
+        <input type="radio" name="theme" value="light"
+               [checked]="theme.preference() === 'light'"
+               (change)="theme.setPreference('light')" />
+        White
+      </label>
+      <label class="theme-option" [class.on]="theme.preference() === 'dark'">
+        <input type="radio" name="theme" value="dark"
+               [checked]="theme.preference() === 'dark'"
+               (change)="theme.setPreference('dark')" />
+        Dark
+      </label>
+      <label class="theme-option" [class.on]="theme.preference() === 'system'">
+        <input type="radio" name="theme" value="system"
+               [checked]="theme.preference() === 'system'"
+               (change)="theme.setPreference('system')" />
+        System
+      </label>
+      <span class="theme-resolved">Active: {{ theme.resolved() }}</span>
+    </div>
+  </section>
+
   <!-- ==================== PROVIDERS ==================== -->
   <section class="section">
     <div class="section-header">
@@ -162,9 +190,12 @@
               </td>
               <td>
                 @if (model.type === 'preset') {
+                  <button class="btn small" (click)="openEditPreset(model)">Edit</button>
                   <button class="btn small danger" (click)="deleteModel(model.id)">
                     Delete
                   </button>
+                } @else {
+                  <button class="btn small" (click)="openFetchedParams(model)">Params</button>
                 }
               </td>
             </tr>
@@ -178,7 +209,7 @@
   @if (showAddPreset()) {
     <div class="modal-backdrop">
       <div class="modal">
-        <h3>Add Preset</h3>
+        <h3>{{ editingPresetId() ? 'Edit Preset' : 'Add Preset' }}</h3>
 
         <label>
           Display Name *
@@ -199,35 +230,36 @@
           </select>
         </label>
 
-        <label>
-          Input Modalities
-          <div class="modalities-selector">
-            @for (modality of modalityOptions; track modality.value) {
-              <label class="modality-checkbox">
-                <input
-                  type="checkbox"
-                  [checked]="isInputModalitySelected(modality.value)"
-                  (change)="toggleInputModality(modality.value)" />
-                {{ modality.label }}
-              </label>
-            }
+        <div class="modalities-compact">
+          <div class="modality-row">
+            <span class="modality-heading">In</span>
+            <div class="modality-chips">
+              @for (modality of modalityOptions; track modality.value) {
+                <button
+                  type="button"
+                  class="chip"
+                  [class.on]="isInputModalitySelected(modality.value)"
+                  (click)="toggleInputModality(modality.value)">
+                  {{ modality.label }}
+                </button>
+              }
+            </div>
           </div>
-        </label>
-
-        <label>
-          Output Modalities
-          <div class="modalities-selector">
-            @for (modality of modalityOptions; track modality.value) {
-              <label class="modality-checkbox">
-                <input
-                  type="checkbox"
-                  [checked]="isOutputModalitySelected(modality.value)"
-                  (change)="toggleOutputModality(modality.value)" />
-                {{ modality.label }}
-              </label>
-            }
+          <div class="modality-row">
+            <span class="modality-heading">Out</span>
+            <div class="modality-chips">
+              @for (modality of modalityOptions; track modality.value) {
+                <button
+                  type="button"
+                  class="chip"
+                  [class.on]="isOutputModalitySelected(modality.value)"
+                  (click)="toggleOutputModality(modality.value)">
+                  {{ modality.label }}
+                </button>
+              }
+            </div>
           </div>
-        </label>
+        </div>
 
         <!-- Test result -->
         @if (presetTestResult()) {
@@ -239,6 +271,13 @@
           </div>
         }
 
+        <app-chat-parameters-editor
+          [initial]="presetParamsDraft()"
+          [initialOverride]="presetParamsOverride()"
+          [inherited]="presetParamsInherited()"
+          (changed)="onPresetParamsChanged($event)"
+        />
+
         <div class="modal-actions">
           <button
             class="btn"
@@ -247,7 +286,30 @@
             {{ testingPreset() ? 'Testing…' : 'Test' }}
           </button>
           <button class="btn" (click)="showAddPreset.set(false)">Cancel</button>
-          <button class="btn primary" (click)="savePreset()">Add Preset</button>
+          <button class="btn primary" (click)="savePreset()">
+            {{ editingPresetId() ? 'Save changes' : 'Add Preset' }}
+          </button>
+        </div>
+      </div>
+    </div>
+  }
+
+  @if (showFetchedParams()) {
+    <div class="modal-backdrop" (click)="showFetchedParams.set(false)">
+      <div class="modal" (click)="$event.stopPropagation()">
+        <h3>Generation settings</h3>
+        @if (fetchedModel(); as model) {
+          <p class="hint">{{ model.displayName }} · {{ model.modelId }}</p>
+        }
+        <app-chat-parameters-editor
+          [initial]="fetchedParamsDraft()"
+          [initialOverride]="fetchedParamsOverride()"
+          [inherited]="fetchedParamsInherited()"
+          (changed)="onFetchedParamsChanged($event)"
+        />
+        <div class="modal-actions">
+          <button class="btn" (click)="showFetchedParams.set(false)">Cancel</button>
+          <button class="btn primary" (click)="saveFetchedParams()">Save</button>
         </div>
       </div>
     </div>

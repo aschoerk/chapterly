@@ -3,8 +3,11 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ChatService } from '../../core/chat.service';
 import { LastModelService } from '../../core/last-model.service';
-import { ChatNode, NodeAttachment, ChatMessage } from '../../models/chat';
+import { Chat, ChatNode, NodeAttachment, ChatMessage } from '../../models/chat';
 import { SettingsService } from '../../core/settings.service';
+import { ChatParametersService } from '../../core/chat-parameters.service';
+import { ChatParametersEditorComponent } from '../../components/chat-parameters-editor/chat-parameters-editor.component';
+import { ChatParametersDraft, ResolvedChatParameters, draftFromParameters, emptyParametersDraft, formatParametersSummary } from '../../models/chat-parameters';
 import { ChatTitleEditorComponent } from '../../components/chat-title-editor/chat-title-editor.component';
 import { ChatNodeComponent } from '../../components/chat-node/chat-node.component';
 import {SideBarComponent} from '../../components/side-bar/side-bar.component';
@@ -13,14 +16,15 @@ import {Router} from '@angular/router';
 @Component({
   selector: 'app-chat',
   standalone: true,
-  imports: [CommonModule, FormsModule, ChatTitleEditorComponent, ChatNodeComponent, SideBarComponent],
+  imports: [CommonModule, FormsModule, ChatTitleEditorComponent, ChatNodeComponent, SideBarComponent, ChatParametersEditorComponent],
   templateUrl: './chat.component.html',
   styleUrl: './chat.component.css'
 })
 export class ChatComponent implements OnInit {
-  private readonly chatService = inject(ChatService);
+  readonly chatService = inject(ChatService);
   private readonly settings = inject(SettingsService);
   private readonly lastModelService = inject(LastModelService);
+  private readonly parameters = inject(ChatParametersService);
 
   readonly chats = this.chatService.chats;
   readonly currentChatId = this.chatService.currentChatId;
@@ -47,6 +51,11 @@ export class ChatComponent implements OnInit {
 
   readonly sidebarWidth = signal(this.loadSidebarWidth());
   readonly isResizing = signal(false);
+  readonly showChatParams = signal(false);
+  readonly chatParamsOverride = signal(false);
+  readonly chatParamsDraft = signal<ChatParametersDraft>(emptyParametersDraft());
+  readonly chatParamsInherited = signal<ResolvedChatParameters | null>(null);
+  readonly chatParamsSummary = signal('defaults');
 
   private resizeStartX = 0;
   private resizeStartWidth = 0;
@@ -114,7 +123,10 @@ export class ChatComponent implements OnInit {
 
   async ngOnInit() {
     await this.chatService.loadChats();
+    await this.chatService.loadTopics();
+    await this.chatService.loadProjects();
     await this.settings.loadAll();
+    await this.refreshChatParams();
   }
 
   constructor() {
@@ -122,24 +134,52 @@ export class ChatComponent implements OnInit {
     effect(() => {
       const chatId = this.currentChatId();
       const generating = this.chatService.generatingNodeId();
-      // re-run when the tree or the active path changes
       this.chatService.currentNodes();
       this.chatService.getActivePath();
       if (!chatId || generating) return;
-      queueMicrotask(() => {
-        void this.chatService.ensureDraftAtLeaf(chatId);
+      queueMicrotask(async () => {
+        await this.chatService.ensureDraftAtLeaf(chatId);
+        this.restoreOpenedChatPosition(chatId);
+        this.syncVisibleNode();
       });
-    });
-    effect(() => {
-      this.currentChatId();
-      this.chatService.currentNodes();
-      this.getActivePath();
-      queueMicrotask(() => this.syncVisibleNode());
     });
   }
 
+  private positionedChatId: string | null = null;
+
   onTreeScroll(): void {
     this.syncVisibleNode();
+    const tree = this.tree()?.nativeElement;
+    const chatId = this.currentChatId();
+    if (tree && chatId && this.positionedChatId === chatId) {
+      this.chatService.saveScroll(chatId, tree.scrollTop);
+    }
+  }
+
+  private restoreOpenedChatPosition(chatId: string | null): void {
+    if (!chatId) {
+      this.positionedChatId = null;
+      return;
+    }
+    if (this.positionedChatId === chatId) return;
+
+    const tree = this.tree()?.nativeElement;
+    const path = this.getActivePath();
+    if (!tree || path.length === 0) return;
+
+    this.positionedChatId = chatId;
+
+    if (this.chatService.alwaysOpenAtLeaf()) {
+      const leaf = this.getCurrentLeaf();
+      if (leaf) {
+        const el = tree.querySelector(`[data-node-id="${leaf.id}"]`) as HTMLElement | null;
+        el?.scrollIntoView({ behavior: 'auto', block: 'start' });
+      }
+      return;
+    }
+
+    const saved = this.chatService.getSavedScroll(chatId);
+    tree.scrollTop = saved ?? 0;
   }
 
   protected isNearViewport(id: string): boolean {
@@ -332,4 +372,56 @@ export class ChatComponent implements OnInit {
     this.lastModelService.setSelectedModel($event);
   }
 
+
+  currentChat(): Chat | undefined {
+    const id = this.currentChatId();
+    return this.chats().find(c => c.id === id);
+  }
+
+  async toggleChatParams() {
+    const open = !this.showChatParams();
+    this.showChatParams.set(open);
+    if (open) await this.refreshChatParams();
+  }
+
+  async refreshChatParams() {
+    const chat = this.currentChat();
+    const project = chat?.projectId ? this.chatService.getProject(chat.projectId) : null;
+    const topic = this.parameters.topicForProject(project?.id, this.chatService.topics()) ?? null;
+    const model = this.settings.models().find(m => m.id === this.lastModelService.selectedModelId())
+      || this.settings.enabledModels()[0]
+      || null;
+    await this.parameters.loadMany([
+      chat?.chatParametersId,
+      project?.chatParametersId,
+      topic?.chatParametersId,
+      model?.chatParametersId
+    ]);
+    const inherited = this.parameters.resolveForChat({ model, topic, project, chat: null });
+    this.chatParamsInherited.set(inherited);
+    const own = chat?.chatParametersId ? await this.parameters.get(chat.chatParametersId) : null;
+    this.chatParamsOverride.set(!!own);
+    this.chatParamsDraft.set(draftFromParameters(own));
+    const effective = this.parameters.resolveForChat({ model, topic, project, chat: chat ?? null });
+    const src = effective.source === 'default' ? 'defaults' : effective.source;
+    this.chatParamsSummary.set(`${formatParametersSummary(effective)} (${src})`);
+  }
+
+  onChatParamsChanged(event: { override: boolean; draft: ChatParametersDraft }) {
+    this.chatParamsOverride.set(event.override);
+    this.chatParamsDraft.set(event.draft);
+  }
+
+  async saveChatParams() {
+    const chat = this.currentChat();
+    if (!chat) return;
+    const chatParametersId = await this.parameters.persistDraft(
+      chat.chatParametersId,
+      this.chatParamsOverride(),
+      this.chatParamsDraft()
+    );
+    await this.chatService.reassignChatParams(chat.id, chatParametersId);
+    this.showChatParams.set(false);
+    await this.refreshChatParams();
+  }
 }

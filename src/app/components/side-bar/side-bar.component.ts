@@ -144,6 +144,18 @@ export class SideBarComponent implements OnInit {
 
   // ---------- Project CRUD ----------
 
+  editProject(project: Project, event?: Event) {
+    event?.stopPropagation();
+    void this.router.navigate(['/projects'], { queryParams: { editProject: project.id } });
+  }
+
+  editCurrentTopic(event?: Event) {
+    event?.stopPropagation();
+    const topicId = this.selectedTopicId();
+    if (!topicId || topicId === 'all') return;
+    void this.router.navigate(['/projects'], { queryParams: { editTopic: topicId } });
+  }
+
   startEditProject(project: Project, event?: Event) {
     event?.stopPropagation();
     this.editingProjectId.set(project.id);
@@ -361,6 +373,14 @@ export class SideBarComponent implements OnInit {
 
   getChatCount(projectId: string | null): number {
     return this.getChatsForProject(projectId).length;
+  }
+
+  isCurrentProject(projectId: string | null): boolean {
+    const chatId = this.currentChatId();
+    if (!chatId) return false;
+    const chat = this.chatService.chats().find(c => c.id === chatId);
+    if (!chat) return false;
+    return (chat.projectId || null) === (projectId || null);
   }
 
   getAnswerCount(chat: Chat): number {

@@ -53,6 +53,7 @@ export interface ModelEntry {
   providerId: string;
   type: 'fetched' | 'preset' | 'discontinued';
   enabled: boolean;
+  chatParametersId?: string | null;
 
   // official OpenAI /models
   object?: 'model';

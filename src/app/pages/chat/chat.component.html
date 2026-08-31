@@ -21,7 +21,55 @@
       <div class="conversation">
 
         @if (currentChatId()) {
-          <chat-title-editor></chat-title-editor>
+          <div class="title-row">
+            <chat-title-editor></chat-title-editor>
+            <div class="view-prefs">
+              <label>
+                <input type="checkbox"
+                       [checked]="chatService.followStreaming()"
+                       (change)="chatService.setFollowStreaming($any($event.target).checked)" />
+                follow streaming
+              </label>
+              <label>
+                <input type="checkbox"
+                       [checked]="chatService.followThinking()"
+                       (change)="chatService.setFollowThinking($any($event.target).checked)" />
+                follow thinking
+              </label>
+              <label>
+                <input type="checkbox"
+                       [checked]="chatService.alwaysOpenAtLeaf()"
+                       (change)="chatService.setAlwaysOpenAtLeaf($any($event.target).checked)" />
+                always open at leaf
+              </label>
+              <span class="gen-spinner"
+                    [class.on]="!!chatService.generatingNodeId()"
+                    title="Generating…"
+                    aria-live="polite"
+                    [attr.aria-hidden]="chatService.generatingNodeId() ? null : 'true'"></span>
+            </div>
+          </div>
+          <div class="params-bar">
+            <button class="btn small" type="button" (click)="toggleChatParams()">
+              Params
+            </button>
+            <span class="params-summary">{{ chatParamsSummary() }}</span>
+          </div>
+          @if (showChatParams()) {
+            <div class="params-popover">
+              <app-chat-parameters-editor
+                [compact]="true"
+                [initial]="chatParamsDraft()"
+                [initialOverride]="chatParamsOverride()"
+                [inherited]="chatParamsInherited()"
+                (changed)="onChatParamsChanged($event)"
+              />
+              <div class="modal-actions">
+                <button class="btn" type="button" (click)="showChatParams.set(false)">Close</button>
+                <button class="btn primary" type="button" (click)="saveChatParams()">Apply to chat</button>
+              </div>
+            </div>
+          }
 
           @if (getActivePath().length > 0) {
             <div class="node-nav-bar">

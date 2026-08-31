@@ -1,22 +1,32 @@
 import { Component, inject, signal, OnInit, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { Router } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import { ChatService } from '../../core/chat.service';
 import { SettingsService } from '../../core/settings.service';
 import { Project, Persona, Topic } from '../../models/chat';
+import { ChatParametersService } from '../../core/chat-parameters.service';
+import { ChatParametersEditorComponent } from '../../components/chat-parameters-editor/chat-parameters-editor.component';
+import {
+  ChatParametersDraft,
+  ResolvedChatParameters,
+  draftFromParameters,
+  emptyParametersDraft
+} from '../../models/chat-parameters';
 
 @Component({
   selector: 'app-projects',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, ChatParametersEditorComponent],
   templateUrl: './projects.component.html',
   styleUrl: './projects.component.css'
 })
 export class ProjectsComponent implements OnInit {
   private readonly chatService = inject(ChatService);
   private readonly settings = inject(SettingsService);
+  private readonly parameters = inject(ChatParametersService);
   private readonly router = inject(Router);
+  private readonly route = inject(ActivatedRoute);
 
   readonly projects = this.chatService.projects;
   readonly personas = this.chatService.personas;
@@ -47,6 +57,10 @@ export class ProjectsComponent implements OnInit {
   readonly topicIcon = signal('');
   readonly topicDefaultModelId = signal<string | null>(null);
   readonly topicDefaultSystemPrompt = signal('');
+  readonly topicParamsOverride = signal(false);
+  readonly topicParamsDraft = signal<ChatParametersDraft>(emptyParametersDraft());
+  readonly topicParamsInherited = signal<ResolvedChatParameters | null>(null);
+  private topicParamsId: string | null = null;
 
   form = {
     name: '',
@@ -54,8 +68,12 @@ export class ProjectsComponent implements OnInit {
     systemPrompt: '',
     defaultModelId: null as string | null,
     avatar: '',
-    personaIds: [] as string[]
+    personaIds: [] as string[],
+    chatParametersId: null as string | null
   };
+  readonly projectParamsOverride = signal(false);
+  readonly projectParamsDraft = signal<ChatParametersDraft>(emptyParametersDraft());
+  readonly projectParamsInherited = signal<ResolvedChatParameters | null>(null);
 
   readonly filteredProjects = computed(() => {
     const term = this.searchTerm().toLowerCase().trim();
@@ -73,11 +91,32 @@ export class ProjectsComponent implements OnInit {
       await Promise.all([
         this.chatService.loadProjects(),
         this.chatService.loadPersonas(),
+        this.chatService.loadTopics(),
         this.settings.loadAll()
       ]);
     } catch (e) {
       console.error('Failed to load projects', e);
       this.error.set('Failed to load projects from server.');
+    }
+    this.openFromQuery();
+  }
+
+  private openFromQuery() {
+    const params = this.route.snapshot.queryParamMap;
+    const projectId = params.get('editProject');
+    const topicId = params.get('editTopic');
+    if (projectId) {
+      const project = this.projects().find(p => p.id === projectId);
+      if (project) this.openEdit(project);
+    } else if (topicId) {
+      const topic = this.topics().find(t => t.id === topicId);
+      if (topic) {
+        this.selectedTopicId.set(topic.id);
+        this.openEditTopic(topic);
+      }
+    }
+    if (projectId || topicId) {
+      void this.router.navigate([], { relativeTo: this.route, queryParams: {}, replaceUrl: true });
     }
   }
 
@@ -118,8 +157,12 @@ export class ProjectsComponent implements OnInit {
       systemPrompt: '',
       defaultModelId: null,
       avatar: '',
-      personaIds: []
+      personaIds: [],
+      chatParametersId: null
     };
+    this.projectParamsOverride.set(false);
+    this.projectParamsDraft.set(emptyParametersDraft());
+    this.refreshProjectInherited(null);
     this.error.set(null);
     this.showForm.set(true);
   }
@@ -132,8 +175,10 @@ export class ProjectsComponent implements OnInit {
       systemPrompt: project.systemPrompt || '',
       defaultModelId: project.defaultModelId,
       avatar: project.avatar || '',
-      personaIds: [...(project.personaIds || [])]
+      personaIds: [...(project.personaIds || [])],
+      chatParametersId: project.chatParametersId || null
     };
+    void this.loadProjectParams(project);
     this.error.set(null);
     this.showForm.set(true);
   }
@@ -161,7 +206,12 @@ export class ProjectsComponent implements OnInit {
         systemPrompt: this.form.systemPrompt,
         defaultModelId: this.form.defaultModelId,
         avatar: this.form.avatar,
-        personaIds: this.form.personaIds
+        personaIds: this.form.personaIds,
+        chatParametersId: await this.parameters.persistDraft(
+          this.form.chatParametersId,
+          this.projectParamsOverride(),
+          this.projectParamsDraft()
+        )
       };
 
       if (this.editingId()) {
@@ -282,6 +332,10 @@ export class ProjectsComponent implements OnInit {
     this.topicIcon.set('');
     this.topicDefaultModelId.set(null);
     this.topicDefaultSystemPrompt.set('');
+    this.topicParamsOverride.set(false);
+    this.topicParamsDraft.set(emptyParametersDraft());
+    this.topicParamsId = null;
+    this.refreshTopicInherited(null);
     this.topicError.set(null);
     this.showTopicForm.set(true);
   }
@@ -293,6 +347,7 @@ export class ProjectsComponent implements OnInit {
     this.topicIcon.set(topic.icon || '');
     this.topicDefaultModelId.set(topic.defaultModelId);
     this.topicDefaultSystemPrompt.set(topic.defaultSystemPrompt || '');
+    void this.loadTopicParams(topic);
     this.topicError.set(null);
     this.showTopicForm.set(true);
   }
@@ -323,7 +378,12 @@ export class ProjectsComponent implements OnInit {
         description: this.topicDescription().trim(),
         icon: this.topicIcon().trim(),
         defaultModelId: this.topicDefaultModelId(),
-        defaultSystemPrompt: this.topicDefaultSystemPrompt().trim()
+        defaultSystemPrompt: this.topicDefaultSystemPrompt().trim(),
+        chatParametersId: await this.parameters.persistDraft(
+          this.topicParamsId,
+          this.topicParamsOverride(),
+          this.topicParamsDraft()
+        )
       };
 
       const editingId = this.editingTopicId();
@@ -453,4 +513,52 @@ export class ProjectsComponent implements OnInit {
     this.topicIcon.set('');
   }
 
+
+  onTopicParamsChanged(event: { override: boolean; draft: ChatParametersDraft }) {
+    this.topicParamsOverride.set(event.override);
+    this.topicParamsDraft.set(event.draft);
+  }
+
+  onProjectParamsChanged(event: { override: boolean; draft: ChatParametersDraft }) {
+    this.projectParamsOverride.set(event.override);
+    this.projectParamsDraft.set(event.draft);
+  }
+
+  private async loadTopicParams(topic: Topic) {
+    this.topicParamsId = topic.chatParametersId || null;
+    await this.parameters.loadMany([
+      this.topicParamsId,
+      this.settings.models().find(m => m.id === topic.defaultModelId)?.chatParametersId
+    ]);
+    const row = this.topicParamsId ? await this.parameters.get(this.topicParamsId) : null;
+    this.topicParamsOverride.set(!!row);
+    this.topicParamsDraft.set(draftFromParameters(row));
+    this.refreshTopicInherited(topic.defaultModelId);
+  }
+
+  private async loadProjectParams(project: Project) {
+    const topic = this.parameters.topicForProject(project.id, this.topics());
+    const model = this.settings.models().find(m => m.id === project.defaultModelId);
+    await this.parameters.loadMany([
+      project.chatParametersId,
+      topic?.chatParametersId,
+      model?.chatParametersId
+    ]);
+    const row = project.chatParametersId ? await this.parameters.get(project.chatParametersId) : null;
+    this.projectParamsOverride.set(!!row);
+    this.projectParamsDraft.set(draftFromParameters(row));
+    this.refreshProjectInherited(project);
+  }
+
+  private refreshTopicInherited(defaultModelId: string | null) {
+    const model = this.settings.models().find(m => m.id === defaultModelId) || null;
+    this.topicParamsInherited.set(this.parameters.resolveForChat({ model }));
+  }
+
+  private refreshProjectInherited(project: Project | null) {
+    const modelId = project?.defaultModelId ?? this.form.defaultModelId;
+    const model = this.settings.models().find(m => m.id === modelId) || null;
+    const topic = this.parameters.topicForProject(project?.id ?? null, this.topics()) || null;
+    this.projectParamsInherited.set(this.parameters.resolveForChat({ model, topic }));
+  }
 }

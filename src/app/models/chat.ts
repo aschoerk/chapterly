@@ -6,6 +6,7 @@ export interface Project {
   greeting: string;
   systemPrompt: string;
   defaultModelId: string | null;
+  chatParametersId?: string | null;
   avatar: string;
   personaIds: string[];
   createdAt: string;
@@ -17,6 +18,7 @@ export interface Topic {
   name: string;
   description: string;
   defaultModelId: string | null;
+  chatParametersId?: string | null;
   defaultSystemPrompt: string;
   icon: string;
   projectIds: string[];
@@ -28,6 +30,7 @@ export interface Chat {
   id: string;
   title: string;
   projectId?: string | null;
+  chatParametersId?: string | null;
   node_number: number;
   created_at: string;
   updated_at: string;
@@ -58,6 +61,7 @@ export interface ChatNode {
   promptTokens?: number | null;
   completionTokens?: number | null;
   attachments?: NodeAttachment[];
+  chatParametersId?: string | null;
 }
 
 export interface CreateNodeRequest {
@@ -68,6 +72,7 @@ export interface CreateNodeRequest {
   modelId?: string;
   providerId?: string;
   attachments?: NodeAttachment[];
+  chatParametersId?: string | null;
 }
 
 export interface Persona {

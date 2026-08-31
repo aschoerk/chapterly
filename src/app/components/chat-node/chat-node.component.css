@@ -148,7 +148,8 @@
 
 .answer-node {
   border-left-color: #22c55e;
-  background: #f8fafc;
+  background: var(--bg-answer, #f8fafc);
+  color: var(--text, inherit);
   padding: 0.6rem 0.75rem;
   border-radius: 0 6px 6px 0;
 }
@@ -168,6 +169,7 @@
   word-break: break-word;
   line-height: 1.1;
   margin-bottom: 0.4rem;
+  color: var(--text, inherit);
 }
 
 .node-content.click-to-edit {
@@ -444,4 +446,23 @@
 .badge.answer {
   background: #dcfce7;
   color: #15803d;
+}
+
+
+.params-footnote {
+  padding: 0 0.75rem 0.35rem;
+  font-size: 0.72rem;
+  color: var(--muted, #888);
+}
+
+
+.empty-draft {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.continue-closed {
+  flex: 0 0 auto;
 }

@@ -1,0 +1,123 @@
+.params-editor {
+  position: relative;
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border, #3333);
+}
+
+.params-editor.compact {
+  margin-top: 0.4rem;
+  padding-top: 0.4rem;
+}
+
+.override-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-weight: 600;
+  font-size: 0.92rem;
+}
+
+.override-row label {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0;
+}
+
+.inherit-hint {
+  position: relative;
+  margin: 0.35rem 0 0.6rem;
+  font-size: 0.8rem;
+  color: var(--muted, #888);
+}
+
+.params-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 0.55rem 0.75rem;
+}
+
+.params-grid label {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 0.8rem;
+}
+
+.field-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.35rem;
+}
+
+.params-grid input,
+.params-grid select {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.hint {
+  margin: 0.5rem 0 0;
+  font-size: 0.75rem;
+  color: var(--muted, #888);
+}
+
+.info-btn {
+  flex: 0 0 auto;
+  width: 1.05rem;
+  height: 1.05rem;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid #8aa0c2;
+  background: #eef3fb;
+  color: #2b4d7a;
+  font-size: 0.68rem;
+  font-weight: 700;
+  font-style: italic;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.info-btn:hover {
+  background: #d7e4f7;
+}
+
+.info-pop {
+  position: absolute;
+  z-index: 20;
+  top: 1.35rem;
+  left: 0;
+  right: 0;
+  min-width: 180px;
+  padding: 0.45rem 0.55rem;
+  border: 1px solid #c5d2e6;
+  border-radius: 6px;
+  background: #fff;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.12);
+  font-weight: 400;
+  color: #333;
+}
+
+.info-pop.inline {
+  display: block;
+  margin-top: 0.35rem;
+  position: relative;
+  top: 0;
+}
+
+.info-pop strong {
+  display: block;
+  font-size: 0.75rem;
+  margin-bottom: 0.2rem;
+}
+
+.info-pop p {
+  margin: 0;
+  font-size: 0.72rem;
+  line-height: 1.35;
+  color: #555;
+}

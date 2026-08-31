@@ -13,7 +13,9 @@ import {NodeEditSession} from '../../core/node-edit-session';
 import {ConfirmDialogComponent} from '../confirm-dialog/confirm-dialog.component';
 import {ConfirmService} from '../../core/confirm.service';
 import {LlmService} from '../../core/llm.service';
+import { ChatParametersService } from '../../core/chat-parameters.service';
 import { inferMimeType, nodeToMessageContent } from '../../core/llm-message';
+import { formatParametersSummary } from '../../models/chat-parameters';
 
 @Component({
   selector: 'app-chat-node',
@@ -27,6 +29,7 @@ export class ChatNodeComponent {
   public readonly markdownService = inject(MarkdownService);
   readonly chatService = inject(ChatService);
   readonly llmService = inject(LlmService);
+  private readonly parameters = inject(ChatParametersService);
 
   private readonly confirm = inject(ConfirmService);
 
@@ -50,6 +53,7 @@ export class ChatNodeComponent {
   readonly thinkingClosed = signal(true);
 
   private readonly editArea = viewChild<ElementRef<HTMLTextAreaElement>>('editArea');
+  private readonly streamEnd = viewChild<ElementRef<HTMLElement>>('streamEnd');
 
   readonly isEditing = computed(() =>
     this.editSession.editingNodeId() === this.node().id
@@ -103,6 +107,16 @@ export class ChatNodeComponent {
   /** Last node on the active path (no current children). */
   isLeafNode(): boolean {
     return this.chatService.getChildren(this.node().id).length === 0;
+  }
+
+  /** Empty unsent leaf question with the inline editor closed. */
+  showClosedContinue(): boolean {
+    const n = this.node();
+    return this.isUnsentQuestion()
+      && this.isLeafNode()
+      && !this.isEditing()
+      && !n.content?.trim()
+      && !(n.attachments?.length);
   }
 
   resizeTextarea(): void {
@@ -579,6 +593,31 @@ export class ChatNodeComponent {
       this.updateRendered(content);
     });
 
+    effect(() => {
+      const n = this.node();
+      if (!this.chatService.isGenerating(n.id)) return;
+      if (this.chatService.followThinking() && n.thinking?.trim()) {
+        this.thinkingClosed.set(false);
+      }
+      if (this.chatService.followStreaming() || (this.chatService.followThinking() && !n.content?.trim())) {
+        queueMicrotask(() => this.followLive());
+      }
+    });
+  }
+
+  private followLive(): void {
+    const anchor = this.streamEnd()?.nativeElement;
+    if (!anchor) return;
+    const tree = anchor.closest('.tree') as HTMLElement | null;
+    if (!tree) {
+      anchor.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      return;
+    }
+    const a = anchor.getBoundingClientRect();
+    const t = tree.getBoundingClientRect();
+    if (a.bottom > t.bottom - 12 || a.top < t.top + 12) {
+      anchor.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    }
   }
 
   updateRendered(content: string): void {
@@ -697,4 +736,17 @@ export class ChatNodeComponent {
     return this.contentDraft() !== (n.content || '') || !attachmentsUnchanged;
   }
 
+
+  parametersFootnote(): string | null {
+    if (this.node().type !== 'answer') return null;
+    const id = this.node().chatParametersId;
+    const own = this.parameters.peek(id);
+    if (own) return formatParametersSummary(own);
+    const model = this.enabledModels().find(m => m.modelId === this.node().modelId || m.id === this.node().modelId);
+    if (model?.chatParametersId) {
+      const fromModel = this.parameters.peek(model.chatParametersId);
+      if (fromModel) return formatParametersSummary(fromModel);
+    }
+    return null;
+  }
 }

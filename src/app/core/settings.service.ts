@@ -127,17 +127,26 @@ export class SettingsService {
     displayName: string,
     modelId: string,
     providerId: string,
-    architecture?: ModelArchitecture
-  ): Promise<void> {
+    architecture?: ModelArchitecture,
+    chatParametersId?: string | null
+  ): Promise<ModelEntry> {
     const created = await this.api.createModel({
       displayName,
       modelId,
       providerId,
       type: 'preset',
       enabled: true,
-      architecture
+      architecture,
+      chatParametersId: chatParametersId ?? null
     } as CreateModelRequest);
     this._models.update(list => [...list, created]);
+    return created;
+  }
+
+  async updateModel(id: string, changes: UpdateModelRequest): Promise<ModelEntry> {
+    const updated = await this.api.updateModel(id, changes);
+    this._models.update(list => list.map(m => (m.id === id ? updated : m)));
+    return updated;
   }
 
   async deleteModel(id: string): Promise<void> {
