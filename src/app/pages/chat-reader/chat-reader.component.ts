@@ -103,7 +103,7 @@ export class ChatReaderComponent implements OnInit, OnDestroy {
     const path = this.currentDoc();
     if (!path.length) return '';
     const tip = path[path.length - 1];
-    const kind = tip.role === 'user' ? 'D' : 'C';
+    const kind = tip.role === 'user' ? 'D' : (tip.role === 'assistant' ? 'C' : 'S');
     const branch = this.allChildren(tip.parentId).length > 1
       ? ` · branch ${this.allChildren(tip.parentId).findIndex(n => n.id === tip.id) + 1}`
       : '';

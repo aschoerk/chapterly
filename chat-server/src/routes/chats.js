@@ -347,7 +347,7 @@ function editNodeVersion(nodeId, expectedRole, { content, thinking, attachments 
     throw err;
   }
 
-  if (oldNode.role !== expectedRole) {
+  if (oldNode.role != 'system' && oldNode.role != expectedRole) {
     const err = new Error(`Only ${expectedRole}s can be versioned this way`);
     err.status = 400;
     throw err;
@@ -392,7 +392,7 @@ function editNodeVersion(nodeId, expectedRole, { content, thinking, attachments 
       newId,
       oldNode.chat_id,
       oldNode.parent_id,
-      expectedRole,
+      oldNode.role,
       content,
       newThinking,
       oldNode.model_id,
@@ -414,7 +414,7 @@ function editNodeVersion(nodeId, expectedRole, { content, thinking, attachments 
 
 /**
  * @openapi
- * /api/chats/{chatId}/nodes/{nodeId}/edit-answer:
+ * /api/chats/{chatId}/nodes/{nodeId}/edit-assistant:
  *   post:
  *     summary: Create a new version of an answer
  *     description: |
@@ -467,18 +467,18 @@ function editNodeVersion(nodeId, expectedRole, { content, thinking, attachments 
  *       404:
  *         description: Node not found
  */
-router.post('/:chatId/nodes/:nodeId/edit-answer', (req, res) => {
+router.post('/:chatId/nodes/:nodeId/edit-assistant', (req, res) => {
   try {
-    const node = editNodeVersion(req.params.nodeId, 'answer', req.body);
+    const node = editNodeVersion(req.params.nodeId, 'assistant', req.body);
     res.status(201).json(mapNode(node));
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message });
   }
 });
 
-router.post('/:chatId/nodes/:nodeId/edit-question', (req, res) => {
+router.post('/:chatId/nodes/:nodeId/edit-user', (req, res) => {
   try {
-    const node = editNodeVersion(req.params.nodeId, 'question', req.body);
+    const node = editNodeVersion(req.params.nodeId, 'user', req.body);
     res.status(201).json(mapNode(node));
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message });

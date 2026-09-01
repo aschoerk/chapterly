@@ -248,18 +248,31 @@ export class SideBarComponent implements OnInit {
       .filter(t => t.defaultSystemPrompt?.trim() && t.projectIds.find(id => id == project.id) )
       .every(t => parts.push(t.defaultSystemPrompt.trim()));
 
+    let currentParentNodeId: string | null = null;
+
+    if (parts.length > 0) {
+      const systemNode = await this.chatService.addNode(chat.id, {
+        parentId: null,
+        role: 'system',
+        content: parts.join('\n\n').trim()
+      });
+      currentParentNodeId = systemNode. id;
+    }
+
+    const userParts: string[] = [];
+
     // Project system prompt
     if (project.systemPrompt?.trim()) {
-      parts.push(project.systemPrompt.trim());
+      userParts.push(project.systemPrompt.trim());
     }
 
     // Every persona that belongs to the project → NPC
     for (const personaId of project.personaIds ?? []) {
       const persona = this.chatService.getPersona(personaId);
       if (persona) {
-        parts.push(`npc is ${persona.name}`);
+        userParts.push(`\n\nnpc is ${persona.name}`);
         if (persona.description?.trim()) {
-          parts.push(persona.description.trim());
+          userParts.push(persona.description.trim());
         }
       }
     }
@@ -267,32 +280,29 @@ export class SideBarComponent implements OnInit {
     // Currently selected persona → {{user}}
     const userPersona = this.currentPersona();
     if (userPersona) {
-      parts.push(`{{user}} is ${userPersona.name}`);
+      userParts.push(`\n\n{{user}} is ${userPersona.name}`);
       if (userPersona.description?.trim()) {
-        parts.push(userPersona.description.trim());
+        userParts.push(userPersona.description.trim());
       }
     }
 
-    const systemContent = parts.join('\n\n').trim();
+    const userContent = userParts.join('\n\n').trim();
 
-    // ---------- 2. Create the System node (root question) ----------
-    let systemNodeId: string | null = null;
-
-    if (systemContent) {
-      const systemNode = await this.chatService.addNode(chat.id, {
-        parentId: null,
+    if (userContent) {
+      const userNode = await this.chatService.addNode(chat.id, {
+        parentId: currentParentNodeId,
         role: 'user',
-        content: systemContent
+        content: userContent
       });
-      systemNodeId = systemNode.id;
+      currentParentNodeId = userNode.id;
     }
 
     // ---------- 3. Optional greeting → first answer node ----------
     if (project.greeting?.trim()) {
-      const greetingContent = `Situation:\n${project.greeting.trim()}`;
+      const greetingContent = `${project.greeting.trim()}`;
 
       await this.chatService.addNode(chat.id, {
-        parentId: systemNodeId,          // child of System node when present
+        parentId: currentParentNodeId,          // child of System node when present
         role: 'assistant',
         content: greetingContent
       });

@@ -250,9 +250,9 @@ describe('API Routes (in-memory DB)', () => {
     test('POST /api/chats/:chatId/nodes adds a question', async () => {
       const res = await request(app)
         .post(`/api/chats/${chatId}/nodes`)
-        .send({content: 'Hello?', thinking: 'thinking', type: "question"});
+        .send({content: 'Hello?', thinking: 'thinking', role: "user"});
       expect(res.status).toBe(201);
-      expect(res.body.type).toBe('question');
+      expect(res.body.role).toBe('user');
       expect(res.body.content).toBe('Hello?');
     });
 
@@ -265,24 +265,24 @@ describe('API Routes (in-memory DB)', () => {
         .post(`/api/chats/${chatId}/nodes`)
         .send({
           content: 'Hi there!',
-          type: 'answer',
+          role: 'assistant',
           parentId: questionId
         });
       expect(res.status).toBe(201);
-      expect(res.body.type).toBe('answer');
+      expect(res.body.role).toBe('assistant');
       expect(res.body.parentId).toBe(questionId);
     });
 
     test('POST /api/chats/:chatId/nodes/:nodeId/branch-question branches from a question', async () => {
       const nodes = await request(app).get(`/api/chats/${chatId}/nodes`);
-      node = nodes.body.find(n => n.type === 'question');
+      node = nodes.body.find(n => n.role === 'user');
       const questionId = node.id;
 
       const res = await request(app)
-        .post(`/api/chats/${chatId}/nodes/${questionId}/branch-question`)
+        .post(`/api/chats/${chatId}/nodes/${questionId}/branch-user`)
         .send({content: 'Branch question?'});
       expect(res.status).toBe(201);
-      expect(res.body.type).toBe('question');
+      expect(res.body.role).toBe('user');
       expect(res.body.parentId).toBe(node.parentId);
       expect(res.body.version).toBe(1);
       expect(res.body.chatId).toBe(node.chatId);
@@ -328,7 +328,7 @@ describe('API Routes (in-memory DB)', () => {
         // Create root question
         const rootQuestionRes = await request(app)
           .post(`/api/chats/${chatId}/nodes`)
-          .send({content: 'Root question?', type: "question"});
+          .send({content: 'Root question?', role: 'user'});
         rootQuestionId = rootQuestionRes.body.id;
 
         // Create root answer
@@ -336,7 +336,7 @@ describe('API Routes (in-memory DB)', () => {
           .post(`/api/chats/${chatId}/nodes`)
           .send({
             content: 'Root answer.',
-            type: 'answer',
+            role: 'assistant',
             parentId: rootQuestionId
           });
         rootAnswerId = rootAnswerRes.body.id;
@@ -346,15 +346,15 @@ describe('API Routes (in-memory DB)', () => {
           .post(`/api/chats/${chatId}/nodes`)
           .send({
             content: 'Child question?',
-            type: "question",
+            role: 'user',
             parentId: rootAnswerId
           });
         childQuestionId = childQuestionRes.body.id;
       });
 
-      test('POST /api/chats/:chatId/nodes/:nodeId/edit-answer creates a new version of an answer', async () => {
+      test('POST /api/chats/:chatId/nodes/:nodeId/edit-assistant creates a new version of an answer', async () => {
         const res = await request(app)
-          .post(`/api/chats/${chatId}/nodes/${rootAnswerId}/edit-answer`)
+          .post(`/api/chats/${chatId}/nodes/${rootAnswerId}/edit-assistant`)
           .send({content: 'Updated answer content'});
 
         expect(res.status).toBe(201);
@@ -369,9 +369,9 @@ describe('API Routes (in-memory DB)', () => {
         expect(oldNode.isCurrent).toBe(false);
       });
 
-      test('POST /api/chats/:chatId/nodes/:nodeId/edit-question creates a new version of a question', async () => {
+      test('POST /api/chats/:chatId/nodes/:nodeId/edit-user creates a new version of a question', async () => {
         const res = await request(app)
-          .post(`/api/chats/${chatId}/nodes/${rootQuestionId}/edit-question`)
+          .post(`/api/chats/${chatId}/nodes/${rootQuestionId}/edit-user`)
           .send({content: 'Updated question content'});
 
         expect(res.status).toBe(201);
@@ -389,7 +389,7 @@ describe('API Routes (in-memory DB)', () => {
       test('Editing a node reparents child nodes to the new version', async () => {
         // Edit the root answer which has a child
         const editRes = await request(app)
-          .post(`/api/chats/${chatId}/nodes/${rootAnswerId}/edit-answer`)
+          .post(`/api/chats/${chatId}/nodes/${rootAnswerId}/edit-assistant`)
           .send({content: 'Edited root answer'});
 
         const newVersionId = editRes.body.id;
@@ -415,7 +415,7 @@ describe('API Routes (in-memory DB)', () => {
           .post(`/api/chats/${chatId}/nodes`)
           .send({
             content: 'Node with attachments',
-            type: 'question',
+            role: 'user',
             attachments
           });
 
@@ -423,7 +423,7 @@ describe('API Routes (in-memory DB)', () => {
 
         // Edit without specifying attachments
         const editRes = await request(app)
-          .post(`/api/chats/${chatId}/nodes/${nodeId}/edit-question`)
+          .post(`/api/chats/${chatId}/nodes/${nodeId}/edit-user`)
           .send({content: 'Edited content'});
 
         expect(editRes.status).toBe(201);
@@ -452,7 +452,7 @@ describe('API Routes (in-memory DB)', () => {
           .post(`/api/chats/${chatId}/nodes`)
           .send({
             content: 'Node with attachments',
-            type: 'question',
+            role: 'user',
             attachments: originalAttachments
           });
 
@@ -460,7 +460,7 @@ describe('API Routes (in-memory DB)', () => {
 
         // Edit with new attachments
         const editRes = await request(app)
-          .post(`/api/chats/${chatId}/nodes/${nodeId}/edit-question`)
+          .post(`/api/chats/${chatId}/nodes/${nodeId}/edit-user`)
           .send({
             content: 'Edited content',
             attachments: newAttachments
@@ -484,7 +484,7 @@ describe('API Routes (in-memory DB)', () => {
           .post(`/api/chats/${chatId}/nodes`)
           .send({
             content: 'Node with attachments',
-            type: 'question',
+            role: 'user',
             attachments
           });
 
@@ -492,7 +492,7 @@ describe('API Routes (in-memory DB)', () => {
 
         // Edit with empty attachments array
         const editRes = await request(app)
-          .post(`/api/chats/${chatId}/nodes/${nodeId}/edit-question`)
+          .post(`/api/chats/${chatId}/nodes/${nodeId}/edit-user`)
           .send({
             content: 'Edited content',
             attachments: []
@@ -505,14 +505,14 @@ describe('API Routes (in-memory DB)', () => {
       test('Multiple edits create sequential versions', async () => {
         // First edit
         const edit1Res = await request(app)
-          .post(`/api/chats/${chatId}/nodes/${rootQuestionId}/edit-question`)
+          .post(`/api/chats/${chatId}/nodes/${rootQuestionId}/edit-user`)
           .send({content: 'First edit'});
 
         const edit1Id = edit1Res.body.id;
 
         // Second edit
         const edit2Res = await request(app)
-          .post(`/api/chats/${chatId}/nodes/${edit1Id}/edit-question`)
+          .post(`/api/chats/${chatId}/nodes/${edit1Id}/edit-user`)
           .send({content: 'Second edit'});
 
         expect(edit2Res.status).toBe(201);
@@ -529,7 +529,7 @@ describe('API Routes (in-memory DB)', () => {
           .post(`/api/chats/${chatId}/nodes`)
           .send({
             content: 'Node with model info',
-            type: 'question',
+            role: 'user',
             modelId,
             providerId
           });
@@ -538,7 +538,7 @@ describe('API Routes (in-memory DB)', () => {
 
         // Edit the node
         const editRes = await request(app)
-          .post(`/api/chats/${chatId}/nodes/${nodeId}/edit-question`)
+          .post(`/api/chats/${chatId}/nodes/${nodeId}/edit-user`)
           .send({content: 'Edited content'});
 
         expect(editRes.status).toBe(201);
@@ -550,13 +550,13 @@ describe('API Routes (in-memory DB)', () => {
         // Create an isolated question node (no parent, no children)
         const isolatedQuestionRes = await request(app)
           .post(`/api/chats/${chatId}/nodes`)
-          .send({content: 'Isolated question?', type: "question"});
+          .send({content: 'Isolated question?', role: 'user'});
 
         const isolatedQuestionId = isolatedQuestionRes.body.id;
 
         // Edit this isolated node
         const editRes = await request(app)
-          .post(`/api/chats/${chatId}/nodes/${isolatedQuestionId}/edit-question`)
+          .post(`/api/chats/${chatId}/nodes/${isolatedQuestionId}/edit-user`)
           .send({content: 'Edited isolated question'});
 
         expect(editRes.status).toBe(201);
@@ -576,7 +576,7 @@ describe('API Routes (in-memory DB)', () => {
           .post(`/api/chats/${chatId}/nodes`)
           .send({
             content: 'Deep answer',
-            type: 'answer',
+            role: 'assistant',
             parentId: childQuestionId
           });
 
@@ -584,7 +584,7 @@ describe('API Routes (in-memory DB)', () => {
 
         // Edit the middle node (childQuestion)
         const editRes = await request(app)
-          .post(`/api/chats/${chatId}/nodes/${childQuestionId}/edit-question`)
+          .post(`/api/chats/${chatId}/nodes/${childQuestionId}/edit-user`)
           .send({content: 'Edited child question'});
 
         const newChildVersionId = editRes.body.id;
@@ -601,7 +601,7 @@ describe('API Routes (in-memory DB)', () => {
           .post(`/api/chats/${chatId}/nodes`)
           .send({
             content: '',
-            type: 'answer',
+            role: 'assistant',
             parentId: childQuestionId,
             thinking: null
           });
@@ -615,7 +615,7 @@ describe('API Routes (in-memory DB)', () => {
         const beforeNodeNumber = beforeChat.body.node_number ?? beforeChat.body.nodeNumber;
 
         const editRes = await request(app)
-          .post(`/api/chats/${chatId}/nodes/${emptyAnswerId}/edit-answer`)
+          .post(`/api/chats/${chatId}/nodes/${emptyAnswerId}/edit-assistant`)
           .send({ content: 'Filled empty leaf answer', thinking: 'now thinking' });
 
         expect(editRes.status).toBe(201);
@@ -642,7 +642,7 @@ describe('API Routes (in-memory DB)', () => {
       test('Editing an empty question with no children updates the current version in place', async () => {
         const emptyQuestionRes = await request(app)
           .post(`/api/chats/${chatId}/nodes`)
-          .send({ content: '   ', type: 'question' });
+          .send({ content: '   ', role: 'user' });
         expect(emptyQuestionRes.status).toBe(201);
         const emptyQuestionId = emptyQuestionRes.body.id;
 
@@ -650,7 +650,7 @@ describe('API Routes (in-memory DB)', () => {
         const beforeCount = beforeNodes.body.length;
 
         const editRes = await request(app)
-          .post(`/api/chats/${chatId}/nodes/${emptyQuestionId}/edit-question`)
+          .post(`/api/chats/${chatId}/nodes/${emptyQuestionId}/edit-user`)
           .send({ content: 'Now a real question' });
 
         expect(editRes.status).toBe(201);
@@ -659,7 +659,7 @@ describe('API Routes (in-memory DB)', () => {
         expect(editRes.body.version).toBe(1);
         expect(editRes.body.previousVersionId).toBeNull();
         expect(editRes.body.isCurrent).toBe(true);
-        expect(editRes.body.type).toBe('question');
+        expect(editRes.body.role).toBe('user');
 
         const afterNodes = await request(app).get(`/api/chats/${chatId}/nodes`);
         expect(afterNodes.body.length).toBe(beforeCount);
@@ -673,13 +673,13 @@ describe('API Routes (in-memory DB)', () => {
           .post(`/api/chats/${chatId}/nodes`)
           .send({
             content: 'Already filled leaf',
-            type: 'answer',
+            role: 'assistant',
             parentId: childQuestionId
           });
         const leafAnswerId = leafAnswerRes.body.id;
 
         const editRes = await request(app)
-          .post(`/api/chats/${chatId}/nodes/${leafAnswerId}/edit-answer`)
+          .post(`/api/chats/${chatId}/nodes/${leafAnswerId}/edit-assistant`)
           .send({ content: 'Revised leaf answer' });
 
         expect(editRes.status).toBe(201);
@@ -700,7 +700,7 @@ describe('API Routes (in-memory DB)', () => {
           .post(`/api/chats/${chatId}/nodes`)
           .send({
             content: '',
-            type: 'answer',
+            role: 'assistant',
             parentId: childQuestionId
           });
         const emptyParentId = emptyParentRes.body.id;
@@ -709,13 +709,13 @@ describe('API Routes (in-memory DB)', () => {
           .post(`/api/chats/${chatId}/nodes`)
           .send({
             content: 'Follow-up under empty answer',
-            type: 'question',
+            role: 'user',
             parentId: emptyParentId
           });
         const grandchildId = grandchildRes.body.id;
 
         const editRes = await request(app)
-          .post(`/api/chats/${chatId}/nodes/${emptyParentId}/edit-answer`)
+          .post(`/api/chats/${chatId}/nodes/${emptyParentId}/edit-assistant`)
           .send({ content: 'Parent now has text' });
 
         expect(editRes.status).toBe(201);
@@ -751,13 +751,13 @@ describe('API Routes (in-memory DB)', () => {
           .post(`/api/chats/${chatId}/nodes`)
           .send({
             content: '',
-            type: 'question',
+            role: 'user',
             attachments: originalAttachments
           });
         const emptyId = emptyRes.body.id;
 
         const keepRes = await request(app)
-          .post(`/api/chats/${chatId}/nodes/${emptyId}/edit-question`)
+          .post(`/api/chats/${chatId}/nodes/${emptyId}/edit-user`)
           .send({ content: 'First fill' });
         expect(keepRes.status).toBe(201);
         expect(keepRes.body.id).toBe(emptyId);
@@ -765,11 +765,11 @@ describe('API Routes (in-memory DB)', () => {
 
         const filledLeafRes = await request(app)
           .post(`/api/chats/${chatId}/nodes`)
-          .send({ content: '', type: 'question' });
+          .send({ content: '', role: 'user' });
         const filledLeafId = filledLeafRes.body.id;
 
         const replaceRes = await request(app)
-          .post(`/api/chats/${chatId}/nodes/${filledLeafId}/edit-question`)
+          .post(`/api/chats/${chatId}/nodes/${filledLeafId}/edit-user`)
           .send({ content: 'Second fill', attachments: replacementAttachments });
         expect(replaceRes.status).toBe(201);
         expect(replaceRes.body.id).toBe(filledLeafId);
@@ -780,7 +780,7 @@ describe('API Routes (in-memory DB)', () => {
         const fakeNodeId = uuidv4();
 
         const res = await request(app)
-          .post(`/api/chats/${chatId}/nodes/${fakeNodeId}/edit-question`)
+          .post(`/api/chats/${chatId}/nodes/${fakeNodeId}/edit-user`)
           .send({content: 'Edit attempt'});
 
         expect(res.status).toBe(404);
@@ -790,16 +790,16 @@ describe('API Routes (in-memory DB)', () => {
       test('Editing with wrong node type returns error', async () => {
         // Try to edit a question as an answer
         const res = await request(app)
-          .post(`/api/chats/${chatId}/nodes/${rootQuestionId}/edit-answer`)
+          .post(`/api/chats/${chatId}/nodes/${rootQuestionId}/edit-assistant`)
           .send({content: 'Wrong type edit'});
 
         expect(res.status).toBe(400);
-        expect(res.body.error).toBe('Only answers can be versioned this way');
+        expect(res.body.error).toBe('Only assistants can be versioned this way');
       });
 
       test('Editing without content returns validation error', async () => {
         const res = await request(app)
-          .post(`/api/chats/${chatId}/nodes/${rootQuestionId}/edit-question`)
+          .post(`/api/chats/${chatId}/nodes/${rootQuestionId}/edit-user`)
           .send({}); // No content
 
         expect(res.status).toBe(400);

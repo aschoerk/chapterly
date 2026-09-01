@@ -251,7 +251,7 @@ export class ChatNodeComponent {
 
   /**
    * OK — persist as a new version of this node. Does not call the LLM.
-   * Answers use /edit-answer. Questions use /edit-question (see patches).
+   * Answers use /edit-assistant. Questions use /edit-question (see patches).
    */
   async saveAsVersion(): Promise<void> {
     const node = this.node();
@@ -567,17 +567,10 @@ export class ChatNodeComponent {
       const messages: ChatMessage[] = [];
 
       for (const n of path) {
-        if (n.role === 'user') {
-          messages.push({
-            role: 'user',
-            content: nodeToMessageContent(n)
-          });
-        } else if (n.role === 'assistant' && n.isCurrent) {
-          messages.push({
-            role: 'assistant',
-            content: nodeToMessageContent(n)
-          });
-        }
+        messages.push({
+          role: n.role,
+          content: nodeToMessageContent(n)
+        });
       }
       return messages;
     }

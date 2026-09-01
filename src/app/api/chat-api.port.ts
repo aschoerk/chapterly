@@ -32,15 +32,15 @@ export interface ChatApiPort {
 
   getNodes(chatId: string): Promise<ChatNode[]>;
   createNode(chatId: string, data: CreateNodeRequest): Promise<ChatNode>;
-  editAnswer(
+  editAssistant(
     chatId: string, nodeId: string, content: string,
     attachments?: NodeAttachment[], thinking?: string
   ): Promise<ChatNode>;
-  editQuestion(
+  editUser(
     chatId: string, nodeId: string, content: string,
     attachments?: NodeAttachment[]
   ): Promise<ChatNode>;
-  branchQuestion(chatId: string, nodeId: string, data: BranchQuestionRequest): Promise<ChatNode>;
+  branchUser(chatId: string, nodeId: string, data: BranchQuestionRequest): Promise<ChatNode>;
   patchNode(chatId: string, nodeId: string, data: {
     content?: string; thinking?: string; attachments?: NodeAttachment[];
     modelId?: string; providerId?: string;

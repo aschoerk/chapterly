@@ -172,9 +172,9 @@ const options = {
               format: 'uuid',
               nullable: true
             },
-            type: {
+            role: {
               type: 'string',
-              enum: ['question', 'answer']
+              enum: ['system', 'user', 'assistant']
             },
             content: {
               type: 'string'

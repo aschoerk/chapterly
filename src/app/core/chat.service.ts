@@ -294,7 +294,7 @@ export class ChatService {
                    attachments?: NodeAttachment[],
                    thinking?: string): Promise<ChatNode> {
     const body: any = {content};
-    const node = await this.api.editAnswer(chatId, nodeId, content, attachments, thinking);
+    const node = await this.api.editAssistant(chatId, nodeId, content, attachments, thinking);
 
     // Mark old version as not current locally and add the new one
     this._nodes.update(list => {
@@ -314,7 +314,7 @@ export class ChatService {
     content: string,
     attachments?: NodeAttachment[]
   ): Promise<ChatNode> {
-    const node = await this.api.editQuestion(chatId, nodeId, content, attachments);
+    const node = await this.api.editUser(chatId, nodeId, content, attachments);
 
     this._nodes.update(list => {
       const updated = list.map(n => (n.id === nodeId ? {...n, isCurrent: false} : n));
@@ -336,7 +336,7 @@ export class ChatService {
   ): Promise<ChatNode> {
     const body: any = {content, modelId, providerId};
     if (attachments !== undefined) body.attachments = attachments;
-    const node = await this.api.branchQuestion(chatId, nodeId, {
+    const node = await this.api.branchUser(chatId, nodeId, {
       content,
       modelId,
       providerId,

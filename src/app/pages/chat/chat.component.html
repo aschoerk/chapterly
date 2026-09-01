@@ -96,7 +96,7 @@
                     (click)="scrollToNode(node.id)"
                     [title]="node.content.slice(0, 120)">
 
-                    <span class="nav-badge">{{ node.role === 'user' ? 'D' : 'C' }}</span>
+                    <span class="nav-badge">{{ node.role === 'user' ? 'D' : (node.role === 'assistant' ? 'C' :'S') }}</span>
 
                     @if (getChildren(node.parentId).length > 1) {
                       <span class="nav-branch-count">

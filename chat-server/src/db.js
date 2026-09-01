@@ -67,7 +67,9 @@ function initializeSchema(db) {
                                           created_at TEXT DEFAULT (datetime('now')),
       updated_at TEXT DEFAULT (datetime('now'))
       );
+  `);
 
+  db.exec(`
     CREATE TABLE IF NOT EXISTS personas (
                                           id TEXT PRIMARY KEY,
                                           name TEXT NOT NULL,
@@ -77,6 +79,9 @@ function initializeSchema(db) {
                                           created_at TEXT DEFAULT (datetime('now')),
       updated_at TEXT DEFAULT (datetime('now'))
       );
+  `);
+
+  db.exec(`
 
     CREATE TABLE IF NOT EXISTS chats (
                                        id TEXT PRIMARY KEY,
@@ -88,11 +93,14 @@ function initializeSchema(db) {
       FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL
       );
 
+  `);
+
+  db.exec(`
     CREATE TABLE IF NOT EXISTS chat_nodes (
                                             id TEXT PRIMARY KEY,
                                             chat_id TEXT NOT NULL,
                                             parent_id TEXT,
-      role TEXT NOT NULL CHECK(type IN ('user', 'assistant', 'system')),
+      role TEXT NOT NULL CHECK(role IN ('user', 'assistant', 'system')),
       content TEXT NOT NULL,
       thinking TEXT,
       model_id TEXT,
@@ -126,6 +134,9 @@ function initializeSchema(db) {
       created_at            TEXT DEFAULT (datetime('now')),
       updated_at            TEXT DEFAULT (datetime('now'))
     );
+  `);
+
+  db.exec(`
 
     CREATE TABLE IF NOT EXISTS topic_projects (
       topic_id   TEXT NOT NULL,
@@ -138,6 +149,9 @@ function initializeSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_topic_projects_topic   ON topic_projects(topic_id);
     CREATE INDEX IF NOT EXISTS idx_topic_projects_project ON topic_projects(project_id);
 
+  `);
+
+  db.exec(`
     CREATE TABLE IF NOT EXISTS chat_parameters (
       id              TEXT PRIMARY KEY,
       name            TEXT DEFAULT '',
@@ -193,15 +207,78 @@ function initializeSchema(db) {
 
     const chatNodeCols = db.prepare(`PRAGMA table_info(chat_nodes)`).all().map(c => c.name);
     if (!chatNodeCols.includes('role')) {
-      db.exec(`PRAGMA ignore_check_constraints = ON;`);
-      db.exec(`ALTER TABLE chat_nodes ADD COLUMN role TEXT NULL CHECK(role IN ('user', 'assistant', 'system'))`);
-      console.log('Migrated models: added role empty');
-      db.exec(`UPDATE chat_nodes
-               SET role = 'user' where type = 'question'`);
-      db.exec(`UPDATE chat_nodes
-               SET role = 'assistant' where type = 'answer'`);
-      console.log('Migrated models: updated role from type');
-      db.exec(`PRAGMA ignore_check_constraints = OFF;`);
+      db.exec(`
+        PRAGMA foreign_keys = OFF;
+        BEGIN;
+
+        CREATE TABLE chat_nodes_new (
+                                                      id TEXT PRIMARY KEY,
+                                                      chat_id TEXT NOT NULL,
+                                                      parent_id TEXT,
+                                                      version INTEGER NOT NULL DEFAULT 1,
+                                                      previous_version_id TEXT,
+                                                      role TEXT NOT NULL CHECK (role IN ('user', 'assistant', 'system')),
+                                                      content TEXT NOT NULL,
+                                                      thinking TEXT,
+                                                      attachments TEXT DEFAULT '[]',
+                                                      is_current INTEGER NOT NULL DEFAULT 1,
+                                                      provider_id TEXT,
+                                                      model_id TEXT,
+                                                      prompt_tokens INTEGER,
+                                                      completion_tokens INTEGER,
+                                                      total_cost REAL,
+                                                      chat_parameters_id TEXT REFERENCES chat_parameters(id) ON DELETE SET NULL,
+                                                      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                                                      updated_at TEXT,
+                                                      FOREIGN KEY (chat_id) REFERENCES chats(id) ON DELETE CASCADE,
+                                                      FOREIGN KEY (parent_id) REFERENCES chat_nodes_new(id) ON DELETE CASCADE,
+                                                      FOREIGN KEY (previous_version_id) REFERENCES chat_nodes_new(id)
+        );
+
+        INSERT INTO chat_nodes_new (
+            id, chat_id, parent_id, version, previous_version_id,
+            role, content, thinking, attachments, is_current,
+            provider_id, model_id,
+            prompt_tokens, completion_tokens, total_cost,
+            chat_parameters_id,
+            created_at, updated_at
+        )
+        SELECT
+            id,
+            chat_id,
+            parent_id,
+            version,
+            previous_version_id,
+            CASE type
+                WHEN 'question' THEN 'user'
+                WHEN 'answer'   THEN 'assistant'
+                WHEN 'system'   THEN 'system'
+                ELSE 'assistant'
+                END,
+            COALESCE(content, ''),
+            thinking,
+            COALESCE(attachments, '[]'),
+            is_current,
+            provider_id,
+            model_id,
+            prompt_tokens,
+            completion_tokens,
+            0.0,
+            chat_parameters_id,
+            created_at,
+            updated_at
+        FROM chat_nodes;
+
+        DROP TABLE chat_nodes;
+        ALTER TABLE chat_nodes_new RENAME TO chat_nodes;
+
+        CREATE INDEX IF NOT EXISTS idx_chat_nodes_chat_id ON chat_nodes(chat_id);
+        CREATE INDEX IF NOT EXISTS idx_chat_nodes_parent_id ON chat_nodes(parent_id);
+
+        COMMIT;
+        PRAGMA foreign_keys = ON;
+        PRAGMA foreign_key_check;
+      `);
     }
   } catch (e) {
     console.warn('chat_nodes.role migration skipped', e.message);

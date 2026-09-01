@@ -47,7 +47,13 @@ export class LlmService {
         'HTTP-Referer': 'https://chat-client.local',
         'X-Title': 'Chapterly'
       },
-      body: body,
+      body:  JSON.stringify({
+        model: modelId,
+        messages: payloadMessages,
+        temperature: restExtras['temperature'] ?? 0.7,
+        ...restExtras,
+        stream: useStream
+      }),
       signal
     });
 

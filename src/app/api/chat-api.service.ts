@@ -91,20 +91,20 @@ export class ChatApiService {
     );
   }
 
-  editAnswer(chatId: string, nodeId: string, content: string, attachments?: NodeAttachment[], thinking?: string | undefined): Promise<ChatNode> {
+  editAssistant(chatId: string, nodeId: string, content: string, attachments?: NodeAttachment[], thinking?: string | undefined): Promise<ChatNode> {
     const body: any = { content };
     if (attachments !== undefined) body.attachments = attachments;
     if (thinking !== undefined) body.thinking = thinking;
 
     return firstValueFrom(
       this.http.post<ChatNode>(
-        this.api(`/chats/${chatId}/nodes/${nodeId}/edit-answer`),
+        this.api(`/chats/${chatId}/nodes/${nodeId}/edit-assistant`),
         body
       )
     );
   }
 
-  editQuestion(
+  editUser(
     chatId: string,
     nodeId: string,
     content: string,
@@ -115,16 +115,16 @@ export class ChatApiService {
 
     return firstValueFrom(
       this.http.post<ChatNode>(
-        this.api(`/chats/${chatId}/nodes/${nodeId}/edit-question`),
+        this.api(`/chats/${chatId}/nodes/${nodeId}/edit-user`),
         body
       )
     );
   }
 
-  branchQuestion(chatId: string, nodeId: string, data: BranchQuestionRequest): Promise<ChatNode> {
+  branchUser(chatId: string, nodeId: string, data: BranchQuestionRequest): Promise<ChatNode> {
     return firstValueFrom(
       this.http.post<ChatNode>(
-        this.api(`/chats/${chatId}/nodes/${nodeId}/branch-question`),
+        this.api(`/chats/${chatId}/nodes/${nodeId}/branch-user`),
         data
       )
     );

@@ -239,28 +239,28 @@ export class IdbChatApiService implements ChatApiPort {
     return row;
   }
 
-  async editAnswer(
+  async editAssistant(
     chatId: string, nodeId: string, content: string,
     attachments?: NodeAttachment[], thinking?: string
   ): Promise<ChatNode> {
     return this.editNodeVersion(nodeId, 'assistant', { content, attachments, thinking });
   }
 
-  async editQuestion(
+  async editUser(
     chatId: string, nodeId: string, content: string,
     attachments?: NodeAttachment[]
   ): Promise<ChatNode> {
     return this.editNodeVersion(nodeId, 'user', { content, attachments });
   }
 
-  async branchQuestion(
+  async branchUser(
     chatId: string, nodeId: string, data: BranchQuestionRequest
   ): Promise<ChatNode> {
     return this.tx(['nodes', 'chats'], 'readwrite', async tx => {
       const nodes = tx.objectStore('nodes');
       const old = await this.req<ChatNode>(nodes.get(nodeId));
       if (!old) throw Object.assign(new Error('Node not found'), { status: 404 });
-      if (old.role !== 'user') throw Object.assign(new Error('Only questions can be branched'), { status: 400 });
+      if (old.role !== 'user') throw Object.assign(new Error('Only user nodes can be branched'), { status: 400 });
       const row: ChatNode = {
         id: this.id(),
         chatId: old.chatId,

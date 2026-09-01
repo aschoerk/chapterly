@@ -297,43 +297,6 @@ export class ChatComponent implements OnInit {
     return parts;
   }
 
-  /**
-   * Builds the OpenAI-style messages array for the current active branch,
-   * up to (but not including) a new question we are about to add.
-   */
-  buildContextMessages(): ChatMessage[] {
-    const messages: ChatMessage[] = [];
-
-    // Prepend project system prompt if present
-    const chatId = this.currentChatId();
-    if (chatId) {
-      const chat = this.chats().find(c => c.id === chatId);
-      if (chat?.projectId) {
-        const project = this.chatService.getProject(chat.projectId);
-        if (project?.systemPrompt?.trim()) {
-          messages.push({ role: 'system', content: project.systemPrompt.trim() });
-        }
-      }
-    }
-
-    let current: ChatNode | null = this.getActiveChild(null);
-    while (current) {
-      if (current.role === 'user') {
-        messages.push({
-          role: 'user',
-          content: this.nodeToMessageContent(current)
-        });
-      } else if (current.role === 'assistant' && current.isCurrent) {
-        messages.push({
-          role: 'assistant',
-          content: this.nodeToMessageContent(current)
-        });
-      }
-      current = this.getActiveChild(current.id);
-    }
-
-    return messages;
-  }
 
   @HostListener('window:keydown', ['$event'])
   onKey(event: KeyboardEvent) {
