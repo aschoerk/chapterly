@@ -281,7 +281,7 @@ export class SideBarComponent implements OnInit {
     if (systemContent) {
       const systemNode = await this.chatService.addNode(chat.id, {
         parentId: null,
-        type: 'question',
+        role: 'user',
         content: systemContent
       });
       systemNodeId = systemNode.id;
@@ -293,7 +293,7 @@ export class SideBarComponent implements OnInit {
 
       await this.chatService.addNode(chat.id, {
         parentId: systemNodeId,          // child of System node when present
-        type: 'answer',
+        role: 'assistant',
         content: greetingContent
       });
     }

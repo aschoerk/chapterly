@@ -28,7 +28,7 @@ export class LastModelService {
   setLastUsedModel() {
     const nodes = this.nodes();
     const lastQuestion = [...nodes]
-      .filter(n => n.type === 'question' && n.modelId)
+      .filter(n => n.role === 'user' && n.modelId)
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
 
     if (!lastQuestion?.modelId) return;

@@ -94,7 +94,7 @@ export class ChatReaderComponent implements OnInit, OnDestroy {
   readonly bookHtml = computed(() => {
     const hideQ = this.hideQuestions();
     return this.currentDoc()
-      .filter(n => !(hideQ && n.type === 'question'))
+      .filter(n => !(hideQ && n.role === 'user'))
       .map(n => this.nodeToHtml(n))
       .join('');
   });
@@ -103,7 +103,7 @@ export class ChatReaderComponent implements OnInit, OnDestroy {
     const path = this.currentDoc();
     if (!path.length) return '';
     const tip = path[path.length - 1];
-    const kind = tip.type === 'question' ? 'Q' : 'A';
+    const kind = tip.role === 'user' ? 'D' : 'C';
     const branch = this.allChildren(tip.parentId).length > 1
       ? ` · branch ${this.allChildren(tip.parentId).findIndex(n => n.id === tip.id) + 1}`
       : '';
@@ -343,14 +343,14 @@ export class ChatReaderComponent implements OnInit, OnDestroy {
   }
 
   private nodeToHtml(node: ChatNode): string {
-    const kind = node.type === 'question' ? 'Question' : 'Answer';
+    const kind = node.role === 'user' ? 'Direction' : 'Chapter';
     const meta = [kind, node.modelId, `v${node.version}`].filter(Boolean).join(' · ');
     const body = this.markdown.toHtml(node.content || '');
     const files = (node.attachments || [])
       .map(a => `<div class="book-file">${this.esc(a.name)}</div>`)
       .join('');
     return (
-      `<section class="book-node book-${node.type}">` +
+      `<section class="book-node book-${node.role}">` +
       `<header class="book-kicker">${this.esc(meta)}</header>` +
       `<div class="book-body">${body}</div>` +
       files +
@@ -379,8 +379,8 @@ export class ChatReaderComponent implements OnInit, OnDestroy {
     if (this.isTyping(event)) return;
 
     switch (event.key) {
-      case 'q':
-      case 'Q':
+      case 'd':
+      case 'D':
         event.preventDefault();
         this.toggleQuestions();
         break;

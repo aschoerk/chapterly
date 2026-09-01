@@ -1,7 +1,7 @@
 <div
   class="node"
-  [class.question-node]="node().type === 'question'"
-  [class.answer-node]="node().type === 'answer'"
+  [class.question-node]="node().role === 'user'"
+  [class.answer-node]="node().role === 'assistant'"
   [class.editing]="isEditing()"
   [class.draft]="isUnsentQuestion()"
   [attr.data-node-id]="node().id">
@@ -9,9 +9,9 @@
   <!-- Header stays visible while editing -->
   <div class="node-header">
     <span class="badge"
-          [class.question]="node().type === 'question'"
-          [class.answer]="node().type === 'answer'">
-      {{ node().type === 'question' ? 'Dir' : 'Ch' }}
+          [class.question]="node().role === 'user'"
+          [class.answer]="node().role === 'assistant'">
+      {{ node().role === 'user' ? 'Dir' : 'Ch' }}
     </span>
 
     @if (node().modelId) {
@@ -19,7 +19,7 @@
     }
     <span class="meta">v{{ node().version }}</span>
 
-    @if (node().type === 'answer') {
+    @if (node().role === 'assistant') {
       <span class="meta">{{ node().content.length }} chars</span>
     }
 
@@ -79,7 +79,7 @@
          (drop)="onEditorDrop($event)">
 
       <div class="editor-toolbar">
-        @if (node().type === 'question') {
+        @if (node().role === 'user') {
           <select class="model-select"
                   [ngModel]="branchModelId()"
                   (ngModelChange)="branchModelId.set($event)"
@@ -211,7 +211,7 @@
     </div>
 
   } @else {
-    @if (node().type === 'answer' && (hasThinking() || isThinkingLive())) {
+    @if (node().role === 'assistant' && (hasThinking() || isThinkingLive())) {
       <div class="thinking-content" [class.live]="isThinkingLive()">
         <button type="button" class="thinking-toggle"
                 (click)="thinkingClosed.set(!thinkingClosed())">
@@ -230,7 +230,7 @@
     }
 
     @if (node().content?.trim()) {
-      @if (node().type === 'question') {
+      @if (node().role === 'user') {
         <div class="node-content empty-draft click-to-edit"
              title="Click to write the next question"
              (click)="onContentClick($event)">
@@ -243,7 +243,7 @@
       }
     } @else if (isThinkingLive()) {
       <!-- spinner lives in thinking-content -->
-    } @else if (node().type === 'question') {
+    } @else if (node().role === 'user') {
       <div class="node-content empty-draft click-to-edit"
            title="Click to write the next question"
            (click)="onContentClick($event)">

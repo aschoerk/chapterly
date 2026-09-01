@@ -92,7 +92,7 @@ function initializeSchema(db) {
                                             id TEXT PRIMARY KEY,
                                             chat_id TEXT NOT NULL,
                                             parent_id TEXT,
-                                            type TEXT NOT NULL CHECK(type IN ('question', 'answer')),
+      role TEXT NOT NULL CHECK(type IN ('user', 'assistant', 'system')),
       content TEXT NOT NULL,
       thinking TEXT,
       model_id TEXT,
@@ -101,6 +101,7 @@ function initializeSchema(db) {
       previous_version_id TEXT,
       prompt_tokens INTEGER,
       completion_tokens INTEGER,
+      total_cost REAL,
       attachments TEXT DEFAULT '[]',
       is_current INTEGER NOT NULL DEFAULT 1,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -189,13 +190,25 @@ function initializeSchema(db) {
         console.log(`Migrated ${table}: added chat_parameters_id`);
       }
     }
+
+    const chatNodeCols = db.prepare(`PRAGMA table_info(chat_nodes)`).all().map(c => c.name);
+    if (!chatNodeCols.includes('role')) {
+      db.exec(`PRAGMA ignore_check_constraints = ON;`);
+      db.exec(`ALTER TABLE chat_nodes ADD COLUMN role TEXT NULL CHECK(role IN ('user', 'assistant', 'system'))`);
+      console.log('Migrated models: added role empty');
+      db.exec(`UPDATE chat_nodes
+               SET role = 'user' where type = 'question'`);
+      db.exec(`UPDATE chat_nodes
+               SET role = 'assistant' where type = 'answer'`);
+      console.log('Migrated models: updated role from type');
+      db.exec(`PRAGMA ignore_check_constraints = OFF;`);
+    }
   } catch (e) {
-    console.warn('chats.node_number migration skipped', e.message);
+    console.warn('chat_nodes.role migration skipped', e.message);
   }
 
   console.log(`📦 SQLite initialized`);
 }
-
 /**
  * Creates a persistent database at the standard location
  */
@@ -205,7 +218,8 @@ function createPersistentDB(verbose = false) {
     fs.mkdirSync(dataDir, { recursive: true });
   }
 
-  const dbPath = path.join(dataDir, 'chapterly.db');
+  const dbFileName = (process.env.CHAPTERLY_DB_NAME || 'chapterly') + '.db';
+  const dbPath = path.join(dataDir, dbFileName);
   const db = new Database(dbPath, {
     verbose: verbose ? (sql) => console.log(`[SQL ${new Date().toISOString()}] ${sql}`) : null
   });
@@ -213,7 +227,6 @@ function createPersistentDB(verbose = false) {
   initializeSchema(db);
   return db;
 }
-
 /**
  * Creates an in-memory database for unit testing
  */

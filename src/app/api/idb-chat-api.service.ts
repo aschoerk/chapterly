@@ -219,7 +219,7 @@ export class IdbChatApiService implements ChatApiPort {
       id: this.id(),
       chatId,
       parentId: data.parentId ?? null,
-      type: data.type,
+      role: data.role,
       content: data.content ?? '',
       thinking: data.thinking ?? null,
       modelId: data.modelId ?? null,
@@ -243,14 +243,14 @@ export class IdbChatApiService implements ChatApiPort {
     chatId: string, nodeId: string, content: string,
     attachments?: NodeAttachment[], thinking?: string
   ): Promise<ChatNode> {
-    return this.editNodeVersion(nodeId, 'answer', { content, attachments, thinking });
+    return this.editNodeVersion(nodeId, 'assistant', { content, attachments, thinking });
   }
 
   async editQuestion(
     chatId: string, nodeId: string, content: string,
     attachments?: NodeAttachment[]
   ): Promise<ChatNode> {
-    return this.editNodeVersion(nodeId, 'question', { content, attachments });
+    return this.editNodeVersion(nodeId, 'user', { content, attachments });
   }
 
   async branchQuestion(
@@ -260,12 +260,12 @@ export class IdbChatApiService implements ChatApiPort {
       const nodes = tx.objectStore('nodes');
       const old = await this.req<ChatNode>(nodes.get(nodeId));
       if (!old) throw Object.assign(new Error('Node not found'), { status: 404 });
-      if (old.type !== 'question') throw Object.assign(new Error('Only questions can be branched'), { status: 400 });
+      if (old.role !== 'user') throw Object.assign(new Error('Only questions can be branched'), { status: 400 });
       const row: ChatNode = {
         id: this.id(),
         chatId: old.chatId,
         parentId: old.parentId,
-        type: 'question',
+        role: 'user',
         content: data.content,
         thinking: null,
         modelId: data.modelId ?? old.modelId,
@@ -588,15 +588,15 @@ export class IdbChatApiService implements ChatApiPort {
 
   private async editNodeVersion(
     nodeId: string,
-    expectedType: 'question' | 'answer',
+    expectedRole: 'system' | 'user' | 'assistant',
     data: { content: string; attachments?: NodeAttachment[]; thinking?: string }
   ): Promise<ChatNode> {
     return this.tx(['nodes', 'chats'], 'readwrite', async tx => {
       const store = tx.objectStore('nodes');
       const old = await this.req<ChatNode>(store.get(nodeId));
       if (!old) throw Object.assign(new Error('Node not found'), { status: 404 });
-      if (old.type !== expectedType) {
-        throw Object.assign(new Error(`Only ${expectedType}s can be versioned this way`), { status: 400 });
+      if (old.role !== expectedRole) {
+        throw Object.assign(new Error(`Only ${expectedRole}s can be versioned this way`), { status: 400 });
       }
 
       const children = await this.req<ChatNode[]>(store.index('by-parent').getAll(old.id));

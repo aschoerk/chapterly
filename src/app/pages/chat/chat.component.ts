@@ -318,12 +318,12 @@ export class ChatComponent implements OnInit {
 
     let current: ChatNode | null = this.getActiveChild(null);
     while (current) {
-      if (current.type === 'question') {
+      if (current.role === 'user') {
         messages.push({
           role: 'user',
           content: this.nodeToMessageContent(current)
         });
-      } else if (current.type === 'answer' && current.isCurrent) {
+      } else if (current.role === 'assistant' && current.isCurrent) {
         messages.push({
           role: 'assistant',
           content: this.nodeToMessageContent(current)

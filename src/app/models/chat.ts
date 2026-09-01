@@ -1,4 +1,4 @@
-export type NodeType = 'question' | 'answer';
+export type NodeRole = 'system' | 'user' | 'assistant';
 
 export interface Project {
   id: string;
@@ -48,7 +48,7 @@ export interface ChatNode {
   id: string;
   chatId: string;
   parentId: string | null;
-  type: NodeType;
+  role: NodeRole;
   content: string;
   thinking?: string | null;
   modelId?: string | null;
@@ -66,7 +66,7 @@ export interface ChatNode {
 
 export interface CreateNodeRequest {
   parentId?: string | null;
-  type: NodeType;
+  role: NodeRole;
   content: string;
   thinking?: string;
   modelId?: string;

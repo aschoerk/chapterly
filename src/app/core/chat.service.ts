@@ -584,7 +584,7 @@ export class ChatService {
   private ensuringDraft = false;
 
   isDraftQuestion(node: ChatNode): boolean {
-    return node.type === 'question'
+    return node.role === 'user'
       && !node.content?.trim()
       && !(node.attachments?.length);
   }
@@ -629,24 +629,24 @@ export class ChatService {
       let leaf = this.getActivePath().at(-1) ?? null;
 
       if (!leaf) {
-        const roots = this.getChildren(null).filter(n => n.type === 'question');
+        const roots = this.getChildren(null).filter(n => n.role === 'user');
         if (roots.length > 0) {
           this.setActiveChild(null, this.newestChild(null)!.id);
           return;
         }
         const draft = await this.addNode(chatId, {
           parentId: null,
-          type: 'question',
+          role: 'user',
           content: ''
         });
         this.setActiveChild(null, draft.id);
         return;
       }
 
-      if (leaf.type !== 'answer') return;
+      if (leaf.role !== 'assistant') return;
       if (!leaf.content?.trim()) return;
 
-      const existing = this.getChildren(leaf.id).filter(n => n.type === 'question');
+      const existing = this.getChildren(leaf.id).filter(n => n.role === 'user');
       if (existing.length > 0) {
         const draft = existing.find(n => this.isDraftQuestion(n)) ?? existing[0];
         this.setActiveChild(leaf.id, draft.id);
@@ -655,7 +655,7 @@ export class ChatService {
 
       const draft = await this.addNode(chatId, {
         parentId: leaf.id,
-        type: 'question',
+        role: 'user',
         content: '',
         modelId: leaf.modelId || undefined,
         providerId: leaf.providerId || undefined

@@ -30,7 +30,15 @@ export class LlmService {
     const useStream = stream !== false && extras['stream'] !== false;
     const { stream: _ignoredStream, ...restExtras } = extras;
 
-    const response = await fetch(`${config.proxyBase}/chat/completions`, {
+    const body =  JSON.stringify({
+      model: modelId,
+      messages: payloadMessages,
+      temperature: restExtras['temperature'] ?? 0.7,
+      ...restExtras,
+      stream: useStream
+    });
+
+    const response =    await fetch(`${config.proxyBase}/chat/completions`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${apiKey}`,
@@ -39,13 +47,7 @@ export class LlmService {
         'HTTP-Referer': 'https://chat-client.local',
         'X-Title': 'Chapterly'
       },
-      body: JSON.stringify({
-        model: modelId,
-        messages: payloadMessages,
-        temperature: restExtras['temperature'] ?? 0.7,
-        ...restExtras,
-        stream: useStream
-      }),
+      body: body,
       signal
     });
 
@@ -121,7 +123,7 @@ export class LlmService {
 
     const answerNode = await this.chatService.addNode(chatId, {
       parentId: questionNodeId,
-      type: 'answer',
+      role: 'assistant',
       content: '',
       thinking: '',
       modelId: model.modelId,

@@ -90,13 +90,13 @@
                 @for (node of getActivePath(); track node.id; let i = $index) {
                   <button
                     class="nav-node"
-                    [class.question]="node.type === 'question'"
-                    [class.answer]="node.type === 'answer'"
+                    [class.question]="node.role === 'user'"
+                    [class.answer]="node.role === 'assistant'"
                     [class.active]="isNearViewport(node.id)"
                     (click)="scrollToNode(node.id)"
                     [title]="node.content.slice(0, 120)">
 
-                    <span class="nav-badge">{{ node.type === 'question' ? 'D' : 'C' }}</span>
+                    <span class="nav-badge">{{ node.role === 'user' ? 'D' : 'C' }}</span>
 
                     @if (getChildren(node.parentId).length > 1) {
                       <span class="nav-branch-count">

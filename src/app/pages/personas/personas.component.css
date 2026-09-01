@@ -208,7 +208,8 @@
   padding: 0.4rem 0.85rem;
   border: 1px solid #d1d5db;
   border-radius: 8px;
-  background: white;
+  background: var(--panel, #fff);
+  color: var(--text);
   cursor: pointer;
   font-size: 0.875rem;
 }

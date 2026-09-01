@@ -65,7 +65,7 @@ export class ChatNodeComponent {
 
   isThinkingLive(): boolean {
     const n = this.node();
-    return n.type === 'answer' && this.chatService.isGenerating(n.id);
+    return n.role === 'assistant' && this.chatService.isGenerating(n.id);
   }
 
   get siblings(): ChatNode[] {
@@ -95,13 +95,13 @@ export class ChatNodeComponent {
   /** Question that has not produced an answer yet — the in-thread composer. */
   isUnsentQuestion(): boolean {
     const n = this.node();
-    if (n.type !== 'question') return false;
-    return !this.chatService.getChildren(n.id).some(child => child.type === 'answer');
+    if (n.role !== 'user') return false;
+    return !this.chatService.getChildren(n.id).some(child => child.role === 'assistant');
   }
 
   isQuestion(): boolean {
     const n = this.node();
-    return n.type === 'question';
+    return n.role === 'user';
   }
 
   /** Last node on the active path (no current children). */
@@ -183,16 +183,16 @@ export class ChatNodeComponent {
     const match = (ref?: string | null) =>
       models.find(m => !!ref && (m.id === ref || m.modelId === ref));
 
-    const queried = node.type === 'question' &&
-      this.chatService.getChildren(node.id).some(c => c.type === 'answer');
+    const queried = node.role === 'user' &&
+      this.chatService.getChildren(node.id).some(c => c.role === 'assistant');
 
     if (queried) {
       const fromQuestion = match(node.modelId);
       if (fromQuestion) return fromQuestion.modelId;
 
       const currentAnswer = this.chatService.getChildren(node.id)
-          .find(c => c.type === 'answer' && c.isCurrent)
-        ?? this.chatService.getChildren(node.id).find(c => c.type === 'answer');
+          .find(c => c.role === 'assistant' && c.isCurrent)
+        ?? this.chatService.getChildren(node.id).find(c => c.role === 'assistant');
       const fromAnswer = match(currentAnswer?.modelId);
       if (fromAnswer) return fromAnswer.modelId;
     }
@@ -274,7 +274,7 @@ export class ChatNodeComponent {
     this.pendingAction.set('version');
     try {
       let saved: ChatNode;
-      if (node.type === 'answer') {
+      if (node.role === 'assistant') {
         saved = await this.chatService.editAnswer(
           chatId,
           node.id,
@@ -446,7 +446,7 @@ export class ChatNodeComponent {
 
     await this.runSend('branch', async () => {
       const newQuestion =
-        node.type === 'question'
+        node.role === 'user'
           ? await this.chatService.branchQuestion(
             chatId,
             node.id,
@@ -457,7 +457,7 @@ export class ChatNodeComponent {
           )
           : await this.chatService.addNode(chatId, {
             parentId: node.id,
-            type: 'question',
+            role: 'user',
             content,
             modelId: model.modelId,
             providerId: model.providerId,
@@ -466,7 +466,7 @@ export class ChatNodeComponent {
 
       this.activate.emit(newQuestion.id);
 
-      const contextParentId = node.type === 'question' ? node.parentId : node.id;
+      const contextParentId = node.role === 'user' ? node.parentId : node.id;
       await this.streamForQuestion(chatId, newQuestion, contextParentId, provider, model, {
         content,
         attachments
@@ -482,8 +482,8 @@ export class ChatNodeComponent {
     if (nonTrivial.length > 0) {
       const extra = subtree.length - 1;
       const msg = extra > 0
-        ? `Delete this ${node.type} and its ${extra} descendant(s)? ${nonTrivial.length} node(s) have content.`
-        : `Delete this ${node.type}? It has content.`;
+        ? `Delete this ${node.role}node and its ${extra} descendant(s)? ${nonTrivial.length} node(s) have content.`
+        : `Delete this ${node.role}node? It has content.`;
       if (!confirm(msg)) return;
     }
 
@@ -567,12 +567,12 @@ export class ChatNodeComponent {
       const messages: ChatMessage[] = [];
 
       for (const n of path) {
-        if (n.type === 'question') {
+        if (n.role === 'user') {
           messages.push({
             role: 'user',
             content: nodeToMessageContent(n)
           });
-        } else if (n.type === 'answer' && n.isCurrent) {
+        } else if (n.role === 'assistant' && n.isCurrent) {
           messages.push({
             role: 'assistant',
             content: nodeToMessageContent(n)
@@ -738,7 +738,7 @@ export class ChatNodeComponent {
 
 
   parametersFootnote(): string | null {
-    if (this.node().type !== 'answer') return null;
+    if (this.node().role !== 'assistant') return null;
     const id = this.node().chatParametersId;
     const own = this.parameters.peek(id);
     if (own) return formatParametersSummary(own);

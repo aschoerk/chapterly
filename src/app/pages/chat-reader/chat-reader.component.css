@@ -2,8 +2,8 @@
   display: flex;
   flex-direction: column;
   height: 100vh;
-  background: #faf8f4;
-  color: #1c1917;
+  background: var(--bg-page, #faf8f4);
+  color: var(--text, #1c1917);
 }
 
 .reader-bar {
@@ -11,8 +11,8 @@
   align-items: center;
   gap: 0.75rem;
   padding: 0.5rem 1rem;
-  border-bottom: 1px solid #e7e5e4;
-  background: #fff;
+  border-bottom: 1px solid var(--border, #e7e5e4);
+  background: var(--panel, #fff);
   flex-shrink: 0;
 }
 
@@ -24,6 +24,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  color: var(--text, #1c1917);
 }
 
 .pager {
@@ -37,7 +38,7 @@
   text-align: center;
   font-variant-numeric: tabular-nums;
   font-size: 0.85rem;
-  color: #78716c;
+  color: var(--text-muted, #78716c);
 }
 
 .btn-icon {
@@ -46,6 +47,7 @@
   border-radius: 6px;
   padding: 0.25rem 0.55rem;
   cursor: pointer;
+  color: var(--text, inherit);
 }
 
 .btn-icon:disabled {
@@ -64,7 +66,6 @@
 }
 
 
-
 .reader-frame {
   flex: 1;
   min-height: 0;          /* without this, flex item won’t shrink */
@@ -80,6 +81,7 @@
   column-count: var(--reader-cols, 3);
   column-fill: auto;
   overflow: hidden;
+  color: var(--text, #1c1917);
 }
 
 .cols-pager .btn-icon {
@@ -88,8 +90,9 @@
 }
 
 .btn-icon.active {
-  background: #ededeb;
-  border-color: #d6d3d1;
+  background: var(--bg-hover, #ededeb);
+  border-color: var(--border, #d6d3d1);
+  color: var(--text, #1c1917);
 }
 
 .book-node {
@@ -109,23 +112,35 @@
   break-after: avoid;
 }
 
-.book-question .book-kicker { color: #1d4ed8; }
-.book-answer .book-kicker { color: #15803d; }
+.book-question .book-kicker { color: var(--color-badge-q-text, #1d4ed8); }
+.book-answer .book-kicker { color: var(--color-badge-a-text, #15803d); }
 
 .book-body p { margin: 0.4em 0; }
 .book-body pre {
   white-space: pre-wrap;
   break-inside: avoid;
+  background: var(--bg-input, #ededeb);
+  color: var(--text, #1c1917);
+  border: 1px solid var(--border, #d6d3d1);
+}
+
+.book-body code {
+  background: var(--bg-input, #ededeb);
+  color: var(--text, #1c1917);
+}
+
+.book-body a {
+  color: var(--accent, #1d4ed8);
 }
 
 .book-file {
   font-size: 0.8rem;
-  color: #78716c;
+  color: var(--text-muted, #78716c);
 }
 
 .empty {
   padding: 2rem;
-  color: #78716c;
+  color: var(--text-muted, #78716c);
 }
 
 @media (max-width: 800px) {

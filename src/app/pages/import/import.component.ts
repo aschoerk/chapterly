@@ -20,7 +20,7 @@ interface ChatBundle {
 
 export interface ParsedTurn {
   role: 'system' | 'user' | 'assistant' | 'other';
-  mappedType: 'question' | 'answer' | 'system' | 'ignored';
+  mappedType: 'user' | 'assistant' | 'system' | 'ignored';
   content: string;
   originalIndex: number;
   unknownBlocks: string[];
@@ -674,7 +674,7 @@ export class ImportComponent {
     if (result.systemPrompt) {
       const sys = await this.chatService.addNode(chat.id, {
         parentId: null,
-        type: 'question',
+        role: 'user',
         content: result.systemPrompt
       });
       parentId = sys.id;
@@ -682,10 +682,10 @@ export class ImportComponent {
     }
 
     for (const turn of result.turns) {
-      if (turn.mappedType === 'ignored' || turn.mappedType === 'system') continue;
+      if (turn.mappedType === 'ignored') continue;
       const node = await this.chatService.addNode(chat.id, {
         parentId,
-        type: turn.mappedType as 'question' | 'answer',
+        role: turn.mappedType as 'user' | 'assistant' | 'system',
         content: turn.content
       });
       parentId = node.id;
@@ -763,8 +763,8 @@ export class ImportComponent {
 
   private mapRole(role: string): { role: ParsedTurn['role']; mappedType: ParsedTurn['mappedType'] } {
     const r = (role || '').toLowerCase().trim();
-    if (r === 'user' || r === 'human' || r === 'query') return { role: 'user', mappedType: 'question' };
-    if (r === 'assistant' || r === 'ai' || r === 'bot' || r === 'model') return { role: 'assistant', mappedType: 'answer' };
+    if (r === 'user' || r === 'human' || r === 'query') return { role: 'user', mappedType: 'user' };
+    if (r === 'assistant' || r === 'ai' || r === 'bot' || r === 'model') return { role: 'assistant', mappedType: 'assistant' };
     if (r === 'system') return { role: 'system', mappedType: 'system' };
     return { role: 'other', mappedType: 'ignored' };
   }
@@ -1075,9 +1075,9 @@ export class ImportComponent {
         if (!systemPrompt) systemPrompt = content;
         continue;
       }
-      const mappedType = type === 'answer' ? 'answer' : 'question';
+      const mappedType = type === 'assistant' ? 'assistant' : 'user';
       turns.push({
-        role: mappedType === 'answer' ? 'assistant' : 'user',
+        role: mappedType === 'assistant' ? 'assistant' : 'user',
         mappedType,
         content,
         originalIndex: i,
@@ -1196,7 +1196,7 @@ export class ImportComponent {
         const [n] = pending.splice(idx, 1);
         const createdNode = await this.chatService.addNode(nc.id, {
           parentId: n.parentId ? idMap.get(n.parentId) ?? null : null,
-          type: n.type,
+          role: n.role,
           content: n.content,
           thinking: n.thinking || undefined,
           modelId: n.modelId || undefined,

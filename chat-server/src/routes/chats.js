@@ -260,9 +260,9 @@ router.get('/:chatId/nodes', (req, res) => {
  *                 type: string
  *                 format: uuid
  *                 nullable: true
- *               type:
+ *               role:
  *                 type: string
- *                 enum: [question, answer]
+ *                 enum: [system, question, answer]
  *               content:
  *                 type: string
  *               thinking:
@@ -293,7 +293,7 @@ router.post('/:chatId/nodes', (req, res) => {
   const { chatId } = req.params;
   const {
     parentId = null,
-    type,
+    role,
     content,
     thinking,
     modelId = null,
@@ -305,11 +305,11 @@ router.post('/:chatId/nodes', (req, res) => {
     return res.status(400).json({ error: 'chatParametersId does not exist' });
   }
 
-  if (!type) {
-    return res.status(400).json({ error: 'type is required' });
+  if (!role) {
+    return res.status(400).json({ error: 'role is required' });
   }
-  if (type !== 'question' && type !== 'answer') {
-    return res.status(400).json({ error: 'type must be "question" or "answer"' });
+  if (role !== 'system' && role !== 'user' && role != 'assistant') {
+    return res.status(400).json({ error: 'role must be "system","user" or "assistant"' });
   }
 
   const id = uuidv4();
@@ -317,10 +317,10 @@ router.post('/:chatId/nodes', (req, res) => {
 
   db.prepare(`
     INSERT INTO chat_nodes (
-      id, chat_id, parent_id, type, content, thinking,
+      id, chat_id, parent_id, role, content, thinking,
       model_id, provider_id, version, is_current, attachments, chat_parameters_id
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 1, ?, ?)
-  `).run(id, chatId, parentId, type, content ?? '',
+  `).run(id, chatId, parentId, role, content ?? '',
     thinking ?? null, modelId, providerId, attachmentsJson, chatParametersId);
 
   db.prepare(`UPDATE chats SET updated_at = datetime('now'), node_number = node_number + 1 WHERE id = ?`).run(chatId);
@@ -333,7 +333,7 @@ router.post('/:chatId/nodes', (req, res) => {
 /**
  * Shared helper to create a new version of a node (question or answer).
  */
-function editNodeVersion(nodeId, expectedType, { content, thinking, attachments }) {
+function editNodeVersion(nodeId, expectedRole, { content, thinking, attachments }) {
   if (content === undefined || content === null) {
     const err = new Error('content is required');
     err.status = 400;
@@ -347,8 +347,8 @@ function editNodeVersion(nodeId, expectedType, { content, thinking, attachments 
     throw err;
   }
 
-  if (oldNode.type !== expectedType) {
-    const err = new Error(`Only ${expectedType}s can be versioned this way`);
+  if (oldNode.role !== expectedRole) {
+    const err = new Error(`Only ${expectedRole}s can be versioned this way`);
     err.status = 400;
     throw err;
   }
@@ -363,7 +363,7 @@ function editNodeVersion(nodeId, expectedType, { content, thinking, attachments 
     ? JSON.stringify(Array.isArray(attachments) ? attachments : [])
     : (oldNode.attachments || '[]');
 
-  const newThinking = thinking !== undefined && expectedType === 'answer'
+  const newThinking = thinking !== undefined && expectedRole === 'assistant'
     ? thinking
     : oldNode.thinking;
 
@@ -385,14 +385,14 @@ function editNodeVersion(nodeId, expectedType, { content, thinking, attachments 
     const newVersion = (oldNode.version || 1) + 1;
     db.prepare(`
       INSERT INTO chat_nodes (
-        id, chat_id, parent_id, type, content, thinking,
+        id, chat_id, parent_id, role, content, thinking,
         model_id, provider_id, version, previous_version_id, is_current, attachments, chat_parameters_id
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
     `).run(
       newId,
       oldNode.chat_id,
       oldNode.parent_id,
-      expectedType,
+      expectedRole,
       content,
       newThinking,
       oldNode.model_id,
@@ -561,7 +561,7 @@ router.post('/:chatId/nodes/:nodeId/edit-question', (req, res) => {
  *                   type: string
  *                   example: "Node not found"
  */
-router.post('/:chatId/nodes/:nodeId/branch-question', (req, res) => {
+router.post('/:chatId/nodes/:nodeId/branch-user', (req, res) => {
   const { nodeId } = req.params;
   const { content, thinking, modelId, providerId, attachments } = req.body;
 
@@ -571,7 +571,7 @@ router.post('/:chatId/nodes/:nodeId/branch-question', (req, res) => {
 
   const oldNode = db.prepare('SELECT * FROM chat_nodes WHERE id = ?').get(nodeId);
   if (!oldNode) return res.status(404).json({ error: 'Node not found' });
-  if (oldNode.type !== 'question') {
+  if (oldNode.role !== 'user') {
     return res.status(400).json({ error: 'Only questions can be branched this way' });
   }
   const chatParametersId = resolveChatParametersId(req.body, oldNode.chat_parameters_id);
@@ -588,9 +588,9 @@ router.post('/:chatId/nodes/:nodeId/branch-question', (req, res) => {
 
   db.prepare(`
     INSERT INTO chat_nodes (
-      id, chat_id, parent_id, type, content, thinking,
+      id, chat_id, parent_id, role, content, thinking,
       model_id, provider_id, version, is_current, attachments, chat_parameters_id
-    ) VALUES (?, ?, ?, 'question', ?, ?, ?, ?, 1, 1, ?, ?)
+    ) VALUES (?, ?, ?, 'user', ?, ?, ?, ?, 1, 1, ?, ?)
   `).run(
     newId,
     oldNode.chat_id,
@@ -726,7 +726,7 @@ function mapNode(row) {
     id: row.id,
     chatId: row.chat_id,
     parentId: row.parent_id,
-    type: row.type,
+    role: row.role,
     content: row.content,
     thinking: row.thinking ?? null,
     modelId: row.model_id,
