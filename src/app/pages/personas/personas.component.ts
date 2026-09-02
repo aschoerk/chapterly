@@ -1,8 +1,18 @@
-import { Component, inject, signal, OnInit, computed } from '@angular/core';
+import {
+  Component,
+  inject,
+  signal,
+  OnInit,
+  computed,
+  ViewChild,
+  ElementRef,
+  HostListener
+} from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import { ChatService } from '../../core/chat.service';
+import { ConfirmService } from '../../core/confirm.service';
 import { Persona } from '../../models/chat';
 
 @Component({
@@ -15,6 +25,7 @@ import { Persona } from '../../models/chat';
 export class PersonasComponent implements OnInit {
   private readonly chatService = inject(ChatService);
   private readonly router = inject(Router);
+  private readonly confirm = inject(ConfirmService);
 
   readonly personas = this.chatService.personas;
 
@@ -25,6 +36,12 @@ export class PersonasComponent implements OnInit {
   readonly error = signal<string | null>(null);
   readonly openMenuId = signal<string | null>(null);
 
+  /** Modal width in CSS pixels, already clamped to ≤ 90vw. */
+  readonly editorWidthPx = signal(520);
+
+  @ViewChild('descEditor') private descEditor?: ElementRef<HTMLTextAreaElement>;
+  @ViewChild('personaModal') private personaModal?: ElementRef<HTMLElement>;
+
   // Form model
   form = {
     name: '',
@@ -32,6 +49,16 @@ export class PersonasComponent implements OnInit {
     description: '',
     avatar: ''
   };
+
+  /** Snapshot taken when the editor opens; used to detect unsaved edits. */
+  private baseline: {
+    name: string;
+    shortName: string;
+    description: string;
+    avatar: string;
+  } | null = null;
+
+  private closeInFlight = false;
 
   readonly filteredPersonas = computed(() => {
     const term = this.searchTerm().toLowerCase().trim();
@@ -67,10 +94,13 @@ export class PersonasComponent implements OnInit {
       avatar: ''
     };
     this.error.set(null);
+    this.captureBaseline();
     this.showForm.set(true);
+    this.scheduleFitEditor();
   }
 
   openEdit(persona: Persona) {
+    this.closeMenu();
     this.editingId.set(persona.id);
     this.form = {
       name: persona.name,
@@ -79,13 +109,40 @@ export class PersonasComponent implements OnInit {
       avatar: persona.avatar || ''
     };
     this.error.set(null);
+    this.captureBaseline();
     this.showForm.set(true);
+    this.scheduleFitEditor();
+  }
+
+  /**
+   * Close the editor. If the form is unchanged, close immediately.
+   * If anything was edited, ask before discarding.
+   */
+  async requestClose(): Promise<void> {
+    if (!this.showForm() || this.closeInFlight) return;
+
+    if (this.isDirty()) {
+      this.closeInFlight = true;
+      const discard = await this.confirm.ask({
+        title: 'Unsaved changes',
+        message: 'This persona has edits that are not saved yet.\nDiscard them?',
+        confirmLabel: 'Discard',
+        cancelLabel: 'Keep editing',
+        danger: true
+      });
+      this.closeInFlight = false;
+      if (!discard) return;
+    }
+
+    this.closeForm();
   }
 
   closeForm() {
     this.showForm.set(false);
     this.editingId.set(null);
     this.error.set(null);
+    this.baseline = null;
+    this.editorWidthPx.set(Math.min(520, Math.floor(window.innerWidth * 0.9)));
   }
 
   async save() {
@@ -196,5 +253,148 @@ export class PersonasComponent implements OnInit {
 
   clearCurrent(): void {
     this.chatService.setCurrentPersona(null);
+  }
+
+  onDescriptionChange(): void {
+    this.fitEditorToDescription();
+  }
+
+  @HostListener('window:resize')
+  onWindowResize(): void {
+    if (this.showForm()) {
+      this.fitEditorToDescription();
+    }
+  }
+
+  @HostListener('document:keydown', ['$event'])
+  onDocumentKeydown(ev: KeyboardEvent): void {
+    if (ev.key !== 'Escape') return;
+
+    // Confirm dialog is already up — Escape means "keep editing".
+    if (this.confirm.current()) {
+      ev.preventDefault();
+      this.confirm.close(false);
+      return;
+    }
+
+    if (!this.showForm()) return;
+    ev.preventDefault();
+    void this.requestClose();
+  }
+
+  private captureBaseline(): void {
+    this.baseline = {
+      name: this.form.name,
+      shortName: this.form.shortName,
+      description: this.form.description,
+      avatar: this.form.avatar
+    };
+  }
+
+  private isDirty(): boolean {
+    const b = this.baseline;
+    if (!b) return false;
+    return (
+      this.form.name !== b.name ||
+      this.form.shortName !== b.shortName ||
+      this.form.description !== b.description ||
+      this.form.avatar !== b.avatar
+    );
+  }
+
+  /** Wait for the modal/textarea to exist in the DOM, then size them. */
+  private scheduleFitEditor(retries = 0): void {
+    requestAnimationFrame(() => {
+      if (this.descEditor?.nativeElement && this.personaModal?.nativeElement) {
+        this.fitEditorToDescription();
+        return;
+      }
+      if (retries < 20 && this.showForm()) {
+        this.scheduleFitEditor(retries + 1);
+      }
+    });
+  }
+
+  /**
+   * Grow the modal and description textarea to the description text.
+   * Width and the overall editor are capped at 90% of the viewport.
+   */
+  private fitEditorToDescription(): void {
+    const ta = this.descEditor?.nativeElement;
+    if (!ta || !this.showForm()) {
+      return;
+    }
+
+    const maxWidth = Math.floor(window.innerWidth * 0.9);
+    const maxHeight = Math.floor(window.innerHeight * 0.9);
+    const minWidth = Math.min(520, maxWidth);
+    const minTextareaHeight = 100;
+
+    const text = this.form.description ?? '';
+    const width = this.measureEditorWidth(text, ta, minWidth, maxWidth);
+    this.editorWidthPx.set(width);
+
+    // Let the new width apply, then measure wrapped height.
+    requestAnimationFrame(() => {
+      const textarea = this.descEditor?.nativeElement;
+      const modal = this.personaModal?.nativeElement;
+      if (!textarea || !modal) return;
+
+      textarea.style.height = 'auto';
+      const needed = Math.max(textarea.scrollHeight, minTextareaHeight);
+
+      const chrome = modal.scrollHeight - textarea.offsetHeight;
+      const availableForTextarea = Math.max(
+        minTextareaHeight,
+        maxHeight - chrome
+      );
+
+      const nextHeight = Math.min(needed, availableForTextarea);
+      textarea.style.height = `${nextHeight}px`;
+      textarea.style.overflowY = needed > availableForTextarea ? 'auto' : 'hidden';
+    });
+  }
+
+  /**
+   * Width tracks the longest description line (plus field padding),
+   * but never exceeds 90vw and never shrinks below the compact default.
+   */
+  private measureEditorWidth(
+    text: string,
+    textarea: HTMLTextAreaElement,
+    minWidth: number,
+    maxWidth: number
+  ): number {
+    if (!text.trim()) return minWidth;
+
+    const style = window.getComputedStyle(textarea);
+    const font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return minWidth;
+    ctx.font = font;
+
+    let longest = 0;
+    for (const line of text.split('\n')) {
+      longest = Math.max(longest, ctx.measureText(line).width);
+    }
+
+    const horizontalChrome =
+      this.parsePx(style.paddingLeft) +
+      this.parsePx(style.paddingRight) +
+      this.parsePx(style.borderLeftWidth) +
+      this.parsePx(style.borderRightWidth);
+
+    // Modal padding (1.5rem each side) sits outside the textarea.
+    const modalPad = 48;
+    const measured = Math.ceil(longest + horizontalChrome + modalPad + 8);
+
+    return Math.max(minWidth, Math.min(maxWidth, measured));
+  }
+
+  private parsePx(value: string): number {
+    const n = parseFloat(value);
+    return Number.isFinite(n) ? n : 0;
   }
 }
