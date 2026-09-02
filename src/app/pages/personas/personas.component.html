@@ -30,13 +30,12 @@
     @for (persona of filteredPersonas(); track trackById($index, persona)) {
       <article class="persona-card" (click)="openEdit(persona)">
         <div class="card-image">
-          @if (persona.avatar) {
-            <img [src]="persona.avatar" [alt]="persona.name" />
-          } @else {
-            <div class="avatar-placeholder">
-              {{ persona.shortName.charAt(0).toUpperCase() }}
-            </div>
-          }
+          <app-avatar-view
+            class="card-avatar"
+            [value]="persona.avatar"
+            [alt]="persona.name"
+            [fallback]="persona.shortName.charAt(0).toUpperCase()"
+          />
 
           <button
             class="menu-btn"
@@ -116,33 +115,13 @@
           ></textarea>
         </label>
 
-        <div class="avatar-section">
-          <label>Avatar</label>
-          <div class="avatar-row">
-            @if (form.avatar) {
-              <img [src]="form.avatar" class="avatar preview" alt="preview" />
-            } @else {
-              <div class="avatar preview placeholder">?</div>
-            }
-            <div class="avatar-controls">
-              <label class="btn small file-btn">
-                Choose image…
-                <input
-                  type="file"
-                  accept="image/*"
-                  (change)="onAvatarSelected($event)"
-                  hidden
-                />
-              </label>
-              @if (form.avatar) {
-                <button type="button" class="btn small" (click)="clearAvatar()">
-                  Remove
-                </button>
-              }
-            </div>
-          </div>
-          <p class="hint">Images are stored as data URLs (keep under ~800 KB).</p>
-        </div>
+        <app-avatar-picker
+          [value]="form.avatar"
+          (valueChange)="form.avatar = $event"
+          (errorChange)="error.set($event)"
+          label="Avatar"
+          placeholder="?"
+        />
 
         <div class="modal-actions">
           <button class="btn" (click)="requestClose()" [disabled]="saving()">Cancel</button>

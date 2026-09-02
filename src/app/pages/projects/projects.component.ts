@@ -1,12 +1,25 @@
-import { Component, inject, signal, OnInit, computed } from '@angular/core';
+import {
+  Component,
+  inject,
+  signal,
+  OnInit,
+  computed,
+  ViewChild,
+  ElementRef,
+  HostListener
+} from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
 import { ChatService } from '../../core/chat.service';
+import { ConfirmService } from '../../core/confirm.service';
 import { SettingsService } from '../../core/settings.service';
 import { Project, Persona, Topic } from '../../models/chat';
 import { ChatParametersService } from '../../core/chat-parameters.service';
 import { ChatParametersEditorComponent } from '../../components/chat-parameters-editor/chat-parameters-editor.component';
+import { AvatarPickerComponent } from '../../components/avatar-picker/avatar-picker.component';
+import { AvatarViewComponent } from '../../components/avatar-view/avatar-view.component';
+import { isImageRef } from '../../core/image-ref';
 import {
   ChatParametersDraft,
   ResolvedChatParameters,
@@ -17,7 +30,7 @@ import {
 @Component({
   selector: 'app-projects',
   standalone: true,
-  imports: [CommonModule, FormsModule, ChatParametersEditorComponent],
+  imports: [CommonModule, FormsModule, ChatParametersEditorComponent, AvatarPickerComponent, AvatarViewComponent],
   templateUrl: './projects.component.html',
   styleUrl: './projects.component.css'
 })
@@ -27,6 +40,33 @@ export class ProjectsComponent implements OnInit {
   private readonly parameters = inject(ChatParametersService);
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
+  private readonly confirm = inject(ConfirmService);
+
+  /** Modal width in CSS pixels, already clamped to ≤ 90vw. */
+  readonly editorWidthPx = signal(560);
+
+  @ViewChild('greetingEditor') private greetingEditor?: ElementRef<HTMLTextAreaElement>;
+  @ViewChild('systemPromptEditor') private systemPromptEditor?: ElementRef<HTMLTextAreaElement>;
+  @ViewChild('projectModal') private projectModal?: ElementRef<HTMLElement>;
+
+  private projectBaseline: {
+    name: string;
+    greeting: string;
+    systemPrompt: string;
+    defaultModelId: string | null;
+    avatar: string;
+    personaIds: string;
+  } | null = null;
+
+  private topicBaseline: {
+    name: string;
+    description: string;
+    icon: string;
+    defaultModelId: string | null;
+    defaultSystemPrompt: string;
+  } | null = null;
+
+  private closeInFlight = false;
 
   readonly projects = this.chatService.projects;
   readonly personas = this.chatService.personas;
@@ -164,14 +204,17 @@ export class ProjectsComponent implements OnInit {
     this.projectParamsDraft.set(emptyParametersDraft());
     this.refreshProjectInherited(null);
     this.error.set(null);
+    this.captureProjectBaseline();
     this.showForm.set(true);
+    this.scheduleFitEditor();
   }
 
   openEdit(project: Project) {
+    this.closeMenu();
     this.editingId.set(project.id);
     this.form = {
       name: project.name,
-      greeting: project.greeting,
+      greeting: project.greeting || '',
       systemPrompt: project.systemPrompt || '',
       defaultModelId: project.defaultModelId,
       avatar: project.avatar || '',
@@ -180,13 +223,36 @@ export class ProjectsComponent implements OnInit {
     };
     void this.loadProjectParams(project);
     this.error.set(null);
+    this.captureProjectBaseline();
     this.showForm.set(true);
+    this.scheduleFitEditor();
+  }
+
+  async requestClose(): Promise<void> {
+    if (!this.showForm() || this.closeInFlight) return;
+
+    if (this.isProjectDirty()) {
+      this.closeInFlight = true;
+      const discard = await this.confirm.ask({
+        title: 'Unsaved changes',
+        message: 'This environment has edits that are not saved yet.\nDiscard them?',
+        confirmLabel: 'Discard',
+        cancelLabel: 'Keep editing',
+        danger: true
+      });
+      this.closeInFlight = false;
+      if (!discard) return;
+    }
+
+    this.closeForm();
   }
 
   closeForm() {
     this.showForm.set(false);
     this.editingId.set(null);
     this.error.set(null);
+    this.projectBaseline = null;
+    this.editorWidthPx.set(Math.min(560, Math.floor(window.innerWidth * 0.9)));
   }
 
   async save() {
@@ -290,8 +356,7 @@ export class ProjectsComponent implements OnInit {
 
   /** Returns true when the icon is an image (data-URL or http) */
   isImageIcon(icon: string | null | undefined): boolean {
-    if (!icon) return false;
-    return icon.startsWith('data:image/') || icon.startsWith('http');
+    return isImageRef(icon);
   }
 
   /** Topics sorted alphabetically */
@@ -337,6 +402,7 @@ export class ProjectsComponent implements OnInit {
     this.topicParamsId = null;
     this.refreshTopicInherited(null);
     this.topicError.set(null);
+    this.captureTopicBaseline();
     this.showTopicForm.set(true);
   }
 
@@ -349,13 +415,34 @@ export class ProjectsComponent implements OnInit {
     this.topicDefaultSystemPrompt.set(topic.defaultSystemPrompt || '');
     void this.loadTopicParams(topic);
     this.topicError.set(null);
+    this.captureTopicBaseline();
     this.showTopicForm.set(true);
+  }
+
+  async requestCloseTopic(): Promise<void> {
+    if (!this.showTopicForm() || this.closeInFlight) return;
+
+    if (this.isTopicDirty()) {
+      this.closeInFlight = true;
+      const discard = await this.confirm.ask({
+        title: 'Unsaved changes',
+        message: 'This topic has edits that are not saved yet.\nDiscard them?',
+        confirmLabel: 'Discard',
+        cancelLabel: 'Keep editing',
+        danger: true
+      });
+      this.closeInFlight = false;
+      if (!discard) return;
+    }
+
+    this.closeTopicForm();
   }
 
   closeTopicForm() {
     this.showTopicForm.set(false);
     this.editingTopicId.set(null);
     this.topicError.set(null);
+    this.topicBaseline = null;
   }
 
 // ============================================================
@@ -560,5 +647,194 @@ export class ProjectsComponent implements OnInit {
     const model = this.settings.models().find(m => m.id === modelId) || null;
     const topic = this.parameters.topicForProject(project?.id ?? null, this.topics()) || null;
     this.projectParamsInherited.set(this.parameters.resolveForChat({ model, topic }));
+  }
+
+  onLongTextChange(): void {
+    this.fitEditorToContent();
+  }
+
+  @HostListener('window:resize')
+  onWindowResize(): void {
+    if (this.showForm()) this.fitEditorToContent();
+  }
+
+  @HostListener('document:keydown', ['$event'])
+  onDocumentKeydown(ev: KeyboardEvent): void {
+    if (ev.key !== 'Escape') return;
+
+    if (this.confirm.current()) {
+      ev.preventDefault();
+      this.confirm.close(false);
+      return;
+    }
+
+    if (this.showForm()) {
+      ev.preventDefault();
+      void this.requestClose();
+      return;
+    }
+
+    if (this.showTopicForm()) {
+      ev.preventDefault();
+      void this.requestCloseTopic();
+    }
+  }
+
+  private captureProjectBaseline(): void {
+    this.projectBaseline = {
+      name: this.form.name,
+      greeting: this.form.greeting,
+      systemPrompt: this.form.systemPrompt,
+      defaultModelId: this.form.defaultModelId,
+      avatar: this.form.avatar,
+      personaIds: JSON.stringify(this.form.personaIds)
+    };
+  }
+
+  private isProjectDirty(): boolean {
+    const b = this.projectBaseline;
+    if (!b) return false;
+    return (
+      this.form.name !== b.name ||
+      this.form.greeting !== b.greeting ||
+      this.form.systemPrompt !== b.systemPrompt ||
+      this.form.defaultModelId !== b.defaultModelId ||
+      this.form.avatar !== b.avatar ||
+      JSON.stringify(this.form.personaIds) !== b.personaIds
+    );
+  }
+
+  private captureTopicBaseline(): void {
+    this.topicBaseline = {
+      name: this.topicName(),
+      description: this.topicDescription(),
+      icon: this.topicIcon(),
+      defaultModelId: this.topicDefaultModelId(),
+      defaultSystemPrompt: this.topicDefaultSystemPrompt()
+    };
+  }
+
+  private isTopicDirty(): boolean {
+    const b = this.topicBaseline;
+    if (!b) return false;
+    return (
+      this.topicName() !== b.name ||
+      this.topicDescription() !== b.description ||
+      this.topicIcon() !== b.icon ||
+      this.topicDefaultModelId() !== b.defaultModelId ||
+      this.topicDefaultSystemPrompt() !== b.defaultSystemPrompt
+    );
+  }
+
+  private scheduleFitEditor(retries = 0): void {
+    requestAnimationFrame(() => {
+      if (
+        this.greetingEditor?.nativeElement &&
+        this.systemPromptEditor?.nativeElement &&
+        this.projectModal?.nativeElement
+      ) {
+        this.fitEditorToContent();
+        return;
+      }
+      if (retries < 20 && this.showForm()) {
+        this.scheduleFitEditor(retries + 1);
+      }
+    });
+  }
+
+  /**
+   * Size the environment modal from greeting + system prompt.
+   * Width follows the longest line; height is split between the two
+   * textareas. Both axes cap at 90% of the viewport.
+   */
+  private fitEditorToContent(): void {
+    const greeting = this.greetingEditor?.nativeElement;
+    const system = this.systemPromptEditor?.nativeElement;
+    if (!greeting || !system || !this.showForm()) return;
+
+    const maxWidth = Math.floor(window.innerWidth * 0.9);
+    const maxHeight = Math.floor(window.innerHeight * 0.9);
+    const minWidth = Math.min(560, maxWidth);
+    const minTa = 88;
+
+    const combined = `${this.form.greeting ?? ''}\n${this.form.systemPrompt ?? ''}`;
+    this.editorWidthPx.set(
+      this.measureEditorWidth(combined, greeting, minWidth, maxWidth)
+    );
+
+    requestAnimationFrame(() => {
+      const g = this.greetingEditor?.nativeElement;
+      const s = this.systemPromptEditor?.nativeElement;
+      const modal = this.projectModal?.nativeElement;
+      if (!g || !s || !modal) return;
+
+      g.style.height = 'auto';
+      s.style.height = 'auto';
+      const needG = Math.max(g.scrollHeight, minTa);
+      const needS = Math.max(s.scrollHeight, minTa);
+
+      const chrome = modal.scrollHeight - g.offsetHeight - s.offsetHeight;
+      const available = Math.max(minTa * 2, maxHeight - chrome);
+
+      if (needG + needS <= available) {
+        this.applyTextareaHeight(g, needG, false);
+        this.applyTextareaHeight(s, needS, false);
+        return;
+      }
+
+      const extra = available - minTa * 2;
+      const growG = Math.max(0, needG - minTa);
+      const growS = Math.max(0, needS - minTa);
+      const growTotal = growG + growS || 1;
+      const heightG = minTa + Math.floor(extra * (growG / growTotal));
+      const heightS = available - heightG;
+      this.applyTextareaHeight(g, heightG, needG > heightG);
+      this.applyTextareaHeight(s, heightS, needS > heightS);
+    });
+  }
+
+  private applyTextareaHeight(
+    ta: HTMLTextAreaElement,
+    height: number,
+    scroll: boolean
+  ): void {
+    ta.style.height = `${height}px`;
+    ta.style.overflowY = scroll ? 'auto' : 'hidden';
+  }
+
+  private measureEditorWidth(
+    text: string,
+    textarea: HTMLTextAreaElement,
+    minWidth: number,
+    maxWidth: number
+  ): number {
+    if (!text.trim()) return minWidth;
+
+    const style = window.getComputedStyle(textarea);
+    const font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return minWidth;
+    ctx.font = font;
+
+    let longest = 0;
+    for (const line of text.split('\n')) {
+      longest = Math.max(longest, ctx.measureText(line).width);
+    }
+
+    const horizontalChrome =
+      this.parsePx(style.paddingLeft) +
+      this.parsePx(style.paddingRight) +
+      this.parsePx(style.borderLeftWidth) +
+      this.parsePx(style.borderRightWidth);
+
+    const modalPad = 48;
+    const measured = Math.ceil(longest + horizontalChrome + modalPad + 8);
+    return Math.max(minWidth, Math.min(maxWidth, measured));
+  }
+
+  private parsePx(value: string): number {
+    const n = parseFloat(value);
+    return Number.isFinite(n) ? n : 0;
   }
 }

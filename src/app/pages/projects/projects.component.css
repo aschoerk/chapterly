@@ -52,6 +52,7 @@
   border-radius: 4px;
   object-fit: cover;
   flex-shrink: 0;
+  --avatar-emoji-size: 0.95rem;
 }
 .topic-list-icon.emoji {
   display: inline-flex;
@@ -67,6 +68,8 @@
   object-fit: cover;
   margin-right: 0.25rem;
   vertical-align: middle;
+  display: inline-block;
+  --avatar-emoji-size: 0.8rem;
 }
 
 .header-topic-icon {
@@ -141,6 +144,7 @@
   flex-direction: column;
   gap: 0.65rem;
   position: relative;
+  cursor: pointer;
 }
 
 .project-card:hover {
@@ -170,6 +174,7 @@
   object-fit: cover;
   background: var(--bg-hover-strong, #e5e7eb);
   flex-shrink: 0;
+  --avatar-emoji-size: 1.35rem;
 }
 
 .project-avatar.placeholder {
@@ -356,23 +361,29 @@
   position: fixed;
   inset: 0;
   background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
   z-index: 1000;
+  padding: 5vh 5vw;
+  box-sizing: border-box;
 }
 
 .modal {
-  position: fixed;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
+  position: relative;
   z-index: 1001;
-
   background: var(--bg-sidebar, #fff);
-  border-radius: 10px;
+  border-radius: 12px;
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
   padding: 1.5rem;
-  width: min(480px, 92vw);
+  width: 560px;
+  max-width: 90vw;
   max-height: 90vh;
+  overflow-x: hidden;
   overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
 }
 
 /* optional: make sure the form itself is not transparent */
@@ -409,8 +420,21 @@
 }
 
 .modal textarea {
-  resize: vertical;
-  min-height: 100px;
+  resize: none;
+  min-height: 88px;
+  overflow-y: hidden;
+  line-height: 1.45;
+}
+
+.modal .auto-field {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.modal .auto-field textarea {
+  flex: 0 1 auto;
 }
 
 .avatar-section {
@@ -515,6 +539,8 @@
   object-fit: cover;
   background: var(--bg-hover-strong, #e5e7eb);
   flex-shrink: 0;
+  overflow: hidden;
+  --avatar-emoji-size: 1.05rem;
 }
 
 .option-avatar.letter {
