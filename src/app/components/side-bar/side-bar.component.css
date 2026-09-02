@@ -175,6 +175,28 @@
   font-size: 0.875rem;
 }
 
+.chat-item .rename-btn {
+  flex-shrink: 0;
+  opacity: 0.55;
+}
+
+.chat-item:hover .rename-btn,
+.chat-item.active .rename-btn {
+  opacity: 1;
+}
+
+.chat-title-input {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.875rem;
+  line-height: 1.3;
+  padding: 0.1rem 0.35rem;
+  border: 1px solid var(--accent, #2563eb);
+  border-radius: 4px;
+  background: var(--bg-input, #fff);
+  color: var(--text);
+}
+
 .reassign-dropdown {
   padding: 0.25rem 0.6rem 0.4rem 1.4rem;
 }
@@ -263,7 +285,7 @@
   cursor: pointer;
   flex-shrink: 0;
   border: 2px solid var(--border, #e5e7eb);
-  background: #e5e7eb;
+  background: var(--bg-hover-strong, #e5e7eb);
   transition: border-color 0.15s, transform 0.15s;
 }
 
@@ -287,8 +309,11 @@
   justify-content: center;
   font-size: 0.9rem;
   font-weight: 600;
-  color: #6b7280;
-  background: linear-gradient(145deg, #f3f4f6, #e5e7eb);
+  color: var(--text-muted, #6b7280);
+  background: var(
+    --avatar-fallback-bg,
+    linear-gradient(145deg, var(--bg-hover, #f0f0f0), var(--bg-hover-strong, #e5e7eb))
+  );
 }
 
 .sidebar-topic-filter {

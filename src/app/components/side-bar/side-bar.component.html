@@ -131,7 +131,32 @@
                    [class.active]="chat.id === currentChatId()"
                    [title]="chatTooltip(chat)"
                    (click)="selectChat(chat)">
-                <span class="chat-title">{{ chat.title }}</span>
+                @if (editingChatId() === chat.id) {
+                  <input
+                    class="chat-title-input"
+                    [ngModel]="titleDraft()"
+                    (ngModelChange)="titleDraft.set($event)"
+                    (click)="$event.stopPropagation()"
+                    (keyup.enter)="saveChatTitle(chat)"
+                    (keyup.esc)="cancelEditChatTitle()"
+                    (blur)="saveChatTitle(chat)"
+                    autofocus
+                  />
+                } @else {
+                  <span class="chat-title">{{ chat.title }}
+                  <button
+                    class="btn-icon rename-btn"
+                    type="button"
+                    (click)="startEditChatTitle(chat, $event)"
+                    title="Rename story">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M12 20h9"/>
+                      <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/>
+                    </svg>
+                  </button>
+                    </span>
+                }
+
                 @if (chat.projectId) {
                   <button
                     class="btn-icon"
@@ -212,7 +237,33 @@
                 [class.active]="chat.id === currentChatId()"
                 [title]="chatTooltip(chat)"
                 (click)="selectChat(chat)">
-                <span class="chat-title">{{ chat.title }}</span>
+
+                @if (editingChatId() === chat.id) {
+                  <input
+                    class="chat-title-input"
+                    [ngModel]="titleDraft()"
+                    (ngModelChange)="titleDraft.set($event)"
+                    (click)="$event.stopPropagation()"
+                    (keyup.enter)="saveChatTitle(chat)"
+                    (keyup.esc)="cancelEditChatTitle()"
+                    (blur)="saveChatTitle(chat)"
+                    autofocus
+                  />
+                } @else {
+                  <span class="chat-title">{{ chat.title }}
+                    <button
+                          class="btn-icon rename-btn"
+                          type="button"
+                          (click)="startEditChatTitle(chat, $event)"
+                          title="Rename story">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M12 20h9"/>
+                        <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/>
+                      </svg>
+                    </button>
+                  </span>
+
+                }
                 <!-- Reassign button -->
                 <button
                   class="btn-icon"

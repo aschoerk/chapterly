@@ -23,12 +23,27 @@ img {
 .emoji {
   font-size: var(--avatar-emoji-size, 1.6rem);
   line-height: 1;
-  background: var(--avatar-emoji-bg, linear-gradient(145deg, #f3f4f6, #e5e7eb));
+  color: var(--text, inherit);
+  background: var(
+    --avatar-emoji-bg,
+    linear-gradient(
+      145deg,
+      var(--bg-hover, #f0f0f0),
+      var(--bg-hover-strong, #e5e7eb)
+    )
+  );
   user-select: none;
 }
 
 .fallback {
   font-weight: 650;
   color: var(--text-muted, #6b7280);
-  background: var(--avatar-fallback-bg, linear-gradient(145deg, #f3f4f6, #e5e7eb));
+  background: var(
+    --avatar-fallback-bg,
+    linear-gradient(
+      145deg,
+      var(--bg-hover, #f0f0f0),
+      var(--bg-hover-strong, #e5e7eb)
+    )
+  );
 }

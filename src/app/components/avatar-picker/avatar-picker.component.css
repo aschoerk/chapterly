@@ -67,6 +67,40 @@
   margin-bottom: 0.45rem;
 }
 
+.block-nav {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 0.45rem;
+}
+
+.block-heading {
+  flex: 1;
+  min-width: 0;
+  text-align: center;
+  line-height: 1.2;
+}
+
+.block-heading strong {
+  display: block;
+  font-size: 0.82rem;
+  font-weight: 650;
+}
+
+.block-index {
+  display: block;
+  font-size: 0.7rem;
+  color: var(--color-text-muted, #9ca3af);
+}
+
+.nav-btn {
+  width: 28px;
+  padding: 0;
+  font-size: 1.15rem;
+  line-height: 1.5;
+  flex-shrink: 0;
+}
+
 .emoji-grid {
   display: grid;
   grid-template-columns: repeat(8, minmax(0, 1fr));

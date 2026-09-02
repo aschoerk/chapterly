@@ -223,11 +223,16 @@
         @if (personas().length === 0) {
           <p class="hint">No personas yet. Create some on the Personas page.</p>
         } @else {
-          <div class="persona-options">
+          <div class="persona-options" role="group" aria-label="Personas">
             @for (persona of personas(); track persona.id) {
-              <label class="persona-option" [class.selected]="isPersonaSelected(persona.id)">
+              <label
+                class="persona-option"
+                [class.selected]="isPersonaSelected(persona.id)"
+                [title]="persona.name + ' @' + persona.shortName"
+              >
                 <input
                   type="checkbox"
+                  class="sr-only"
                   [checked]="isPersonaSelected(persona.id)"
                   (change)="togglePersona(persona.id)"
                 />

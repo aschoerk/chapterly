@@ -33,8 +33,38 @@
         autocomplete="off"
         spellcheck="false"
       />
-      <div class="emoji-grid" role="listbox" [attr.aria-label]="label + ' emoji presets'">
-        @for (emoji of presets; track emoji) {
+
+      <div class="block-nav">
+        <button
+          type="button"
+          class="btn small nav-btn"
+          (click)="prevBlock()"
+          title="Previous group"
+          aria-label="Previous emoji group"
+        >
+          ‹
+        </button>
+        <div class="block-heading">
+          <strong>{{ currentBlock().name }}</strong>
+          <span class="block-index">{{ blockLabel() }}</span>
+        </div>
+        <button
+          type="button"
+          class="btn small nav-btn"
+          (click)="nextBlock()"
+          title="Next group"
+          aria-label="Next emoji group"
+        >
+          ›
+        </button>
+      </div>
+
+      <div
+        class="emoji-grid"
+        role="listbox"
+        [attr.aria-label]="currentBlock().name"
+      >
+        @for (emoji of currentBlock().emojis; track $index) {
           <button
             type="button"
             class="emoji-btn"

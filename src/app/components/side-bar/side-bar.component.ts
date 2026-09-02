@@ -49,6 +49,10 @@ export class SideBarComponent implements OnInit {
   /** which chat is currently showing the reassign dropdown */
   readonly reassigningChatId = signal<string | null>(null);
 
+  /** which chat title is being edited inline */
+  readonly editingChatId = signal<string | null>(null);
+  readonly titleDraft = signal('');
+
   /** 'all' | topic-id */
   readonly selectedTopicId = signal<string>(
     localStorage.getItem(LS_TOPIC) || 'all'
@@ -155,6 +159,25 @@ export class SideBarComponent implements OnInit {
     const topicId = this.selectedTopicId();
     if (!topicId || topicId === 'all') return;
     void this.router.navigate(['/projects'], { queryParams: { editTopic: topicId } });
+  }
+
+  startEditChatTitle(chat: Chat, event?: Event) {
+    event?.stopPropagation();
+    this.reassigningChatId.set(null);
+    this.editingChatId.set(chat.id);
+    this.titleDraft.set(chat.title || '');
+  }
+
+  cancelEditChatTitle() {
+    this.editingChatId.set(null);
+  }
+
+  async saveChatTitle(chat: Chat) {
+    if (this.editingChatId() !== chat.id) return;
+    const title = this.titleDraft().trim();
+    this.editingChatId.set(null);
+    if (!title || title === chat.title) return;
+    await this.chatService.updateChatTitle(chat.id, title);
   }
 
   startEditProject(project: Project, event?: Event) {

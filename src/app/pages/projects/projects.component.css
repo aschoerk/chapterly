@@ -498,49 +498,58 @@
 }
 
 .persona-options {
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-  max-height: 220px;
-  overflow-y: auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+  gap: 0.4rem;
   border: 1px solid var(--border, #e5e7eb);
   border-radius: 10px;
-  padding: 0.4rem;
+  padding: 0.45rem;
 }
 
 .persona-option {
   display: flex;
   align-items: center;
-  gap: 0.6rem;
-  padding: 0.45rem 0.55rem;
+  gap: 0.4rem;
+  min-width: 0;
+  margin: 0;
+  padding: 0.35rem 0.4rem;
+  border: 1px solid transparent;
   border-radius: 8px;
   cursor: pointer;
-  margin: 0;
   font-weight: 400;
+  background: var(--bg-hover, #f9fafb);
 }
 
 .persona-option:hover {
-  background: var(--bg-hover, #f9fafb);
+  background: var(--bg-hover-strong, #f3f4f6);
 }
 
 .persona-option.selected {
   background: var(--bg-active, #eff6ff);
+  border-color: #93c5fd;
 }
 
-.persona-option input {
-  width: auto;
-  margin: 0;
+.persona-option .sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .option-avatar {
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
   border-radius: 50%;
   object-fit: cover;
   background: var(--bg-hover-strong, #e5e7eb);
   flex-shrink: 0;
   overflow: hidden;
-  --avatar-emoji-size: 1.05rem;
+  --avatar-emoji-size: 0.95rem;
 }
 
 .option-avatar.letter {
@@ -556,16 +565,29 @@
   display: flex;
   flex-direction: column;
   min-width: 0;
-  line-height: 1.25;
+  line-height: 1.2;
+}
+
+.option-text strong,
+.option-short {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .option-text strong {
-  font-size: 0.875rem;
+  font-size: 0.78rem;
 }
 
 .option-short {
-  font-size: 0.75rem;
+  font-size: 0.68rem;
   color: var(--text-muted, #6b7280);
+}
+
+@media (min-width: 720px) {
+  .persona-options {
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  }
 }
 
 .modal-actions {

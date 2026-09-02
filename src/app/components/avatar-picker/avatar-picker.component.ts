@@ -1,14 +1,55 @@
-import { Component, EventEmitter, Input, Output, signal } from '@angular/core';
+import { Component, EventEmitter, Input, Output, computed, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { isImageRef } from '../../core/image-ref';
 import { AvatarViewComponent } from '../avatar-view/avatar-view.component';
 
-const PRESET_EMOJIS = [
-  '😀', '🧙', '🕵️', '👩‍🚀', '🐉', '🏰',
-  '🌌', '⚔️', '📚', '🧪', '🎭', '🖋️',
-  '🌙', '🔥', '🌊', '🌲', '🤖', '👻',
-  '👑', '🪄', '🪐', '🕯️', '🧭', '📌'
+export interface EmojiBlock {
+  name: string;
+  emojis: string[];
+}
+
+const EMOJI_BLOCKS: EmojiBlock[] = [
+  {
+    name: 'Originals & Archetypes',
+    emojis: ['😀', '🧙', '🕵️', '👩‍🚀', '🐉', '🏰', '🌌', '⚔️', '📚', '🧪', '🎭', '🖋️', '🌙', '🔥', '🌊', '🌲', '🤖', '👻', '👑', '🪄', '🪐', '🕯️', '🧭', '📌']
+  },
+  {
+    name: 'Fantasy & Mythical',
+    emojis: ['🧜‍♀️', '🧛‍♂️', '🧝‍♂️', '🧚', '🦸‍♀️', '🦹‍♂️', '🧟‍♂️', '🗿', '🦄', '👺', '👾', '🥷', '👽', '💀', '🧞‍♂️', '🗡️', '🛡️', '🔱', '🏴‍☠️', '🧿', '🔮', '📿', '📜', '⚖️']
+  },
+  {
+    name: 'Animals & Beasts',
+    emojis: ['🦅', '🐺', '🦊', '🦁', '🦉', '🐍', '🦇', '🦂', '🕷️', '🐙', '🦈', '🐅', '🐆', '🐻', '🐼', '🐨', '🐗', '🐴', '🐝', '🦋', '🐞', '🐢', '🦩', '🦚']
+  },
+  {
+    name: 'Professions & Roles',
+    emojis: ['👨‍🍳', '👩‍🎨', '👨‍🎤', '👩‍⚕️', '👨‍🏫', '👩‍🌾', '👷‍♂️', '👩‍💻', '👨‍💼', '👩‍🔧', '👨‍🔬', '👩‍⚖️', '👨‍✈️', '👩‍🚒', '👮‍♂️', '💂‍♀️', '🧘‍♀️', '🏋️‍♂️', '🚣‍♂️', '🚴‍♀️', '🤿', '🤺', '🏇', '🤹‍♂️']
+  },
+  {
+    name: 'Nature & Elements',
+    emojis: ['☀️', '🌤️', '🌩️', '❄️', '🌈', '⚡', '☄️', '💫', '💥', '🌪️', '🌋', '🌊', '🌱', '🌿', '☘️', '🍀', '🎍', '🎋', '🍃', '🍂', '🍁', '🍄', '🌵', '🌾']
+  },
+  {
+    name: 'Tech, Sci-Fi & Space',
+    emojis: ['🚀', '🛰️', '🛸', '💻', '🖥️', '📡', '🔋', '💡', '🔦', '⚙️', '🧰', '🔧', '🧬', '🔬', '🔭', '💣', '📻', '📺', '📽️', '📷', '🎮', '🕹️', '💾', '📱']
+  },
+  {
+    name: 'Games, Arts & Hobbies',
+    emojis: ['🎨', '🎬', '🎤', '🎧', '🎼', '🎹', '🥁', '🎷', '🎺', '🎸', '🪕', '🎻', '🎲', '♟️', '🎯', '🎳', '🧩', '🎰', '🪁', '🃏', '🀄', '🪀', '🖌️', '🎨']
+  },
+  {
+    name: 'Places, Buildings & Travel',
+    emojis: ['⛩️', '🕋', '🏛️', '⛪', '🕌', '🕍', '🏯', '🗼', '🗽', '⛺', '🛕', '🏎️', '🏍️', '🚂', '✈️', '⛵', '🚁', '🎡', '🎢', '🏠', '🌆', '🏝️', '🌄', '🌉']
+  },
+  {
+    name: 'Food & Celebrations',
+    emojis: ['☕', '🍵', '🧋', '🍺', '🍷', '🍸', '🍰', '🎂', '🍩', '🍪', '🍫', '🍬', '🍕', '🍔', '🍟', '🌭', '🌮', '🍿', '🎉', '🎊', '🎈', '🎁', '🎀', '🎏']
+  },
+  {
+    name: 'Objects & Symbols',
+    emojis: ['🗝️', '🔑', '🔒', '💎', '🏺', '⌛', '⏰', '🪞', '🧸', '🔔', '🏮', '💍', '❤️', '🖤', '✨', '🏷️', '📦', '🧲', '⏳', '🔱', '🧿', '🏷️', '📜', '🔏']
+  }
 ];
 
 @Component({
@@ -28,8 +69,14 @@ export class AvatarPickerComponent {
   @Output() valueChange = new EventEmitter<string>();
   @Output() errorChange = new EventEmitter<string | null>();
 
-  readonly presets = PRESET_EMOJIS;
+  readonly blocks = EMOJI_BLOCKS;
   readonly showPalette = signal(false);
+  readonly blockIndex = signal(0);
+
+  readonly currentBlock = computed(() => this.blocks[this.blockIndex()]);
+  readonly blockLabel = computed(
+    () => `${this.blockIndex() + 1} / ${this.blocks.length}`
+  );
 
   isImage(): boolean {
     return isImageRef(this.value);
@@ -40,19 +87,33 @@ export class AvatarPickerComponent {
   }
 
   togglePalette(): void {
-    this.showPalette.update(open => !open);
+    const opening = !this.showPalette();
+    this.showPalette.set(opening);
+    if (opening) {
+      this.blockIndex.set(this.blockIndexForValue(this.value));
+    }
+  }
+
+  prevBlock(): void {
+    const n = this.blocks.length;
+    this.blockIndex.update(i => (i - 1 + n) % n);
+  }
+
+  nextBlock(): void {
+    const n = this.blocks.length;
+    this.blockIndex.update(i => (i + 1) % n);
   }
 
   pickEmoji(emoji: string): void {
     this.valueChange.emit(emoji);
     this.errorChange.emit(null);
-    this.showPalette.set(false);
   }
 
   onEmojiTyped(raw: string): void {
     const next = raw.trim();
     this.valueChange.emit(next);
     this.errorChange.emit(null);
+    this.blockIndex.set(this.blockIndexForValue(next));
   }
 
   onFileSelected(event: Event): void {
@@ -84,5 +145,11 @@ export class AvatarPickerComponent {
     this.valueChange.emit('');
     this.errorChange.emit(null);
     this.showPalette.set(false);
+  }
+
+  private blockIndexForValue(value: string): number {
+    if (!value || isImageRef(value)) return 0;
+    const found = this.blocks.findIndex(block => block.emojis.includes(value));
+    return found >= 0 ? found : this.blockIndex();
   }
 }

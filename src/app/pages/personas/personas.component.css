@@ -82,7 +82,7 @@
 .card-image {
   position: relative;
   aspect-ratio: 3 / 4;
-  background: #e5e7eb;
+  background: var(--bg-hover-strong, #e5e7eb);
   overflow: hidden;
 }
 
@@ -107,7 +107,10 @@
   font-size: 3rem;
   font-weight: 600;
   color: #9ca3af;
-  background: linear-gradient(145deg, #f3f4f6, #e5e7eb);
+  background: var(
+    --avatar-fallback-bg,
+    linear-gradient(145deg, var(--bg-hover, #f0f0f0), var(--bg-hover-strong, #e5e7eb))
+  );
 }
 
 /* Three-dot menu button */
