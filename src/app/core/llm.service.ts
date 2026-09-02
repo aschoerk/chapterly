@@ -177,7 +177,7 @@ export class LlmService {
       writeLive();
 
       if (accContent.trim() || accThinking.trim()) {
-        const versioned = await this.chatService.editAnswer(
+        const versioned = await this.chatService.editAssistant(
           chatId,
           answerNode.id,
           accContent,

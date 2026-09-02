@@ -187,13 +187,13 @@ export class ChatNodeComponent {
       this.chatService.getChildren(node.id).some(c => c.role === 'assistant');
 
     if (queried) {
-      const fromQuestion = match(node.modelId);
-      if (fromQuestion) return fromQuestion.modelId;
+      const fromUser = match(node.modelId);
+      if (fromUser) return fromUser.modelId;
 
-      const currentAnswer = this.chatService.getChildren(node.id)
+      const currentAssistant = this.chatService.getChildren(node.id)
           .find(c => c.role === 'assistant' && c.isCurrent)
         ?? this.chatService.getChildren(node.id).find(c => c.role === 'assistant');
-      const fromAnswer = match(currentAnswer?.modelId);
+      const fromAnswer = match(currentAssistant?.modelId);
       if (fromAnswer) return fromAnswer.modelId;
     }
 
@@ -274,15 +274,15 @@ export class ChatNodeComponent {
     this.pendingAction.set('version');
     try {
       let saved: ChatNode;
-      if (node.role === 'assistant') {
-        saved = await this.chatService.editAnswer(
+      if (node.role === 'assistant' || node.role === 'system') {
+        saved = await this.chatService.editAssistant(
           chatId,
           node.id,
           newContent,
           attachments
         );
       } else {
-        saved = await this.chatService.editQuestion(
+        saved = await this.chatService.editUser(
           chatId,
           node.id,
           newContent,
@@ -290,7 +290,7 @@ export class ChatNodeComponent {
         );
       }
       this.activate.emit(saved.id);
-      this.cancelEdit();
+      this.closeEditor();
     } catch (err: any) {
       console.error(err);
       alert('Save failed: ' + (err?.message || err));
@@ -308,7 +308,7 @@ export class ChatNodeComponent {
     if (!this.isUnsentQuestion() || this.isLoading()) return;
     this.contentDraft.set('continue');
     this.editAttachments.set([]);
-    this.branchModelId.set(this.branchModelId() || this.resolvePreferredModelId(this.node()));
+    this.branchModelId.set(this.node().modelId || this.resolvePreferredModelId(this.node()));
     this.pendingAction.set('continue');
     await this.sendDraft();
     await this.cancelEdit();

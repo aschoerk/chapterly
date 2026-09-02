@@ -299,7 +299,10 @@ export class SideBarComponent implements OnInit {
 
     // ---------- 3. Optional greeting → first answer node ----------
     if (project.greeting?.trim()) {
-      const greetingContent = `${project.greeting.trim()}`;
+      const greetingContent = (userPersona && userPersona.name ?
+        `${project.greeting.replace('{{user}}',userPersona?.name)}`
+        : `${project.greeting}`.trim())
+
 
       await this.chatService.addNode(chat.id, {
         parentId: currentParentNodeId,          // child of System node when present

@@ -290,39 +290,59 @@ export class ChatService {
     await this.ensureDraftAtLeaf(chatId);
   }
 
-  async editAnswer(chatId: string, nodeId: string, content: string,
-                   attachments?: NodeAttachment[],
-                   thinking?: string): Promise<ChatNode> {
-    const body: any = {content};
-    const node = await this.api.editAssistant(chatId, nodeId, content, attachments, thinking);
+  private adoptSubtree(oldId: string, newId: string): void {
+    if (oldId === newId) return;
 
-    // Mark old version as not current locally and add the new one
-    this._nodes.update(list => {
-      const updated = list.map(n =>
-        n.id === nodeId ? {...n, isCurrent: false} : n
-      );
-      return [...updated, node];
+    this._nodes.update(list =>
+      list.map(n => n.parentId === oldId ? { ...n, parentId: newId } : n)
+    );
+
+    this._activeChildMap.update(m => {
+      if (!(oldId in m)) return m;
+      const { [oldId]: childId, ...rest } = m;
+      return { ...rest, [newId]: childId };
     });
-    this.setActiveChild(node.parentId ?? null, node.id);
-    await this.ensureDraftAtLeaf(chatId);
-    return node;
   }
 
-  async editQuestion(
+  async editAssistant(chatId: string, nodeId: string, content: string,
+                      attachments?: NodeAttachment[],
+                      thinking?: string): Promise<ChatNode> {
+    const body: any = {content};
+    const saved = await this.api.editAssistant(chatId, nodeId, content, attachments, thinking);
+
+    this._nodes.update(list => {
+      const retired = list.map(n =>
+        n.id === nodeId && saved.id !== nodeId ? { ...n, isCurrent: false } : n
+      );
+      const withoutDup = retired.filter(n => n.id !== saved.id);
+      return [...withoutDup, saved];
+    });
+
+    this.adoptSubtree(nodeId, saved.id);
+    this.setActiveChild(saved.parentId ?? null, saved.id);
+    await this.ensureDraftAtLeaf(chatId);
+    return saved;
+  }
+
+  async editUser(
     chatId: string,
     nodeId: string,
     content: string,
     attachments?: NodeAttachment[]
   ): Promise<ChatNode> {
-    const node = await this.api.editUser(chatId, nodeId, content, attachments);
+    const saved = await this.api.editUser(chatId, nodeId, content, attachments);
 
     this._nodes.update(list => {
-      const updated = list.map(n => (n.id === nodeId ? {...n, isCurrent: false} : n));
-      return [...updated, node];
+      const retired = list.map(n =>
+        n.id === nodeId && saved.id !== nodeId ? { ...n, isCurrent: false } : n
+      );
+      const withoutDup = retired.filter(n => n.id !== saved.id);
+      return [...withoutDup, saved];
     });
 
-    this.setActiveChild(node.parentId ?? null, node.id);
-    return node;
+    this.adoptSubtree(nodeId, saved.id);
+    this.setActiveChild(saved.parentId ?? null, saved.id);
+    return saved;
   }
 
   /** Edit a question → creates a new branch */
