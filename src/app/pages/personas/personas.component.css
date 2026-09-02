@@ -86,11 +86,16 @@
   overflow: hidden;
 }
 
-.card-image img {
+.card-image img,
+.card-image .card-avatar {
   width: 100%;
   height: 100%;
   object-fit: cover;
   display: block;
+}
+
+.card-image .card-avatar {
+  --avatar-emoji-size: 4.2rem;
 }
 
 .avatar-placeholder {

@@ -19,11 +19,12 @@
         <li [class.active]="selectedTopicId() === t.id"
             (click)="selectTopic(t.id)">
 
-          @if (isImageIcon(t.icon)) {
-            <img class="topic-list-icon" [src]="t.icon" alt="" />
-          } @else {
-            <span class="topic-list-icon emoji">{{ t.icon || '📌' }}</span>
-          }
+          <app-avatar-view
+            class="topic-list-icon"
+            [value]="t.icon"
+            [alt]="t.name"
+            fallback="📌"
+          />
 
           <span class="topic-name">{{ t.name }}</span>
 
@@ -61,20 +62,19 @@
 
     <div class="project-grid">
       @for (p of visibleProjects(); track p.id) {
-        <article class="project-card">
+        <article class="project-card" (click)="openEdit(p)">
 
           <!-- top row: avatar + name + menu -->
           <div class="card-top">
-            @if (p.avatar) {
-              <img class="project-avatar" [src]="p.avatar" alt="" />
-            } @else {
-              <div class="project-avatar placeholder">
-                {{ p.name.charAt(0).toUpperCase() }}
-              </div>
-            }
+            <app-avatar-view
+              class="project-avatar"
+              [value]="p.avatar"
+              [alt]="p.name"
+              [fallback]="p.name.charAt(0).toUpperCase()"
+            />
 
             <div class="card-title-block">
-              <h3 class="card-title" (dblclick)="openEdit(p)">{{ p.name }}</h3>
+              <h3 class="card-title">{{ p.name }}</h3>
               @if (p.greeting) {
                 <p class="card-greeting">{{ p.greeting | slice:0:80 }}{{ p.greeting.length > 80 ? '…' : '' }}</p>
               }
@@ -90,12 +90,13 @@
           <!-- topic chips -->
           <div class="topic-chips">
             @for (t of topicsOf(p.id); track t.id) {
-              <span class="chip" (click)="selectTopic(t.id)">
-                @if (isImageIcon(t.icon)) {
-                  <img class="chip-icon" [src]="t.icon" alt="" />
-                } @else {
-                  <span>{{ t.icon || '📌' }}</span>
-                }
+              <span class="chip" (click)="selectTopic(t.id); $event.stopPropagation()">
+                <app-avatar-view
+                  class="chip-icon"
+                  [value]="t.icon"
+                  [alt]="t.name"
+                  fallback="📌"
+                />
                 {{ t.name }}
               </span>
             } @empty {
@@ -104,7 +105,7 @@
           </div>
 
           <!-- context actions (depend on current filter) -->
-          <div class="card-actions">
+          <div class="card-actions" (click)="$event.stopPropagation()">
             @if (selectedTopicId() !== 'all' && selectedTopicId() !== 'unassigned') {
               <!-- we are inside a concrete topic -->
               <button class="btn small danger-outline"
@@ -147,8 +148,13 @@
   </main>
 </div>
 @if (showForm()) {
-  <div class="modal-backdrop" (click)="closeForm()">
-    <div class="modal" (click)="$event.stopPropagation()">
+  <div class="modal-backdrop" (click)="requestClose()">
+    <div
+      #projectModal
+      class="modal project-form"
+      [style.width.px]="editorWidthPx()"
+      (click)="$event.stopPropagation()"
+    >
       <h3>{{ editingId() ? 'Edit environment' : 'New environment' }}</h3>
 
       @if (error()) {
@@ -165,48 +171,32 @@
       </label>
 
 
-      <div class="avatar-section">
-        <label>Avatar</label>
-        <div class="avatar-row">
-          @if (form.avatar) {
-            <img [src]="form.avatar" class="avatar preview" alt="preview" />
-          } @else {
-            <div class="avatar preview placeholder">?</div>
-          }
-          <div class="avatar-controls">
-            <label class="btn small file-btn">
-              Choose image…
-              <input
-                type="file"
-                accept="image/*"
-                (change)="onAvatarSelected($event)"
-                hidden
-              />
-            </label>
-            @if (form.avatar) {
-              <button type="button" class="btn small" (click)="clearAvatar()">
-                Remove
-              </button>
-            }
-          </div>
-        </div>
-        <p class="hint">Images are stored as data URLs (keep under ~800 KB).</p>
-      </div>
+      <app-avatar-picker
+        [value]="form.avatar"
+        (valueChange)="form.avatar = $event"
+        (errorChange)="error.set($event)"
+        label="Avatar"
+        placeholder="?"
+      />
 
-      <label>
+      <label class="auto-field">
         Greeting
         <textarea
+          #greetingEditor
           [(ngModel)]="form.greeting"
-          rows="5"
+          (ngModelChange)="onLongTextChange()"
+          rows="4"
           placeholder="The first message often describing the situation"
         ></textarea>
       </label>
 
-      <label>
+      <label class="auto-field">
         System prompt
         <textarea
+          #systemPromptEditor
           [(ngModel)]="form.systemPrompt"
-          rows="5"
+          (ngModelChange)="onLongTextChange()"
+          rows="4"
           placeholder="Optional instructions applied to every story in this environment…"
         ></textarea>
       </label>
@@ -241,11 +231,12 @@
                   [checked]="isPersonaSelected(persona.id)"
                   (change)="togglePersona(persona.id)"
                 />
-                @if (persona.avatar) {
-                  <img [src]="persona.avatar" class="option-avatar" alt="" />
-                } @else {
-                  <span class="option-avatar letter">{{ persona.shortName.charAt(0).toUpperCase() }}</span>
-                }
+                <app-avatar-view
+                  class="option-avatar"
+                  [value]="persona.avatar"
+                  [alt]="persona.name"
+                  [fallback]="persona.shortName.charAt(0).toUpperCase()"
+                />
                 <span class="option-text">
                   <strong>{{ persona.name }}</strong>
                   <span class="option-short">@{{ persona.shortName }}</span>
@@ -257,7 +248,7 @@
       </div>
 
       <div class="modal-actions">
-        <button class="btn" (click)="closeForm()" [disabled]="saving()">Cancel</button>
+        <button class="btn" (click)="requestClose()" [disabled]="saving()">Cancel</button>
         <button
           class="btn primary"
           (click)="save()"
@@ -270,102 +261,76 @@
   </div>
 }
 @if (showTopicForm()) {
-  <div class="modal-backdrop" (click)="closeTopicForm()"></div>
+  <div class="modal-backdrop" (click)="requestCloseTopic()">
+    <div class="modal topic-form" (click)="$event.stopPropagation()">
+      <h3>{{ editingTopicId() ? 'Edit Topic' : 'New Topic' }}</h3>
 
-  <div class="modal topic-form" (click)="$event.stopPropagation()">
-    <h3>{{ editingTopicId() ? 'Edit Topic' : 'New Topic' }}</h3>
+      @if (topicError()) {
+        <div class="alert fail">{{ topicError() }}</div>
+      }
 
-    @if (topicError()) {
-      <div class="alert fail">{{ topicError() }}</div>
-    }
+      <label>
+        Name *
+        <input type="text"
+               [ngModel]="topicName()"
+               (ngModelChange)="topicName.set($event)"
+               placeholder="e.g. Cyberpunk Night" />
+      </label>
 
-    <label>
-      Name *
-      <input type="text"
-             [ngModel]="topicName()"
-             (ngModelChange)="topicName.set($event)"
-             placeholder="e.g. Cyberpunk Night" />
-    </label>
-
-    <label>
-      Description
-      <textarea rows="2"
-                [ngModel]="topicDescription()"
-                (ngModelChange)="topicDescription.set($event)">
+      <label>
+        Description
+        <textarea rows="2"
+                  [ngModel]="topicDescription()"
+                  (ngModelChange)="topicDescription.set($event)">
     </textarea>
-    </label>
+      </label>
 
-    <div class="avatar-section">
-      <label>Icon</label>
+      <app-avatar-picker
+        [value]="topicIcon()"
+        (valueChange)="topicIcon.set($event)"
+        (errorChange)="topicError.set($event)"
+        label="Icon"
+        placeholder="📌"
+        hint="Optional. Use a photo or an emoji."
+      />
 
-      <div class="avatar-row">
-        @if (topicIcon()) {
-          <img [src]="topicIcon()" class="avatar preview" alt="topic icon" />
-        } @else {
-          <div class="avatar preview placeholder">📌</div>
-        }
-
-        <div class="avatar-controls">
-          <label class="btn small file-btn">
-            Choose image…
-            <input
-              type="file"
-              accept="image/*"
-              (change)="onTopicIconSelected($event)"
-              hidden
-            />
-          </label>
-
-          @if (topicIcon()) {
-            <button type="button" class="btn small" (click)="clearTopicIcon()">
-              Remove
-            </button>
+      <label>
+        Default model
+        <select [ngModel]="topicDefaultModelId()"
+                (ngModelChange)="topicDefaultModelId.set($event)">
+          <option [ngValue]="null">— none —</option>
+          @for (m of enabledModels(); track m.id) {
+            <option [ngValue]="m.id">{{ m.displayName }}</option>
           }
-        </div>
-      </div>
+        </select>
+      </label>
 
-      <p class="hint">
-        Optional. Images are stored as data URLs (keep under ~800 KB).
-        You can also leave it empty and use an emoji later.
-      </p>
-    </div>
-
-    <label>
-      Default model
-      <select [ngModel]="topicDefaultModelId()"
-              (ngModelChange)="topicDefaultModelId.set($event)">
-        <option [ngValue]="null">— none —</option>
-        @for (m of enabledModels(); track m.id) {
-          <option [ngValue]="m.id">{{ m.displayName }}</option>
-        }
-      </select>
-    </label>
-
-    <label>
-      Default system prompt
-      <textarea rows="5"
-                [ngModel]="topicDefaultSystemPrompt()"
-                (ngModelChange)="topicDefaultSystemPrompt.set($event)"
-                placeholder="Optional system prompt that can be used by environments in this topic">
+      <label>
+        Default system prompt
+        <textarea rows="5"
+                  [ngModel]="topicDefaultSystemPrompt()"
+                  (ngModelChange)="topicDefaultSystemPrompt.set($event)"
+                  placeholder="Optional system prompt that can be used by environments in this topic">
     </textarea>
-    </label>
+      </label>
 
-    <app-chat-parameters-editor
-      [initial]="topicParamsDraft()"
-      [initialOverride]="topicParamsOverride()"
-      [inherited]="topicParamsInherited()"
-      (changed)="onTopicParamsChanged($event)"
-    />
+      <app-chat-parameters-editor
+        [initial]="topicParamsDraft()"
+        [initialOverride]="topicParamsOverride()"
+        [inherited]="topicParamsInherited()"
+        (changed)="onTopicParamsChanged($event)"
+      />
 
-    <div class="modal-actions">
-      <button class="btn" (click)="closeTopicForm()" [disabled]="topicSaving()">
-        Cancel
-      </button>
-      <button class="btn primary"
-              (click)="saveTopic()"
-              [disabled]="topicSaving() || !topicName().trim()">
-        {{ topicSaving() ? 'Saving…' : (editingTopicId() ? 'Update' : 'Create') }}
-      </button>
+      <div class="modal-actions">
+        <button class="btn" (click)="requestCloseTopic()" [disabled]="topicSaving()">
+          Cancel
+        </button>
+        <button class="btn primary"
+                (click)="saveTopic()"
+                [disabled]="topicSaving() || !topicName().trim()">
+          {{ topicSaving() ? 'Saving…' : (editingTopicId() ? 'Update' : 'Create') }}
+        </button>
+      </div>
     </div>
   </div>
 }
