@@ -7,6 +7,7 @@ import { LastModelService } from '../../core/last-model.service';
 import { SettingsService } from '../../core/settings.service';
 import { Chat, Project } from '../../models/chat';
 import {CHAT_API} from '../../api/chat-api.token';
+import { AvatarViewComponent } from '../avatar-view/avatar-view.component';
 
 const LS_EXPANDED_KEY = 'chat-client.projects.expanded';
 const LS_TOPIC = 'chat.selectedTopicId';
@@ -14,7 +15,7 @@ const LS_TOPIC = 'chat.selectedTopicId';
 @Component({
   selector: 'side-bar',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, AvatarViewComponent],
   templateUrl: './side-bar.component.html',
   styleUrls: ['./side-bar.component.css']
 })

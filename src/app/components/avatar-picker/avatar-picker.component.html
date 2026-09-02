@@ -1,0 +1,53 @@
+<div class="avatar-section">
+  <label>{{ label }}</label>
+  <div class="avatar-row">
+    <div class="preview">
+      <app-avatar-view [value]="value" [fallback]="placeholder" [alt]="label" />
+    </div>
+
+    <div class="avatar-controls">
+      <label class="btn small file-btn">
+        Choose image…
+        <input type="file" accept="image/*" (change)="onFileSelected($event)" hidden />
+      </label>
+
+      <button type="button" class="btn small" (click)="togglePalette()">
+        {{ showPalette() ? 'Hide emojis' : 'Use emoji' }}
+      </button>
+
+      @if (value) {
+        <button type="button" class="btn small" (click)="clear()">Remove</button>
+      }
+    </div>
+  </div>
+
+  @if (showPalette()) {
+    <div class="emoji-tools">
+      <input
+        class="emoji-input"
+        type="text"
+        [ngModel]="emojiDraft()"
+        (ngModelChange)="onEmojiTyped($event)"
+        placeholder="Paste or type an emoji — Win+. / Ctrl-Cmd-Space"
+        maxlength="16"
+        autocomplete="off"
+        spellcheck="false"
+      />
+      <div class="emoji-grid" role="listbox" [attr.aria-label]="label + ' emoji presets'">
+        @for (emoji of presets; track emoji) {
+          <button
+            type="button"
+            class="emoji-btn"
+            [class.selected]="value === emoji"
+            (click)="pickEmoji(emoji)"
+            [title]="emoji"
+          >
+            {{ emoji }}
+          </button>
+        }
+      </div>
+    </div>
+  }
+
+  <p class="hint">{{ hint }}</p>
+</div>

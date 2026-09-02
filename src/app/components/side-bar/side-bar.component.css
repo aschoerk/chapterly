@@ -255,6 +255,7 @@
 }
 
 .current-persona-avatar {
+  --avatar-emoji-size: 1.05rem;
   width: 32px;
   height: 32px;
   border-radius: 50%;

@@ -1,0 +1,34 @@
+:host {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+img,
+.emoji,
+.fallback {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+img {
+  object-fit: cover;
+  display: block;
+}
+
+.emoji {
+  font-size: var(--avatar-emoji-size, 1.6rem);
+  line-height: 1;
+  background: var(--avatar-emoji-bg, linear-gradient(145deg, #f3f4f6, #e5e7eb));
+  user-select: none;
+}
+
+.fallback {
+  font-weight: 650;
+  color: var(--text-muted, #6b7280);
+  background: var(--avatar-fallback-bg, linear-gradient(145deg, #f3f4f6, #e5e7eb));
+}

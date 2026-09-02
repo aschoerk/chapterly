@@ -14,11 +14,13 @@ import { Router } from '@angular/router';
 import { ChatService } from '../../core/chat.service';
 import { ConfirmService } from '../../core/confirm.service';
 import { Persona } from '../../models/chat';
+import { AvatarPickerComponent } from '../../components/avatar-picker/avatar-picker.component';
+import { AvatarViewComponent } from '../../components/avatar-view/avatar-view.component';
 
 @Component({
   selector: 'app-personas',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, AvatarPickerComponent, AvatarViewComponent],
   templateUrl: './personas.component.html',
   styleUrl: './personas.component.css'
 })

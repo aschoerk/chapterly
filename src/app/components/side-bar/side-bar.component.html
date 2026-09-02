@@ -8,13 +8,11 @@
           (click)="goToPersonas()"
           [title]="persona.name + ' (current persona)'"
         >
-          @if (persona.avatar) {
-            <img [src]="persona.avatar" [alt]="persona.name" />
-          } @else {
-            <div class="avatar-placeholder">
-              {{ persona.shortName.charAt(0).toUpperCase() }}
-            </div>
-          }
+          <app-avatar-view
+            [value]="persona.avatar"
+            [alt]="persona.name"
+            [fallback]="persona.shortName.charAt(0).toUpperCase()"
+          />
         </div>
       }
       <h2>Stories</h2>

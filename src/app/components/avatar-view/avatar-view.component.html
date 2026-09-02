@@ -1,0 +1,7 @@
+@if (isImage()) {
+  <img [src]="value" [alt]="alt" />
+} @else if (isEmoji()) {
+  <div class="emoji" [attr.aria-label]="alt || value">{{ value }}</div>
+} @else {
+  <div class="fallback">{{ fallback }}</div>
+}
