@@ -103,6 +103,20 @@
   transition: opacity 0.12s ease;
 }
 
+.project-mini-icon {
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  flex-shrink: 0;
+  overflow: hidden;
+  background: var(--bg-hover-strong, #e5e7eb);
+  --avatar-emoji-size: 0.8rem;
+}
+
+.project-header.current .project-mini-icon {
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
 .expand-btn .chevron {
   transition: transform 0.15s ease;
 }

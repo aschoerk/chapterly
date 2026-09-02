@@ -9,8 +9,80 @@
 
 .projects-layout {
   display: flex;
+  flex-direction: row;
   height: calc(100vh - var(--app-nav-height, 44px));
 }
+
+
+.topic-pane {
+  flex: 0 0 240px;
+  width: 240px;
+  display: flex;
+  flex-direction: column;   /* header on top, list below */
+  overflow: hidden;
+  border-right: 1px solid var(--border);
+}
+
+.topic-pane .pane-header {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.35rem;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.75rem 0.45rem 0.6rem 0.7rem;
+  flex: 0 0 auto;
+}
+
+.topic-pane .pane-header h2 {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 650;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.topic-list li {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 0.4rem 0.45rem 0.4rem 0.7rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.topic-list li.divider {
+  height: 1px;
+  padding: 0;
+  margin: 0.35rem 0.7rem;
+  background: var(--border);
+  cursor: default;
+  pointer-events: none;
+}
+
+/* Do not reuse .topic-actions { margin-left: auto } on this button */
+.topic-pane .pane-header .btn-icon {
+  flex: 0 0 auto;
+  margin-left: 0;
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.topic-list {
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
+  overflow-y: auto;
+  list-style: none;   /* required */
+  margin: 0;          /* required */
+  padding: 0.35rem 0; /* no 40px start padding */
+}
+
 
 .project-pane {
   flex: 1;
@@ -18,20 +90,20 @@
   padding: 1rem;
 }
 
-.topic-pane {
-  width: 240px;
-  border-right: 1px solid var(--border);
-  display: flex;
-  flex-direction: column;
+.topic-name {
+  flex: 1 1 auto;
+  min-width: 0;
   overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.topic-list {
-  flex: 1;
-  overflow-y: auto;
-  list-style: none;
-  margin: 0;
-  padding: 0.5rem 0;
+.topic-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.15rem;
+  margin-left: auto;
+  flex-shrink: 0;
 }
 
 .topic-list li {
@@ -397,12 +469,24 @@
   font-size: 1.2rem;
 }
 
+.modal.project-form {
+  display: flex;
+  flex-direction: column;
+  max-height: 90vh;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
 .modal label {
   display: block;
+  flex: 0 0 auto;
+  min-height: auto;
   margin-bottom: 1rem;
   font-size: 0.875rem;
   font-weight: 500;
 }
+
+
 
 .modal input,
 .modal textarea,
@@ -419,18 +503,35 @@
   background: var(--panel, #fff);
 }
 
-.modal textarea {
-  resize: none;
-  min-height: 88px;
-  overflow-y: hidden;
-  line-height: 1.45;
-}
 
 .modal .auto-field {
-  flex: 1 1 auto;
-  min-height: 0;
+  flex: 0 0 auto;
+  min-height: auto;
   display: flex;
   flex-direction: column;
+  gap: 0.15rem;
+}
+
+.modal textarea {
+  resize: none;
+  min-height: 44px;
+  line-height: 1.45;
+  overflow-y: auto;
+}
+
+.modal textarea.environment-definition {
+  min-height: 176px; /* 2× greeting */
+  max-height: min(42vh, 28rem);
+}
+
+.modal .auto-field textarea {
+  flex: 0 0 auto;
+  max-height: min(28vh, 18rem);
+}
+
+.modal .environment-definition-field textarea,
+.modal textarea.environment-definition {
+  max-height: min(42vh, 28rem);
 }
 
 .modal .auto-field textarea {
@@ -504,8 +605,11 @@
   border: 1px solid var(--border, #e5e7eb);
   border-radius: 10px;
   padding: 0.45rem;
+  max-height: min(220px, 28vh);
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
 }
-
 .persona-option {
   display: flex;
   align-items: center;

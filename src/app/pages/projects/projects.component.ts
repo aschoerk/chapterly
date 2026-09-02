@@ -189,6 +189,17 @@ export class ProjectsComponent implements OnInit {
     }
   }
 
+  sortedFormPersonas(): Persona[] {
+    const selected = new Set(this.form.personaIds);
+    return [...this.personas()].sort((a, b) => {
+      const aOn = selected.has(a.id) ? 0 : 1;
+      const bOn = selected.has(b.id) ? 0 : 1;
+      if (aOn !== bOn) return aOn - bOn;
+      return a.name.localeCompare(b.name);
+    });
+  }
+
+
   openCreate() {
     this.editingId.set(null);
     this.form = {
@@ -300,9 +311,22 @@ export class ProjectsComponent implements OnInit {
   }
 
   async deleteProject(project: Project) {
-    if (!confirm(`Delete environment "${project.name}"?\nDrafts will become unfiled.`)) {
+
+    const chatsForProject = this.chatService.chatsByProject().get(project.id);
+    const chatCount = chatsForProject ? chatsForProject.length : 0;
+    const message = chatCount === 0
+      ? `Delete environment “${project.name}”?`
+      : `Environment “${project.name}” contains ${chatCount} stor${chatCount === 1 ? 'y' : 'ies'}.\n\n` +
+      `Delete will remove the environment AND all of its stories.`;
+    const ok = await this.confirm.ask({
+      title: 'Delete environment',
+      message,
+      confirmLabel: 'Delete',
+      cancelLabel: 'Cancel',
+      danger: true
+    });
+    if (!ok)
       return;
-    }
     try {
       await this.chatService.deleteProject(project.id);
     } catch (e) {
@@ -363,6 +387,7 @@ export class ProjectsComponent implements OnInit {
   readonly sortedTopics = computed(() =>
     [...this.topics()].sort((a, b) => a.name.localeCompare(b.name))
   );
+
 
   /** Projects visible on the right side according to the current filter */
   readonly visibleProjects = computed(() => {
@@ -502,16 +527,21 @@ export class ProjectsComponent implements OnInit {
     event?.stopPropagation();
 
     const projectCount = topic.projectIds?.length ?? 0;
-    const msg = projectCount > 0
+    const message = projectCount > 0
       ? `Delete topic “${topic.name}”?\nIt currently contains ${projectCount} environment(s).\nEnvironments themselves will NOT be deleted.`
       : `Delete topic “${topic.name}”?`;
 
-    if (!confirm(msg)) return;
+    const ok = await this.confirm.ask({
+      title: 'Delete topic',
+      message,
+      confirmLabel: 'Delete',
+      cancelLabel: 'Cancel',
+      danger: true
+    });
+    if (!ok) return;
 
     try {
       await this.chatService.deleteTopic(topic.id);
-
-      // if we were filtering by this topic, fall back to "All"
       if (this.selectedTopicId() === topic.id) {
         this.selectedTopicId.set('all');
       }
@@ -755,7 +785,8 @@ export class ProjectsComponent implements OnInit {
     const maxWidth = Math.floor(window.innerWidth * 0.9);
     const maxHeight = Math.floor(window.innerHeight * 0.9);
     const minWidth = Math.min(560, maxWidth);
-    const minTa = 88;
+    const minGreeting = 88;
+    const minDefinition = minGreeting * 2;
 
     const combined = `${this.form.greeting ?? ''}\n${this.form.systemPrompt ?? ''}`;
     this.editorWidthPx.set(
@@ -770,11 +801,11 @@ export class ProjectsComponent implements OnInit {
 
       g.style.height = 'auto';
       s.style.height = 'auto';
-      const needG = Math.max(g.scrollHeight, minTa);
-      const needS = Math.max(s.scrollHeight, minTa);
+      const needG = Math.max(g.scrollHeight, minGreeting);
+      const needS = Math.max(s.scrollHeight, minDefinition);
 
       const chrome = modal.scrollHeight - g.offsetHeight - s.offsetHeight;
-      const available = Math.max(minTa * 2, maxHeight - chrome);
+      const available = Math.max(minGreeting + minDefinition, maxHeight - chrome)
 
       if (needG + needS <= available) {
         this.applyTextareaHeight(g, needG, false);
@@ -782,11 +813,11 @@ export class ProjectsComponent implements OnInit {
         return;
       }
 
-      const extra = available - minTa * 2;
-      const growG = Math.max(0, needG - minTa);
-      const growS = Math.max(0, needS - minTa);
+      const extra = Math.max(0, available - minGreeting - minDefinition);
+      const growG = Math.max(0, needG - minGreeting);
+      const growS = Math.max(0, needS - minDefinition);
       const growTotal = growG + growS || 1;
-      const heightG = minTa + Math.floor(extra * (growG / growTotal));
+      const heightG = minGreeting + Math.floor(extra * (growG / growTotal));
       const heightS = available - heightG;
       this.applyTextareaHeight(g, heightG, needG > heightG);
       this.applyTextareaHeight(s, heightS, needS > heightS);

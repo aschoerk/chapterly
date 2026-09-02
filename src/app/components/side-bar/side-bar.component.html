@@ -86,6 +86,12 @@
             </svg>
           </button>
 
+          <app-avatar-view
+            class="project-mini-icon"
+            [value]="project.avatar"
+            [alt]="project.name"
+            [fallback]="project.name.charAt(0).toUpperCase()"
+          />
 
           <span class="project-name" (dblclick)="startEditProject(project, $event)">
             {{ project.name }}

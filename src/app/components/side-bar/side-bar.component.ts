@@ -5,9 +5,10 @@ import { ChatService } from '../../core/chat.service';
 import { Router } from '@angular/router';
 import { LastModelService } from '../../core/last-model.service';
 import { SettingsService } from '../../core/settings.service';
-import { Chat, Project } from '../../models/chat';
+import {Chat, Project, Topic} from '../../models/chat';
 import {CHAT_API} from '../../api/chat-api.token';
 import { AvatarViewComponent } from '../avatar-view/avatar-view.component';
+import { ConfirmService } from '../../core/confirm.service';
 
 const LS_EXPANDED_KEY = 'chat-client.projects.expanded';
 const LS_TOPIC = 'chat.selectedTopicId';
@@ -24,6 +25,7 @@ export class SideBarComponent implements OnInit {
   private readonly settings = inject(SettingsService);
   private readonly lastModelService = inject(LastModelService);
   private readonly router = inject(Router);
+  private readonly confirm = inject(ConfirmService);
   private readonly api = inject(CHAT_API);
 
   readonly projects = this.chatService.projects;
@@ -188,38 +190,24 @@ export class SideBarComponent implements OnInit {
     this.editDefaultModelId.set(project.defaultModelId);
   }
 
-  cancelEditProject() {
-    this.editingProjectId.set(null);
-  }
-
-  async saveProject() {
-    const id = this.editingProjectId();
-    if (!id) return;
-    const name = this.editName().trim();
-    if (!name) return;
-
-    await this.chatService.updateProject(id, {
-      name,
-      systemPrompt: this.editSystemPrompt(),
-      defaultModelId: this.editDefaultModelId()
-    });
-    this.editingProjectId.set(null);
-  }
-
   async deleteProject(project: Project, event: Event) {
     event.stopPropagation();
 
     const chatCount = this.getChatsForProject(project.id).length;
-
-    const msg = chatCount === 0
+    const message = chatCount === 0
       ? `Delete environment “${project.name}”?`
       : `Environment “${project.name}” contains ${chatCount} stor${chatCount === 1 ? 'y' : 'ies'}.\n\n` +
-      `OK = delete the environment AND all its stories\n` +
-      `Cancel = abort`;
+      `Delete will remove the environment AND all of its stories.`;
 
-    if (!confirm(msg)) return;
+    const ok = await this.confirm.ask({
+      title: 'Delete environment',
+      message,
+      confirmLabel: 'Delete',
+      cancelLabel: 'Cancel',
+      danger: true
+    });
+    if (!ok) return;
 
-    // if there are chats we treat “OK” as cascade-delete
     const deleteChats = chatCount > 0;
     await this.chatService.deleteProject(project.id, deleteChats);
 
@@ -252,8 +240,6 @@ export class SideBarComponent implements OnInit {
     return this.filteredProjects().filter(p => p.id !== currentProjectId);
     // return this.projects().filter(p => p.id !== currentProjectId);
   }
-
-
 
   // ---------- Chats under a project ----------
 
@@ -377,9 +363,15 @@ export class SideBarComponent implements OnInit {
 
   async deleteChat(chat: Chat, event: Event) {
     event.stopPropagation();
-    if (confirm(`Delete story "${chat.title}"?`)) {
-      await this.chatService.deleteChat(chat.id);
-    }
+    const ok = await this.confirm.ask({
+      title: 'Delete story',
+      message: `Delete story “${chat.title}”?\nThis cannot be undone.`,
+      confirmLabel: 'Delete',
+      cancelLabel: 'Cancel',
+      danger: true
+    });
+    if (!ok) return;
+    await this.chatService.deleteChat(chat.id);
   }
 
   collapseAll(event?: Event) {
