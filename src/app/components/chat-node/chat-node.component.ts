@@ -474,6 +474,70 @@ export class ChatNodeComponent {
     });
   }
 
+  /**
+   * Delete this assistant answer and its subtree, then resend the parent
+   * user request. Confirms first when the answer already has children.
+   */
+  async regenerateAnswer(): Promise<void> {
+    const node = this.node();
+    if (node.role !== 'assistant' || this.isLoading() || this.chatService.isGenerating(node.id)) {
+      return;
+    }
+
+    const children = this.chatService.getChildren(node.id);
+    if (children.length > 0) {
+      const extra = this.collectSubtree(node.id).length - 1;
+      const ok = await this.confirm.ask({
+        title: 'Regenerate answer?',
+        message: extra > 0
+          ? `This answer has ${extra} descendant node(s). Regenerating deletes them and sends the last user request again.`
+          : 'This answer has child nodes. Regenerating deletes them and sends the last user request again.',
+        confirmLabel: 'Regenerate',
+        cancelLabel: 'Cancel',
+        danger: true
+      });
+      if (!ok) return;
+    }
+
+    const chatId = this.chatService.currentChatId();
+    if (!chatId) return;
+
+    const question = node.parentId
+      ? this.chatService.nodes().find(n => n.id === node.parentId)
+      : undefined;
+    if (!question || question.role !== 'user') {
+      alert('Cannot regenerate: parent question not found');
+      return;
+    }
+
+    const modelId = node.modelId || question.modelId || this.resolvePreferredModelId(question);
+    const model = this.enabledModels().find(m => m.modelId === modelId || m.id === modelId);
+    if (!model) {
+      alert('Selected model not found');
+      return;
+    }
+
+    const provider = this.settings.providers().find(p => p.id === model.providerId);
+    if (!provider) {
+      alert('Provider not found');
+      return;
+    }
+
+    this.isLoading.set(true);
+    this.pendingAction.set('send');
+    try {
+      await this.chatService.deleteNode(chatId, node.id);
+      this.activate.emit(question.id);
+      await this.streamForQuestion(chatId, question, question.parentId, provider, model);
+    } catch (err: any) {
+      console.error(err);
+      alert('Regenerate failed: ' + (err?.message || err));
+    } finally {
+      this.isLoading.set(false);
+      this.pendingAction.set(null);
+    }
+  }
+
   async deleteNode(): Promise<void> {
     const node = this.node();
     const subtree = this.collectSubtree(node.id);
