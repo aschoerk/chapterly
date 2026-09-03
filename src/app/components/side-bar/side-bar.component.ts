@@ -9,6 +9,7 @@ import {Chat, Project, Topic} from '../../models/chat';
 import {CHAT_API} from '../../api/chat-api.token';
 import { AvatarViewComponent } from '../avatar-view/avatar-view.component';
 import { ConfirmService } from '../../core/confirm.service';
+import { buildSeedNodeDrafts } from '../../core/llm-context';
 
 const LS_EXPANDED_KEY = 'chat-client.projects.expanded';
 const LS_TOPIC = 'chat.selectedTopicId';
@@ -34,28 +35,17 @@ export class SideBarComponent implements OnInit {
   readonly enabledModels = this.settings.enabledModels;
   readonly searchQuery = signal('');
   readonly currentPersona = this.chatService.currentPersona;
-  // ---------- Topic filter ----------
   readonly topics = this.chatService.topics;
 
-  /** projectId → expanded (persisted in localStorage) */
   readonly expanded = signal<Record<string, boolean>>({});
-
-  // --- Inline edit project ---
   readonly editingProjectId = signal<string | null>(null);
   readonly editName = signal('');
   readonly editSystemPrompt = signal('');
   readonly editDefaultModelId = signal<string | null>(null);
-  /** true = youngest (most recently updated) on top */
   readonly sortByNewest = signal(true);
-
-  /** which chat is currently showing the reassign dropdown */
   readonly reassigningChatId = signal<string | null>(null);
-
-  /** which chat title is being edited inline */
   readonly editingChatId = signal<string | null>(null);
   readonly titleDraft = signal('');
-
-  /** 'all' | topic-id */
   readonly selectedTopicId = signal<string>(
     localStorage.getItem(LS_TOPIC) || 'all'
   );
@@ -66,13 +56,11 @@ export class SideBarComponent implements OnInit {
     localStorage.setItem(LS_TOPIC, value);
   }
 
-// replace the existing filteredProjects computed with this version
   filteredProjects = computed(() => {
     const q = this.searchQuery().trim().toLowerCase();
     const topicId = this.selectedTopicId();
     let list = this.projects();
 
-    // 1. Topic filter
     if (topicId && topicId !== 'all') {
       const topic = this.topics().find(t => t.id === topicId);
       if (topic) {
@@ -81,7 +69,6 @@ export class SideBarComponent implements OnInit {
       }
     }
 
-    // 2. Text filter
     if (q) {
       list = list.filter(p =>
         p.name.toLowerCase().includes(q) ||
@@ -89,7 +76,6 @@ export class SideBarComponent implements OnInit {
       );
     }
 
-    // 3. Sort
     if (this.sortByNewest()) {
       list = [...list].sort((a, b) => {
         const ta = new Date(a.updatedAt || a.createdAt).getTime();
@@ -115,8 +101,6 @@ export class SideBarComponent implements OnInit {
     this.scrollToActiveChat();
   }
 
-  // ---------- Expand / collapse (localStorage) ----------
-
   private loadExpandedState() {
     try {
       const raw = localStorage.getItem(LS_EXPANDED_KEY);
@@ -131,7 +115,6 @@ export class SideBarComponent implements OnInit {
   }
 
   isExpanded(projectId: string): boolean {
-    // default = true (expanded) unless explicitly set to false
     return this.expanded()[projectId] !== false;
   }
 
@@ -148,8 +131,6 @@ export class SideBarComponent implements OnInit {
     event?.stopPropagation();
     this.sortByNewest.update(v => !v);
   }
-
-  // ---------- Project CRUD ----------
 
   editProject(project: Project, event?: Event) {
     event?.stopPropagation();
@@ -231,97 +212,37 @@ export class SideBarComponent implements OnInit {
 
   async unassignChat(chat: Chat, event: Event) {
     event.stopPropagation();
-    if (chat.projectId == null) return;           // already unassigned
+    if (chat.projectId == null) return;
     await this.chatService.reassignChat(chat.id, null);
   }
 
-  /** projects for the dropdown (current project excluded) */
   otherProjects(currentProjectId: string | null): Project[] {
     return this.filteredProjects().filter(p => p.id !== currentProjectId);
-    // return this.projects().filter(p => p.id !== currentProjectId);
   }
-
-  // ---------- Chats under a project ----------
 
   async createChatForProject(project: Project, event?: Event) {
     event?.stopPropagation();
 
-    // Title is initialized (user can change it later via the title editor)
     const title = `${project.name} – New Chat`;
     const chat = await this.chatService.createChat(title, project.id);
-    // await this.chatService.selectChat(chat.id);
 
-    // ---------- 1. Build System-node content ----------
-    const parts: string[] = [];
-
-    this.topics()
-      .filter(t => t.defaultSystemPrompt?.trim() && t.projectIds.find(id => id == project.id) )
-      .every(t => parts.push(t.defaultSystemPrompt.trim()));
+    const drafts = buildSeedNodeDrafts({
+      project,
+      topics: this.topics(),
+      getPersona: id => this.chatService.getPersona(id),
+      currentUserPersona: this.currentPersona()
+    });
 
     let currentParentNodeId: string | null = null;
-
-    if (parts.length > 0) {
-      const systemNode = await this.chatService.addNode(chat.id, {
-        parentId: null,
-        role: 'system',
-        content: parts.join('\n\n').trim()
-      });
-      currentParentNodeId = systemNode. id;
-    }
-
-    const userParts: string[] = [];
-
-    // Project system prompt
-    if (project.systemPrompt?.trim()) {
-      userParts.push(project.systemPrompt.trim());
-    }
-
-    // Every persona that belongs to the project → NPC
-    for (const personaId of project.personaIds ?? []) {
-      const persona = this.chatService.getPersona(personaId);
-      if (persona) {
-        userParts.push(`\n\nnpc is ${persona.name}`);
-        if (persona.description?.trim()) {
-          userParts.push(persona.description.trim());
-        }
-      }
-    }
-
-    // Currently selected persona → {{user}}
-    const userPersona = this.currentPersona();
-    if (userPersona) {
-      userParts.push(`\n\n{{user}} is ${userPersona.name}`);
-      if (userPersona.description?.trim()) {
-        userParts.push(userPersona.description.trim());
-      }
-    }
-
-    const userContent = userParts.join('\n\n').trim();
-
-    if (userContent) {
-      const userNode = await this.chatService.addNode(chat.id, {
+    for (const draft of drafts) {
+      const created = await this.chatService.addNode(chat.id, {
         parentId: currentParentNodeId,
-        role: 'user',
-        content: userContent
+        role: draft.role,
+        content: draft.content
       });
-      currentParentNodeId = userNode.id;
+      currentParentNodeId = created.id;
     }
 
-    // ---------- 3. Optional greeting → first answer node ----------
-    if (project.greeting?.trim()) {
-      const greetingContent = (userPersona && userPersona.name ?
-        `${project.greeting.replace('{{user}}',userPersona?.name)}`
-        : `${project.greeting}`.trim())
-
-
-      await this.chatService.addNode(chat.id, {
-        parentId: currentParentNodeId,          // child of System node when present
-        role: 'assistant',
-        content: greetingContent
-      });
-    }
-
-    // ---------- 4. Apply project's default model (unchanged) ----------
     if (project.defaultModelId) {
       this.lastModelService.setSelectedModel(project.defaultModelId);
       this.lastModelService.saveLastUsedModel(project.defaultModelId);
@@ -331,7 +252,6 @@ export class SideBarComponent implements OnInit {
       this.lastModelService.setSelectedModel('');
     }
 
-    // Make sure the project is visible
     if (!this.isExpanded(project.id)) {
       this.toggleExpanded(project.id);
     }
@@ -342,24 +262,20 @@ export class SideBarComponent implements OnInit {
     await this.chatService.selectChat(chat.id);
     this.lastModelService.setLastUsedModel();
 
-    // Auto-expand the project so the active chat is visible
     const projectKey = chat.projectId ?? '__unassigned__';
     if (!this.isExpanded(projectKey)) {
       this.expanded.update(m => ({ ...m, [projectKey]: true }));
       this.persistExpanded();
     }
-    // this.chatService.currentChatId.(chat.id)
     this.scrollToActiveChat();
   }
 
-  // Add this method
   private scrollToActiveChat() {
     setTimeout(() => {
       const active = document.querySelector('.chat-item.active');
       active?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     }, 50);
   }
-
 
   async deleteChat(chat: Chat, event: Event) {
     event.stopPropagation();
@@ -376,27 +292,21 @@ export class SideBarComponent implements OnInit {
 
   collapseAll(event?: Event) {
     event?.stopPropagation();
-
     const next: Record<string, boolean> = {};
     for (const p of this.projects()) {
-      next[p.id] = false;          // false = collapsed
+      next[p.id] = false;
     }
     this.expanded.set(next);
     this.persistExpanded();
   }
 
-  /** Chats of a project, optionally sorted by age */
   getChatsForProject(projectId: string | null): Chat[] {
     const chats = this.chatsByProject().get(projectId) || [];
-
-    if (!this.sortByNewest()) {
-      return chats;
-    }
-
+    if (!this.sortByNewest()) return chats;
     return [...chats].sort((a, b) => {
       const ta = new Date(a.updated_at || a.created_at).getTime();
       const tb = new Date(b.updated_at || b.created_at).getTime();
-      return tb - ta;          // youngest first
+      return tb - ta;
     });
   }
 
@@ -445,14 +355,11 @@ export class SideBarComponent implements OnInit {
     return (chat.projectId || null) === (projectId || null);
   }
 
-  getAnswerCount(chat: Chat): number {
-    // let nodes = await this.api.getNodes(chat.id);
-    return 2; // nodes.filter(n => n.type == "answer").length;
+  getAnswerCount(_chat: Chat): number {
+    return 2;
   }
-
 
   async goToPersonas() {
     this.router.navigate(['/personas']);
   }
-
 }
