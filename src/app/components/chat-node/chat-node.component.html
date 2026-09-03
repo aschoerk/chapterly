@@ -289,6 +289,20 @@
     }
 
     <div class="node-actions">
+      @if (node().role === 'assistant') {
+        <button class="btn-icon" type="button"
+                [disabled]="isLoading() || chatService.isGenerating(node().id)"
+                (click)="regenerateAnswer(); $event.stopPropagation()"
+                title="Delete this answer and everything below, then resend the last user request">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="23 4 23 10 17 10"/>
+            <polyline points="1 20 1 14 7 14"/>
+            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+          </svg>
+          <span>{{ isLoading() && pendingAction() === 'send' ? 'Regenerating…' : 'Regenerate' }}</span>
+        </button>
+      }
+
       <button class="btn-icon" (click)="copyContent()" type="button"
               [title]="copied() ? 'Copied!' : 'Copy to clipboard'">
         @if (copied()) {
