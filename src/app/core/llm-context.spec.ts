@@ -10,7 +10,6 @@ import {
 import { normalizeChatMessages } from './llm-message';
 import {
   ChatNode,
-  NodeAttachment,
   Persona,
   Project,
   Topic
@@ -344,7 +343,7 @@ describe('pathToNode / buildLlmMessages — conversation shapes', () => {
     const msgs = buildLlmMessages({
       nodes: adopted,
       contextParentId: 'a1-v2',
-      question: { ...q2, parentId: 'a1-v2' }
+      question: q2
     });
     expect(msgs.map(m => m.content)).toContain('A bolt slides — rewritten.');
     expect(msgs.map(m => m.content)).not.toContain('A bolt slides.');
@@ -482,7 +481,7 @@ describe('end-to-end: seed then send / regenerate / branch', () => {
       parent = n.id;
     });
 
-    const question = node({ id: 'q', role: 'user', parentId, content: 'I look up.' });
+    const question = node({ id: 'q', role: 'user', parentId: parent, content: 'I look up.' });
     const msgs = buildLlmMessages({
       nodes: [...seeded, question],
       contextParentId: question.parentId,
