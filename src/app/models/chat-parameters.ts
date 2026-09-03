@@ -1,4 +1,4 @@
-export type ThinkingLevel = 'none' | 'minimal' | 'low' | 'medium' | 'high';
+export type ThinkingLevel = 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 
 export type ParametersOwnerType = 'model' | 'topic' | 'project' | 'chat' | 'chat_node';
 
@@ -34,7 +34,7 @@ export interface ResolvedChatParameters extends ChatParametersDraft {
   layers: Array<{ type: ParametersOwnerType; id: string; params: ChatParameters }>;
 }
 
-export const THINKING_LEVELS: ThinkingLevel[] = ['none', 'minimal', 'low', 'medium', 'high'];
+export const THINKING_LEVELS: ThinkingLevel[] = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
 
 export function emptyParametersDraft(): ChatParametersDraft {
   return {

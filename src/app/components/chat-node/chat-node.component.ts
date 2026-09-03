@@ -16,6 +16,7 @@ import {LlmService} from '../../core/llm.service';
 import { ChatParametersService } from '../../core/chat-parameters.service';
 import { inferMimeType, nodeToMessageContent } from '../../core/llm-message';
 import { formatParametersSummary } from '../../models/chat-parameters';
+import {ProjectService} from '../../core/project.service';
 
 @Component({
   selector: 'app-chat-node',
@@ -28,6 +29,7 @@ export class ChatNodeComponent {
   private readonly settings = inject(SettingsService);
   public readonly markdownService = inject(MarkdownService);
   readonly chatService = inject(ChatService);
+  readonly projectService = inject(ProjectService);
   readonly llmService = inject(LlmService);
   private readonly parameters = inject(ChatParametersService);
 
@@ -199,13 +201,13 @@ export class ChatNodeComponent {
 
     const chatId = node.chatId || this.chatService.currentChatId();
     const chat = this.chatService.chats().find(c => c.id === chatId);
-    const project = this.chatService.getProject(chat?.projectId ?? null);
+    const project = this.projectService.getProject(chat?.projectId ?? null);
 
     const fromProject = match(project?.defaultModelId);
     if (fromProject) return fromProject.modelId;
 
     if (project) {
-      const topics = this.chatService.topics().filter(t =>
+      const topics = this.projectService.topics().filter(t =>
         Array.isArray(t.projectIds) && t.projectIds.includes(project.id)
       );
       for (const topic of topics) {

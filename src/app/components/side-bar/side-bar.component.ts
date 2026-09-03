@@ -10,6 +10,8 @@ import {CHAT_API} from '../../api/chat-api.token';
 import { AvatarViewComponent } from '../avatar-view/avatar-view.component';
 import { ConfirmService } from '../../core/confirm.service';
 import { buildSeedNodeDrafts } from '../../core/llm-context';
+import {ProjectService} from '../../core/project.service';
+import {PersonaService} from '../../core/persona.service';
 
 const LS_EXPANDED_KEY = 'chat-client.projects.expanded';
 const LS_TOPIC = 'chat.selectedTopicId';
@@ -23,19 +25,22 @@ const LS_TOPIC = 'chat.selectedTopicId';
 })
 export class SideBarComponent implements OnInit {
   private readonly chatService = inject(ChatService);
+  private readonly projectService = inject(ProjectService);
+  private readonly personaService = inject(PersonaService);
+
   private readonly settings = inject(SettingsService);
   private readonly lastModelService = inject(LastModelService);
   private readonly router = inject(Router);
   private readonly confirm = inject(ConfirmService);
   private readonly api = inject(CHAT_API);
 
-  readonly projects = this.chatService.projects;
+  readonly projects = this.projectService.projects;
   readonly currentChatId = this.chatService.currentChatId;
   readonly chatsByProject = this.chatService.chatsByProject;
   readonly enabledModels = this.settings.enabledModels;
   readonly searchQuery = signal('');
-  readonly currentPersona = this.chatService.currentPersona;
-  readonly topics = this.chatService.topics;
+  readonly currentPersona = this.personaService.currentPersona;
+  readonly topics = this.projectService.topics;
 
   readonly expanded = signal<Record<string, boolean>>({});
   readonly editingProjectId = signal<string | null>(null);
@@ -91,10 +96,10 @@ export class SideBarComponent implements OnInit {
 
   async ngOnInit() {
     await Promise.all([
-      this.chatService.loadProjects(),
+      this.projectService.loadProjects(),
       this.chatService.loadChats(),
-      this.chatService.loadPersonas(),
-      this.chatService.loadTopics(),
+      this.personaService.loadPersonas(),
+      this.projectService.loadTopics(),
       this.settings.loadAll()
     ]);
     this.loadExpandedState();
@@ -190,7 +195,7 @@ export class SideBarComponent implements OnInit {
     if (!ok) return;
 
     const deleteChats = chatCount > 0;
-    await this.chatService.deleteProject(project.id, deleteChats);
+    await this.projectService.deleteProject(project.id, deleteChats);
 
     this.expanded.update(m => {
       const next = { ...m };
@@ -229,7 +234,7 @@ export class SideBarComponent implements OnInit {
     const drafts = buildSeedNodeDrafts({
       project,
       topics: this.topics(),
-      getPersona: id => this.chatService.getPersona(id),
+      getPersona: id => this.personaService.getPersona(id),
       currentUserPersona: this.currentPersona()
     });
 

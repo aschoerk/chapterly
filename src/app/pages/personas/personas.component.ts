@@ -12,6 +12,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import { ChatService } from '../../core/chat.service';
+import { PersonaService } from '../../core/persona.service';
 import { ConfirmService } from '../../core/confirm.service';
 import { Persona } from '../../models/chat';
 import { AvatarPickerComponent } from '../../components/avatar-picker/avatar-picker.component';
@@ -26,10 +27,11 @@ import { AvatarViewComponent } from '../../components/avatar-view/avatar-view.co
 })
 export class PersonasComponent implements OnInit {
   private readonly chatService = inject(ChatService);
+  private readonly personaService = inject(PersonaService);
   private readonly router = inject(Router);
   private readonly confirm = inject(ConfirmService);
 
-  readonly personas = this.chatService.personas;
+  readonly personas = this.personaService.personas;
 
   readonly searchTerm = signal('');
   readonly showForm = signal(false);
@@ -76,7 +78,7 @@ export class PersonasComponent implements OnInit {
 
   async ngOnInit() {
     try {
-      await this.chatService.loadPersonas();
+      await this.personaService.loadPersonas();
     } catch (e) {
       console.error('Failed to load personas', e);
       this.error.set('Failed to load personas from server.');
@@ -165,14 +167,14 @@ export class PersonasComponent implements OnInit {
 
     try {
       if (this.editingId()) {
-        await this.chatService.updatePersona(this.editingId()!, {
+        await this.personaService.updatePersona(this.editingId()!, {
           name,
           shortName,
           description: this.form.description,
           avatar: this.form.avatar
         });
       } else {
-        await this.chatService.createPersona({
+        await this.personaService.createPersona({
           name,
           shortName,
           description: this.form.description,
@@ -193,7 +195,7 @@ export class PersonasComponent implements OnInit {
       return;
     }
     try {
-      await this.chatService.deletePersona(persona.id);
+      await this.personaService.deletePersona(persona.id);
     } catch (e) {
       console.error(e);
       alert('Failed to delete persona');
@@ -245,16 +247,16 @@ export class PersonasComponent implements OnInit {
   }
 
   isCurrent(persona: Persona): boolean {
-    return this.chatService.currentPersonaId() === persona.id;
+    return this.personaService.currentPersonaId() === persona.id;
   }
 
   setAsCurrent(persona: Persona): void {
-    this.chatService.setCurrentPersona(persona.id);
+    this.personaService.setCurrentPersona(persona.id);
     this.closeMenu();
   }
 
   clearCurrent(): void {
-    this.chatService.setCurrentPersona(null);
+    this.personaService.setCurrentPersona(null);
   }
 
   onDescriptionChange(): void {

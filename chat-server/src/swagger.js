@@ -249,13 +249,13 @@ const options = {
             thinkingLevel: {
               type: 'string',
               nullable: true,
-              enum: ['none', 'minimal', 'low', 'medium', 'high'],
+              enum: ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'],
               description: 'Maps to OpenAI reasoning_effort'
             },
             reasoningEffort: {
               type: 'string',
               nullable: true,
-              enum: ['none', 'minimal', 'low', 'medium', 'high']
+              enum: ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']
             },
             createdAt: { type: 'string', format: 'date-time' },
             updatedAt: { type: 'string', format: 'date-time' }
@@ -274,8 +274,8 @@ const options = {
             top_p: { type: 'number', nullable: true },
             stream: { type: 'boolean', nullable: true },
             thinking: { type: 'boolean', nullable: true },
-            thinkingLevel: { type: 'string', nullable: true, enum: ['none', 'minimal', 'low', 'medium', 'high'] },
-            reasoningEffort: { type: 'string', nullable: true, enum: ['none', 'minimal', 'low', 'medium', 'high'] }
+            thinkingLevel: { type: 'string', nullable: true, enum: ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] },
+            reasoningEffort: { type: 'string', nullable: true, enum: ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] }
           }
         },
         Error: {

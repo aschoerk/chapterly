@@ -12,6 +12,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
 import { ChatService } from '../../core/chat.service';
+import { ProjectService} from '../../core/project.service';
 import { ConfirmService } from '../../core/confirm.service';
 import { SettingsService } from '../../core/settings.service';
 import { Project, Persona, Topic } from '../../models/chat';
@@ -36,6 +37,7 @@ import {
 })
 export class ProjectsComponent implements OnInit {
   private readonly chatService = inject(ChatService);
+  private readonly projectService = inject(ProjectService);
   private readonly settings = inject(SettingsService);
   private readonly parameters = inject(ChatParametersService);
   private readonly router = inject(Router);
@@ -68,10 +70,10 @@ export class ProjectsComponent implements OnInit {
 
   private closeInFlight = false;
 
-  readonly projects = this.chatService.projects;
+  readonly projects = this.projectService.projects;
   readonly personas = this.chatService.personas;
   readonly enabledModels = this.settings.enabledModels;
-  readonly topics = this.chatService.topics;          // already loaded via ChatService
+  readonly topics = this.projectService.topics;          // already loaded via ChatService
 // ============================================================
 // Topic form state
 // ============================================================
@@ -129,9 +131,9 @@ export class ProjectsComponent implements OnInit {
   async ngOnInit() {
     try {
       await Promise.all([
-        this.chatService.loadProjects(),
+        this.projectService.loadProjects(),
         this.chatService.loadPersonas(),
-        this.chatService.loadTopics(),
+        this.projectService.loadTopics(),
         this.settings.loadAll()
       ]);
     } catch (e) {
@@ -292,13 +294,13 @@ export class ProjectsComponent implements OnInit {
       };
 
       if (this.editingId()) {
-        await this.chatService.updateProject(this.editingId()!, payload);
+        await this.projectService.updateProject(this.editingId()!, payload);
       } else {
-        const created = await this.chatService.createProject(payload);
+        const created = await this.projectService.createProject(payload);
         // if a concrete topic is selected, attach the project to it
         const topicId = this.selectedTopicId();
         if (topicId && topicId !== 'all' && topicId !== 'unassigned') {
-          await this.chatService.addProjectToTopic(topicId, created.id);
+          await this.projectService.addProjectToTopic(topicId, created.id);
         }
       }
       this.closeForm();
@@ -328,7 +330,7 @@ export class ProjectsComponent implements OnInit {
     if (!ok)
       return;
     try {
-      await this.chatService.deleteProject(project.id);
+      await this.projectService.deleteProject(project.id);
     } catch (e) {
       console.error(e);
       alert('Failed to delete environment');
@@ -502,10 +504,10 @@ export class ProjectsComponent implements OnInit {
 
       if (editingId) {
         // ---------- UPDATE ----------
-        await this.chatService.updateTopic(editingId, payload);
+        await this.projectService.updateTopic(editingId, payload);
       } else {
         // ---------- CREATE ----------
-        const created = await this.chatService.createTopic(payload);
+        const created = await this.projectService.createTopic(payload);
         // optionally select the newly created topic
         this.selectedTopicId.set(created.id);
       }
@@ -541,7 +543,7 @@ export class ProjectsComponent implements OnInit {
     if (!ok) return;
 
     try {
-      await this.chatService.deleteTopic(topic.id);
+      await this.projectService.deleteTopic(topic.id);
       if (this.selectedTopicId() === topic.id) {
         this.selectedTopicId.set('all');
       }
@@ -560,7 +562,7 @@ export class ProjectsComponent implements OnInit {
     if (topicId === 'all' || topicId === 'unassigned') return;
 
     try {
-      await this.chatService.addProjectToTopic(topicId, projectId);
+      await this.projectService.addProjectToTopic(topicId, projectId);
     } catch (err: any) {
       console.error(err);
       alert('Could not add environment to topic');
@@ -572,7 +574,7 @@ export class ProjectsComponent implements OnInit {
     if (topicId === 'all' || topicId === 'unassigned') return;
 
     try {
-      await this.chatService.removeProjectFromTopic(topicId, projectId);
+      await this.projectService.removeProjectFromTopic(topicId, projectId);
     } catch (err: any) {
       console.error(err);
       alert('Could not remove environment from topic');
@@ -584,7 +586,7 @@ export class ProjectsComponent implements OnInit {
     const topicId = select.value;
     if (!topicId) return;
 
-    await this.chatService.addProjectToTopic(topicId, projectId);
+    await this.projectService.addProjectToTopic(topicId, projectId);
     select.value = '';          // reset the dropdown
   }
 

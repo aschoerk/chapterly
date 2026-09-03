@@ -7,12 +7,14 @@ import { ChatParametersService } from './chat-parameters.service';
 import { normalizeChatMessages } from './llm-message';
 import { extractLlmDelta, LlmChunk, readSseStream } from './llm-sse';
 import { ResolvedChatParameters } from '../models/chat-parameters';
+import { ProjectService } from "./project.service";
 
 export type { LlmChunk };
 
 @Injectable({ providedIn: 'root' })
 export class LlmService {
   private readonly chatService = inject(ChatService);
+  private readonly projectService = inject(ProjectService);
   private readonly parameters = inject(ChatParametersService);
 
   async askLlm(
@@ -224,8 +226,8 @@ export class LlmService {
   async resolveForCurrentChat(model: ModelEntry): Promise<ResolvedChatParameters> {
     const chatId = this.chatService.currentChatId();
     const chat = this.chatService.chats().find(c => c.id === chatId) ?? null;
-    const project = chat?.projectId ? this.chatService.getProject(chat.projectId) ?? null : null;
-    const topic = this.parameters.topicForProject(project?.id, this.chatService.topics()) ?? null;
+    const project = chat?.projectId ? this.projectService.getProject(chat.projectId) ?? null : null;
+    const topic = this.parameters.topicForProject(project?.id, this.projectService.topics()) ?? null;
     await this.parameters.loadMany([
       model.chatParametersId,
       topic?.chatParametersId,

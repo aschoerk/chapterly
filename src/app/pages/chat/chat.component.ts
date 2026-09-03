@@ -12,6 +12,7 @@ import { ChatTitleEditorComponent } from '../../components/chat-title-editor/cha
 import { ChatNodeComponent } from '../../components/chat-node/chat-node.component';
 import {SideBarComponent} from '../../components/side-bar/side-bar.component';
 import {Router} from '@angular/router';
+import {ProjectService} from '../../core/project.service';
 
 @Component({
   selector: 'app-chat',
@@ -22,6 +23,7 @@ import {Router} from '@angular/router';
 })
 export class ChatComponent implements OnInit {
   readonly chatService = inject(ChatService);
+  readonly projectService = inject(ProjectService);
   private readonly settings = inject(SettingsService);
   private readonly lastModelService = inject(LastModelService);
   private readonly parameters = inject(ChatParametersService);
@@ -123,8 +125,8 @@ export class ChatComponent implements OnInit {
 
   async ngOnInit() {
     await this.chatService.loadChats();
-    await this.chatService.loadTopics();
-    await this.chatService.loadProjects();
+    await this.projectService.loadTopics();
+    await this.projectService.loadProjects();
     await this.settings.loadAll();
     await this.refreshChatParams();
   }
@@ -349,8 +351,8 @@ export class ChatComponent implements OnInit {
 
   async refreshChatParams() {
     const chat = this.currentChat();
-    const project = chat?.projectId ? this.chatService.getProject(chat.projectId) : null;
-    const topic = this.parameters.topicForProject(project?.id, this.chatService.topics()) ?? null;
+    const project = chat?.projectId ? this.projectService.getProject(chat.projectId) : null;
+    const topic = this.parameters.topicForProject(project?.id, this.projectService.topics()) ?? null;
     const model = this.settings.models().find(m => m.id === this.lastModelService.selectedModelId())
       || this.settings.enabledModels()[0]
       || null;

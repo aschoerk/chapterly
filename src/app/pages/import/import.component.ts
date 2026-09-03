@@ -3,6 +3,8 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import { ChatService } from '../../core/chat.service';
+import { ProjectService } from '../../core/project.service';
+import { PersonaService } from '../../core/persona.service';
 import {Chat, ChatNode, Persona, Project, Topic} from '../../models/chat';
 
 const BUNDLE_FORMAT = 'aschoerk.chat.bundle';
@@ -77,9 +79,11 @@ const STREAM_CHUNK = 1024 * 1024;         // 1 MiB File.slice windows
 })
 export class ImportComponent {
   private readonly chatService = inject(ChatService);
+  private readonly projectService = inject(ProjectService);
+  private readonly personaService = inject(PersonaService);
   private readonly router = inject(Router);
 
-  readonly projects = this.chatService.projects;
+  readonly projects = this.projectService.projects;
 
   readonly isDragging = signal(false);
   readonly isImporting = signal(false);
@@ -645,7 +649,7 @@ export class ImportComponent {
     let created = 0;
     for (const entry of list) {
       this.progress.set(`Creating project “${entry.name}”…`);
-      await this.chatService.createProject({
+      await this.projectService.createProject({
         name: entry.name,
         greeting: entry.description || '',
         systemPrompt: entry.prompt
@@ -658,7 +662,7 @@ export class ImportComponent {
   private async importChat(result: ParseResult, projectId: string | null): Promise<number> {
     let finalProjectId = projectId;
     if (!finalProjectId) {
-      const p = await this.chatService.createProject({
+      const p = await this.projectService.createProject({
         name: result.title,
         greeting: '',
         systemPrompt: result.systemPrompt || undefined
@@ -1148,7 +1152,7 @@ export class ImportComponent {
     let created = 0;
 
     for (const p of bundle.personas || []) {
-      const np = await this.chatService.createPersona({
+      const np = await this.personaService.createPersona({
         name: p.name,
         shortName: p.shortName,
         description: p.description,
@@ -1158,7 +1162,7 @@ export class ImportComponent {
     }
 
     for (const p of bundle.projects || []) {
-      const np = await this.chatService.createProject({
+      const np = await this.projectService.createProject({
         name: p.name,
         greeting: p.greeting,
         systemPrompt: p.systemPrompt,
@@ -1169,7 +1173,7 @@ export class ImportComponent {
     }
 
     for (const t of bundle.topics || []) {
-      await this.chatService.createTopic({
+      await this.projectService.createTopic({
         name: t.name,
         description: t.description,
         defaultModelId: t.defaultModelId,
@@ -1219,9 +1223,9 @@ export class ImportComponent {
     try {
       await Promise.all([
         this.chatService.loadChats(),
-        this.chatService.loadProjects(),
-        this.chatService.loadTopics(),
-        this.chatService.loadPersonas()
+        this.projectService.loadProjects(),
+        this.projectService.loadTopics(),
+        this.personaService.loadPersonas()
       ]);
 
       const scope = this.exportScope();
@@ -1246,11 +1250,11 @@ export class ImportComponent {
         format: BUNDLE_FORMAT,
         version: BUNDLE_VERSION,
         exportedAt: new Date().toISOString(),
-        projects: this.chatService.projects().filter(p => usedProjects.has(p.id)),
-        topics: this.chatService.topics().filter(t =>
+        projects: this.projectService.projects().filter(p => usedProjects.has(p.id)),
+        topics: this.projectService.topics().filter(t =>
           t.projectIds?.some(id => usedProjects.has(id))
         ),
-        personas: this.chatService.personas(),
+        personas: this.personaService.personas(),
         chats: packed
       };
 

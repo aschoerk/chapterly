@@ -1,19 +1,6 @@
 import { Injectable, signal, computed, inject } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
-import { Chat, ChatNode, CreateNodeRequest, Project, Persona, Topic, ChatMessage, NodeAttachment } from '../models/chat';
+import { Chat, ChatNode, CreateNodeRequest,  NodeAttachment } from '../models/chat';
 import { CHAT_API } from '../api/chat-api.token';
-import {
-  CreatePersonaRequest,
-  CreateProjectRequest,
-  CreateTopicRequest,
-  LlmChatMessage,
-  LlmNodeAttachment,
-  UpdatePersonaRequest,
-  UpdateProjectRequest,
-  UpdateTopicRequest
-} from '../api/chat-api.types';
-import { getServerConfig } from './server-config';
-import { firstValueFrom } from "rxjs";
 import {NodeEditSession} from './node-edit-session';
 
 const LS_CHAT  = 'chat.currentChatId';
@@ -24,32 +11,17 @@ const LS_SCROLL = 'chat.scrollByChatId';
 })
 export class ChatService {
   private readonly api = inject(CHAT_API);
-  private readonly http = inject(HttpClient);
-  private readonly config = getServerConfig();
   private readonly editSession = inject(NodeEditSession)
 
 
-  private readonly _chats = signal<Chat[]>([]);
+  readonly _chats = signal<Chat[]>([]);
   private readonly _nodes = signal<ChatNode[]>([]);
-  private readonly _projects = signal<Project[]>([]);
-  private readonly _personas = signal<Persona[]>([]);
-  private readonly _topics = signal<Topic[]>([]);
   private readonly _currentChatId = signal<string | null>(null);
-  private readonly CURRENT_PERSONA_KEY = 'chat-client.currentPersonaId';
-  private readonly _currentPersonaId = signal<string | null>(null);
 
   readonly chats = computed(() => this._chats());
   readonly nodes = computed(() => this._nodes());
   readonly currentChatId = computed(() => this._currentChatId());
-  readonly projects = computed(() => this._projects());
-  readonly personas = computed(() => this._personas());
-  readonly topics = computed(() => this._topics());
-  readonly currentPersonaId = computed(() => this._currentPersonaId());
-  readonly currentPersona = computed(() => this.getPersona(this._currentPersonaId()));
 
-  constructor() {
-    this.loadCurrentPersonaId();   // ← critical line
-  }
 
   readonly chatsByProject = computed(() => {
     const map = new Map<string | null, Chat[]>();
@@ -132,48 +104,6 @@ export class ChatService {
     this._nodes?.update?.(updateFn);
   }
 
-
-  // ---------- Projects ----------
-
-  async loadProjects(): Promise<void> {
-    this._projects.set(await this.api.getProjects());
-  }
-
-  async createProject(data: CreateProjectRequest): Promise<Project> {
-    const project = await this.api.createProject(data);
-    this._projects.update(list =>
-      [...list, project].sort((a, b) => a.name.localeCompare(b.name))
-    );
-    return project;
-  }
-
-  async updateProject(id: string, data: UpdateProjectRequest): Promise<Project> {
-    const project = await this.api.updateProject(id, data);
-    this._projects.update(list =>
-      list
-        .map(p => (p.id === id ? project : p))
-        .sort((a, b) => a.name.localeCompare(b.name))
-    );
-    return project;
-  }
-
-  async deleteProject(id: string, deleteChats = false): Promise<void> {
-    await this.api.deleteProject(id, deleteChats);
-    this._projects.update(list => list.filter(p => p.id !== id));
-
-    if (deleteChats) {
-      this._chats.update(list => list.filter(c => c.projectId !== id));
-    } else {
-      this._chats.update(list =>
-        list.map(c => (c.projectId === id ? {...c, projectId: null} : c))
-      );
-    }
-  }
-
-  getProject(id: string | null | undefined): Project | undefined {
-    if (!id) return undefined;
-    return this._projects().find(p => p.id === id);
-  }
 
   // ---------- Chats ----------
 
@@ -398,120 +328,6 @@ export class ChatService {
   isGenerating(nodeId: string): boolean {
     return this.generatingNodeId() === nodeId;
   }
-
-  // ---------- Personas ----------
-
-  async loadPersonas(): Promise<void> {
-    this._personas.set(await this.api.getPersonas());
-  }
-
-  async createPersona(data: CreatePersonaRequest): Promise<Persona> {
-    const persona = await this.api.createPersona(data);
-    this._personas.update(list =>
-      [...list, persona].sort((a, b) => a.name.localeCompare(b.name))
-    );
-    return persona;
-  }
-
-  async updatePersona(id: string, data: UpdatePersonaRequest): Promise<Persona> {
-    const persona = await this.api.updatePersona(id, data);
-    this._personas.update(list =>
-      list
-        .map(p => (p.id === id ? persona : p))
-        .sort((a, b) => a.name.localeCompare(b.name))
-    );
-    return persona;
-  }
-
-  async deletePersona(id: string): Promise<void> {
-    await this.api.deletePersona(id);
-    this._personas.update(list => list.filter(p => p.id !== id));
-
-    if (this._currentPersonaId() === id) {
-      this.setCurrentPersona(null);
-    }
-  }
-
-  getPersona(id: string | null | undefined): Persona | undefined {
-    if (!id) return undefined;
-    return this._personas().find(p => p.id === id);
-  }
-
-  // Call once (e.g. in constructor or a private init)
-  private loadCurrentPersonaId() {
-    try {
-      const id = localStorage.getItem(this.CURRENT_PERSONA_KEY);
-      if (id) {
-        this._currentPersonaId.set(id);
-      }
-    } catch {
-      // ignore
-    }
-  }
-
-  setCurrentPersona(id: string | null): void {
-    this._currentPersonaId.set(id);
-    try {
-      if (id) {
-        localStorage.setItem(this.CURRENT_PERSONA_KEY, id);
-      } else {
-        localStorage.removeItem(this.CURRENT_PERSONA_KEY);
-      }
-    } catch {
-      // ignore
-    }
-  }
-
-  async loadTopics(): Promise<void> {
-    this._topics.set(await this.api.getTopics());
-  }
-
-  async createTopic(data: CreateTopicRequest): Promise<Topic> {
-    const topic = await this.api.createTopic(data);
-    this._topics.update(list =>
-      [...list, topic].sort((a, b) => a.name.localeCompare(b.name))
-    );
-    return topic;
-  }
-
-  async updateTopic(id: string, data: UpdateTopicRequest): Promise<Topic> {
-    const topic = await this.api.updateTopic(id, data);
-    this._topics.update(list =>
-      list
-        .map(t => (t.id === id ? topic : t))
-        .sort((a, b) => a.name.localeCompare(b.name))
-    );
-    return topic;
-  }
-
-  async deleteTopic(id: string): Promise<void> {
-    await this.api.deleteTopic(id);
-    this._topics.update(list => list.filter(t => t.id !== id));
-  }
-
-  /** Add a project to a topic */
-  async addProjectToTopic(topicId: string, projectId: string): Promise<Topic> {
-    const topic = await this.api.addProjectToTopic(topicId, projectId);
-    this._topics.update(list =>
-      list.map(t => (t.id === topicId ? topic : t))
-    );
-    return topic;
-  }
-
-  /** Remove a project from a topic */
-  async removeProjectFromTopic(topicId: string, projectId: string): Promise<Topic> {
-    const topic = await this.api.removeProjectFromTopic(topicId, projectId);
-    this._topics.update(list =>
-      list.map(t => (t.id === topicId ? topic : t))
-    );
-    return topic;
-  }
-
-  getTopic(id: string | null | undefined): Topic | undefined {
-    if (!id) return undefined;
-    return this._topics().find(t => t.id === id);
-  }
-
 
   /** parentId → currently active childId */
   private readonly _activeChildMap = signal<Record<string, string>>({});

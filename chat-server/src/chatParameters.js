@@ -1,7 +1,7 @@
 const { v4: uuidv4 } = require('uuid');
 const db = require('./db');
 
-const THINKING_LEVELS = ['none', 'minimal', 'low', 'medium', 'high'];
+const THINKING_LEVELS = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
 
 const OWNER_TABLES = {
   model: { table: 'models', idColumn: 'id', type: 'model' },
