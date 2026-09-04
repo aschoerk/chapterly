@@ -7,7 +7,7 @@ import { ChatParametersService } from './chat-parameters.service';
 import { normalizeChatMessages } from './llm-message';
 import { extractLlmDelta, LlmChunk, readSseStream } from './llm-sse';
 import { ResolvedChatParameters } from '../models/chat-parameters';
-import { ProjectService } from "./project.service";
+import { ProjectService } from './project.service';
 
 export type { LlmChunk };
 
@@ -49,7 +49,7 @@ export class LlmService {
         'HTTP-Referer': 'https://chat-client.local',
         'X-Title': 'Chapterly'
       },
-      body:  JSON.stringify({
+      body: JSON.stringify({
         model: modelId,
         messages: payloadMessages,
         temperature: restExtras['temperature'] ?? 0.7,
@@ -85,12 +85,10 @@ export class LlmService {
     const contentType = response.headers.get('content-type') || '';
     const looksSse = /text\/event-stream/i.test(contentType);
 
-    // Provider honored stream:false → one JSON object, choices[0].message
     if (!useStream && !looksSse) {
       return this.finishNonStream(await response.json(), onChunk);
     }
 
-    // Provider ignored stream:false and still sent SSE
     if (looksSse || useStream) {
       const assembled = await readSseStream(response.body!, onChunk);
       return {
@@ -146,15 +144,90 @@ export class LlmService {
     const signal = this.chatService.startGeneration(answerNode.id);
     let accContent = '';
     let accThinking = '';
+    let committed = 0;
+    let raf = 0;
+    let lastTs = 0;
+    let pumpRunning = false;
 
-    const writeLive = () => {
+    const visibleEnd = (): number => {
+      const n = accContent.length;
+      const rate = this.chatService.streamSpeed();
+      if (rate <= 0 || committed >= n) return n;
+      if (this.chatService.streamSpeedUnit() === 'char') return committed;
+      const tail = accContent.slice(committed).match(/^\s*\S*/);
+      return committed + (tail ? tail[0].length : 0);
+    };
+
+    const paint = () => {
+      const content = accContent.slice(0, visibleEnd());
       this.chatService.updateNodes(list =>
         list.map(n =>
           n.id === answerNode.id
-            ? { ...n, content: accContent, thinking: accThinking }
+            ? { ...n, content, thinking: accThinking }
             : n
         )
       );
+    };
+
+    const endOfNextUnit = (from: number): number => {
+      if (from >= accContent.length) return from;
+      if (this.chatService.streamSpeedUnit() === 'char') return from + 1;
+      const m = accContent.slice(from).match(/^\s*\S+\s+/);
+      return m ? from + m[0].length : from;
+    };
+
+    const flushReveal = () => {
+      pumpRunning = false;
+      if (raf) cancelAnimationFrame(raf);
+      raf = 0;
+      committed = accContent.length;
+      paint();
+    };
+
+    let carry = 0;
+
+    const tick = (ts: number) => {
+      if (!pumpRunning) return;
+      const rate = this.chatService.streamSpeed();
+      if (rate <= 0) {
+        flushReveal();
+        return;
+      }
+
+      if (!lastTs) lastTs = ts;
+      carry += ((ts - lastTs) / 1000) * rate;
+      lastTs = ts;
+      if (carry > 8) carry = 8; // tab was in background
+
+      while (carry >= 1 && committed < accContent.length) {
+        const next = endOfNextUnit(committed);
+        if (next <= committed) break; // partial word; keep carry
+        committed = next;
+        carry -= 1;
+      }
+
+      paint();
+
+      if (committed < accContent.length) {
+        raf = requestAnimationFrame(tick);
+      } else {
+        pumpRunning = false;
+        raf = 0;
+      }
+    };
+
+    const kickPump = () => {
+      if (this.chatService.streamSpeed() <= 0) {
+        flushReveal();
+        return;
+      }
+      if (pumpRunning) {
+        paint();
+        return;
+      }
+      pumpRunning = true;
+      lastTs = 0;
+      raf = requestAnimationFrame(tick);
     };
 
     try {
@@ -167,7 +240,7 @@ export class LlmService {
         chunk => {
           if (chunk.content) accContent += chunk.content;
           if (chunk.thinking) accThinking += chunk.thinking;
-          writeLive();
+          kickPump();
           onChunk?.(chunk);
         },
         signal,
@@ -176,7 +249,7 @@ export class LlmService {
 
       accContent = result.content;
       accThinking = result.thinking;
-      writeLive();
+      flushReveal();
 
       if (accContent.trim() || accThinking.trim()) {
         const versioned = await this.chatService.editAssistant(
@@ -191,8 +264,10 @@ export class LlmService {
       }
       return answerNode;
     } catch {
+      flushReveal();
       return answerNode;
     } finally {
+      flushReveal();
       this.chatService.stopGeneration();
       if (this.chatService.alwaysOpenAtLeaf() && (accContent.trim() || accThinking.trim())) {
         const current = this.chatService.getActiveChild(questionNodeId) ?? answerNode;

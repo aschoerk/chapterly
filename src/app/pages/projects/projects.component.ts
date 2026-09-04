@@ -27,6 +27,7 @@ import {
   draftFromParameters,
   emptyParametersDraft
 } from '../../models/chat-parameters';
+import {PersonaService} from '../../core/persona.service';
 
 @Component({
   selector: 'app-projects',
@@ -38,6 +39,7 @@ import {
 export class ProjectsComponent implements OnInit {
   private readonly chatService = inject(ChatService);
   private readonly projectService = inject(ProjectService);
+  private readonly personaService = inject(PersonaService);
   private readonly settings = inject(SettingsService);
   private readonly parameters = inject(ChatParametersService);
   private readonly router = inject(Router);
@@ -71,7 +73,7 @@ export class ProjectsComponent implements OnInit {
   private closeInFlight = false;
 
   readonly projects = this.projectService.projects;
-  readonly personas = this.chatService.personas;
+  readonly personas = this.personaService.personas;
   readonly enabledModels = this.settings.enabledModels;
   readonly topics = this.projectService.topics;          // already loaded via ChatService
 // ============================================================
@@ -132,7 +134,7 @@ export class ProjectsComponent implements OnInit {
     try {
       await Promise.all([
         this.projectService.loadProjects(),
-        this.chatService.loadPersonas(),
+        this.personaService.loadPersonas(),
         this.projectService.loadTopics(),
         this.settings.loadAll()
       ]);

@@ -23,30 +23,55 @@
         @if (currentChatId()) {
           <div class="title-row">
             <chat-title-editor></chat-title-editor>
+
             <div class="view-prefs">
-              <label>
-                <input type="checkbox"
-                       [checked]="chatService.followStreaming()"
-                       (change)="chatService.setFollowStreaming($any($event.target).checked)" />
-                follow streaming
-              </label>
-              <label>
-                <input type="checkbox"
-                       [checked]="chatService.followThinking()"
-                       (change)="chatService.setFollowThinking($any($event.target).checked)" />
-                follow thinking
-              </label>
-              <label>
-                <input type="checkbox"
-                       [checked]="chatService.alwaysOpenAtLeaf()"
-                       (change)="chatService.setAlwaysOpenAtLeaf($any($event.target).checked)" />
-                always open at leaf
-              </label>
-              <span class="gen-spinner"
-                    [class.on]="!!chatService.generatingNodeId()"
-                    title="Generating…"
-                    aria-live="polite"
-                    [attr.aria-hidden]="chatService.generatingNodeId() ? null : 'true'"></span>
+              <div class="view-prefs-row">
+                <label>
+                  <input type="checkbox"
+                         [checked]="chatService.followStreaming()"
+                         (change)="chatService.setFollowStreaming($any($event.target).checked)" />
+                  follow streaming
+                </label>
+                <label>
+                  <input type="checkbox"
+                         [checked]="chatService.followThinking()"
+                         (change)="chatService.setFollowThinking($any($event.target).checked)" />
+                  follow thinking
+                </label>
+                <label>
+                  <input type="checkbox"
+                         [checked]="chatService.alwaysOpenAtLeaf()"
+                         (change)="chatService.setAlwaysOpenAtLeaf($any($event.target).checked)" />
+                  always open at leaf
+                </label>
+                <span class="gen-spinner"
+                      [class.on]="!!chatService.generatingNodeId()"
+                      title="Generating…"
+                      aria-live="polite"
+                      [attr.aria-hidden]="chatService.generatingNodeId() ? null : 'true'"></span>
+              </div>
+
+              <div class="view-prefs-row stream-speed-row">
+                <label class="stream-speed">
+                  reveal
+                  <select
+                    [ngModel]="chatService.streamSpeedUnit()"
+                    (ngModelChange)="chatService.setStreamSpeedUnit($event)">
+                    <option value="char">chars/s</option>
+                    <option value="word">words/s</option>
+                  </select>
+                  <input
+                    type="range"
+                    min="0"
+                    [max]="chatService.streamSpeedUnit() === 'word' ? 30 : 160"
+                    [step]="chatService.streamSpeedUnit() === 'word' ? 1 : 5"
+                    [ngModel]="chatService.streamSpeed()"
+                    (ngModelChange)="chatService.setStreamSpeed(+$event)" />
+                  <span class="speed-val">
+                    {{ chatService.streamSpeed() === 0 ? 'instant' : chatService.streamSpeed() }}
+                  </span>
+                </label>
+              </div>
             </div>
           </div>
           <div class="params-bar">

@@ -355,21 +355,34 @@ body.sidebar-resizing * {
 
 .title-row {
   display: flex;
-  align-items: center;
+  align-items: center;          /* caption vertically centered on both rows */
   justify-content: space-between;
   gap: 0.85rem;
   padding: 0.35rem 0.75rem 0.15rem;
   min-width: 0;
 }
 
+.title-row chat-title-editor,
+.title-row .chat-title-editor {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
 .view-prefs {
   display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  flex-wrap: wrap;
-  gap: 0.55rem 0.85rem;
+  flex-direction: column;
+  align-items: flex-start;      /* slider lines up under "follow streaming" */
+  justify-content: center;
+  gap: 0.2rem;
   margin-left: auto;
   flex: 0 0 auto;
+}
+
+.view-prefs-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.55rem 0.85rem;
 }
 
 .view-prefs label {
@@ -380,6 +393,29 @@ body.sidebar-resizing * {
   font-weight: 500;
   color: var(--muted, #666);
   white-space: nowrap;
+}
+
+.stream-speed-row {
+  min-height: 1.4rem;
+}
+
+.view-prefs .stream-speed {
+  gap: 0.35rem;
+}
+
+.view-prefs .stream-speed select {
+  font: inherit;
+  font-size: 0.75rem;
+}
+
+.view-prefs .stream-speed input[type="range"] {
+  width: 88px;
+  vertical-align: middle;
+}
+
+.view-prefs .speed-val {
+  min-width: 3.2rem;
+  font-variant-numeric: tabular-nums;
 }
 
 .title-row chat-title-editor,

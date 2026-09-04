@@ -66,6 +66,53 @@ export class ChatService {
     localStorage.setItem('chat.view.alwaysOpenAtLeaf', on ? '1' : '0');
   }
 
+  readonly streamSpeedUnit = signal<'char' | 'word'>(
+    this.loadViewPrefStr('chat.view.streamSpeedUnit', 'char') as 'char' | 'word'
+  );
+  /** Units per second. 0 = instant (current behavior). */
+  readonly streamSpeed = signal(this.loadViewPrefNum('chat.view.streamSpeed', 0));
+
+  private loadViewPrefStr(key: string, fallback: string): string {
+    return localStorage.getItem(key) || fallback;
+  }
+
+  private loadViewPrefNum(key: string, fallback: number): number {
+    const n = Number(localStorage.getItem(key));
+    return Number.isFinite(n) ? n : fallback;
+  }
+
+  private static readonly CHARS_PER_WORD = 5;
+  private static readonly CHAR_MAX = 160;
+  private static readonly WORD_MAX = 30;
+
+  setStreamSpeedUnit(unit: 'char' | 'word') {
+    const from = this.streamSpeedUnit();
+    if (unit === from) return;
+
+    const rate = this.streamSpeed();
+    let next = rate;
+
+    if (rate > 0) {
+      next = from === 'char'
+        ? rate / ChatService.CHARS_PER_WORD
+        : rate * ChatService.CHARS_PER_WORD;
+    }
+
+    const max = unit === 'word' ? ChatService.WORD_MAX : ChatService.CHAR_MAX;
+    const step = unit === 'word' ? 1 : 5;
+    next = rate === 0 ? 0 : Math.min(max, Math.max(step, Math.round(next / step) * step));
+
+    this.streamSpeedUnit.set(unit);
+    localStorage.setItem('chat.view.streamSpeedUnit', unit);
+    this.setStreamSpeed(next);
+  }
+
+  setStreamSpeed(rate: number) {
+    const n = Math.max(0, rate);
+    this.streamSpeed.set(n);
+    localStorage.setItem('chat.view.streamSpeed', String(n));
+  }
+
   private readScrollMap(): Record<string, number> {
     try {
       const raw = localStorage.getItem(LS_SCROLL);
