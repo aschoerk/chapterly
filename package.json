@@ -24,6 +24,7 @@
     "cors": "^2.8.6",
     "dompurify": "^3.4.14",
     "express": "^5.2.1",
+    "hash-wasm": "^4.12.0",
     "http-proxy-middleware": "^4.2.0",
     "marked": "^18.0.10",
     "portfinder": "^1.0.38",
@@ -69,7 +70,9 @@
       "icon": "electron/icon.png"
     },
     "win": {
-      "target": ["nsis"],
+      "target": [
+        "nsis"
+      ],
       "icon": "electron/icon.png"
     },
     "nsis": {

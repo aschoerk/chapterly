@@ -34,7 +34,8 @@ function clearDatabase() {
     'projects',
     'models',
     'providers',
-    'chat_parameters'
+    'chat_parameters',
+    'users'
   ];
 
   // Disable foreign key constraints temporarily
@@ -1073,6 +1074,123 @@ describe('API Routes (in-memory DB)', () => {
       const project = await request(app).get(`/api/projects/${projectId}`);
       expect(project.status).toBe(200);
       expect(project.body.chatParametersId).toBeNull();
+    });
+  });
+
+  // ------------------------------------------------------------------------
+  // Users
+  // ------------------------------------------------------------------------
+  describe('Users', () => {
+    let userId;
+
+    test('GET /api/users starts empty', async () => {
+      const res = await request(app).get('/api/users');
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual([]);
+    });
+
+    test('POST /api/users requires username and password', async () => {
+      const res = await request(app).post('/api/users').send({ email: 'a@b.c' });
+      expect(res.status).toBe(400);
+    });
+
+    test('POST /api/users creates a user without returning the hash', async () => {
+      const res = await request(app).post('/api/users').send({
+        username: 'andi',
+        password: 'secret-pass',
+        email: 'andi@example.com',
+        phoneNumber: '+15551234567'
+      });
+      expect(res.status).toBe(201);
+      expect(res.body.username).toBe('andi');
+      expect(res.body.email).toBe('andi@example.com');
+      expect(res.body.phoneNumber).toBe('+15551234567');
+      expect(res.body.id).toBeDefined();
+      expect(res.body.password).toBeUndefined();
+      expect(res.body.passwordHash).toBeUndefined();
+      expect(res.body.password_hash).toBeUndefined();
+      userId = res.body.id;
+    });
+
+    test('POST /api/users rejects a duplicate username', async () => {
+      const res = await request(app).post('/api/users').send({
+        username: 'andi',
+        password: 'other'
+      });
+      expect(res.status).toBe(409);
+    });
+
+    test('POST /api/users/login accepts username and password', async () => {
+      const res = await request(app).post('/api/users/login').send({
+        username: 'andi',
+        password: 'secret-pass'
+      });
+      expect(res.status).toBe(200);
+      expect(res.body.id).toBe(userId);
+      expect(res.body.password_hash).toBeUndefined();
+    });
+
+    test('POST /api/users/login accepts email', async () => {
+      const res = await request(app).post('/api/users/login').send({
+        email: 'andi@example.com',
+        password: 'secret-pass'
+      });
+      expect(res.status).toBe(200);
+      expect(res.body.id).toBe(userId);
+    });
+
+    test('POST /api/users/login rejects a bad password', async () => {
+      const res = await request(app).post('/api/users/login').send({
+        username: 'andi',
+        password: 'nope'
+      });
+      expect(res.status).toBe(401);
+    });
+
+    test('owned provider and topic are scoped to the user', async () => {
+      const provider = await request(app).post('/api/providers').send({
+        name: 'Owned Router',
+        type: 'openrouter',
+        baseUrl: 'https://example.invalid',
+        apiKey: 'k',
+        userId
+      });
+      expect(provider.status).toBe(201);
+      expect(provider.body.userId).toBe(userId);
+
+      const topic = await request(app).post('/api/topics').send({
+        name: 'Owned Topic',
+        userId
+      });
+      expect(topic.status).toBe(201);
+      expect(topic.body.userId).toBe(userId);
+
+      const ownedProviders = await request(app).get(`/api/users/${userId}/providers`);
+      expect(ownedProviders.status).toBe(200);
+      expect(ownedProviders.body.some(p => p.id === provider.body.id)).toBe(true);
+
+      const filteredTopics = await request(app).get(`/api/topics?userId=${userId}`);
+      expect(filteredTopics.status).toBe(200);
+      expect(filteredTopics.body.every(t => t.userId === userId)).toBe(true);
+
+      const unscoped = await request(app).post('/api/providers').send({
+        name: 'Legacy Router',
+        baseUrl: 'https://legacy.invalid',
+        apiKey: 'k2'
+      });
+      expect(unscoped.status).toBe(201);
+      expect(unscoped.body.userId).toBeNull();
+    });
+
+    test('DELETE /api/users/:id leaves owned rows unscoped', async () => {
+      const res = await request(app).delete(`/api/users/${userId}`);
+      expect(res.status).toBe(204);
+
+      const topics = await request(app).get('/api/topics');
+      expect(topics.status).toBe(200);
+      const ownedTopic = topics.body.find(t => t.name === 'Owned Topic');
+      expect(ownedTopic).toBeDefined();
+      expect(ownedTopic.userId).toBeNull();
     });
   });
 });

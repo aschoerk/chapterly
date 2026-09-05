@@ -2,6 +2,28 @@ const express = require('express');
 const { v4: uuidv4 } = require('uuid');
 const db = require('../db');
 const { resolveChatParametersId, assertChatParametersExists } = require('../chatParameters');
+const { assertUserExists } = require('../users');
+
+function mapProvider(row) {
+  return {
+    id: row.id,
+    name: row.name,
+    type: row.type,
+    baseUrl: row.base_url,
+    apiKey: row.api_key,
+    enabled: !!row.enabled,
+    userId: row.user_id || null
+  };
+}
+
+function resolveUserId(body, fallback) {
+  if (body.userId === undefined && body.user_id === undefined) {
+    return fallback === undefined ? null : fallback;
+  }
+  const raw = body.userId !== undefined ? body.userId : body.user_id;
+  if (raw === null || raw === '') return null;
+  return raw;
+}
 
 const router = express.Router();
 
@@ -14,6 +36,14 @@ const router = express.Router();
  *     summary: List all providers
  *     tags:
  *       - Providers
+ *     parameters:
+ *       - in: query
+ *         name: userId
+ *         required: false
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         description: When set, only providers owned by this user are returned
  *     responses:
  *       200:
  *         description: List of providers
@@ -25,15 +55,11 @@ const router = express.Router();
  *                 $ref: '#/components/schemas/Provider'
  */
 router.get('/providers', (req, res) => {
-  const rows = db.prepare('SELECT * FROM providers ORDER BY created_at').all();
-  res.json(rows.map(row => ({
-    id: row.id,
-    name: row.name,
-    type: row.type,
-    baseUrl: row.base_url,
-    apiKey: row.api_key,
-    enabled: !!row.enabled
-  })));
+  const userId = req.query.userId || req.query.user_id;
+  const rows = userId
+    ? db.prepare('SELECT * FROM providers WHERE user_id = ? ORDER BY created_at').all(userId)
+    : db.prepare('SELECT * FROM providers ORDER BY created_at').all();
+  res.json(rows.map(mapProvider));
 });
 
 /**
@@ -65,6 +91,11 @@ router.get('/providers', (req, res) => {
  *               enabled:
  *                 type: boolean
  *                 default: true
+ *               userId:
+ *                 type: string
+ *                 format: uuid
+ *                 nullable: true
+ *                 description: Optional owning user. Omit for unscoped / legacy clients.
  *     responses:
  *       201:
  *         description: Provider created
@@ -82,14 +113,20 @@ router.post('/providers', (req, res) => {
     return res.status(400).json({ error: 'name, baseUrl and apiKey are required' });
   }
 
+  const userId = resolveUserId(req.body, null);
+  if (!assertUserExists(userId)) {
+    return res.status(400).json({ error: 'userId does not exist' });
+  }
+
   const id = uuidv4();
 
   db.prepare(`
-    INSERT INTO providers (id, name, type, base_url, api_key, enabled)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `).run(id, name, type || 'custom', baseUrl, apiKey, enabled ? 1 : 0);
+    INSERT INTO providers (id, name, type, base_url, api_key, enabled, user_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).run(id, name, type || 'custom', baseUrl, apiKey, enabled ? 1 : 0, userId);
 
-  res.status(201).json({ id, name, type: type || 'custom', baseUrl, apiKey, enabled });
+  const row = db.prepare('SELECT * FROM providers WHERE id = ?').get(id);
+  res.status(201).json(mapProvider(row));
 });
 
 /**
@@ -121,6 +158,10 @@ router.post('/providers', (req, res) => {
  *                 type: string
  *               enabled:
  *                 type: boolean
+ *               userId:
+ *                 type: string
+ *                 format: uuid
+ *                 nullable: true
  *     responses:
  *       200:
  *         description: Provider updated
@@ -133,31 +174,38 @@ router.post('/providers', (req, res) => {
  */
 router.put('/providers/:id', (req, res) => {
   const { id } = req.params;
-  const { name, type, baseUrl, apiKey, enabled } = req.body;
+  const existing = db.prepare('SELECT * FROM providers WHERE id = ?').get(id);
+  if (!existing) {
+    return res.status(404).json({ error: 'Provider not found' });
+  }
 
-  const result = db.prepare(`
+  const { name, type, baseUrl, apiKey, enabled } = req.body;
+  const userId = resolveUserId(req.body, existing.user_id);
+  if (!assertUserExists(userId)) {
+    return res.status(400).json({ error: 'userId does not exist' });
+  }
+
+  db.prepare(`
     UPDATE providers
     SET name = COALESCE(?, name),
         type = COALESCE(?, type),
         base_url = COALESCE(?, base_url),
         api_key = COALESCE(?, api_key),
-        enabled = COALESCE(?, enabled)
+        enabled = COALESCE(?, enabled),
+        user_id = ?
     WHERE id = ?
-  `).run(name, type, baseUrl, apiKey, enabled === undefined ? null : (enabled ? 1 : 0), id);
-
-  if (result.changes === 0) {
-    return res.status(404).json({ error: 'Provider not found' });
-  }
+  `).run(
+    name,
+    type,
+    baseUrl,
+    apiKey,
+    enabled === undefined ? null : (enabled ? 1 : 0),
+    userId,
+    id
+  );
 
   const row = db.prepare('SELECT * FROM providers WHERE id = ?').get(id);
-  res.json({
-    id: row.id,
-    name: row.name,
-    type: row.type,
-    baseUrl: row.base_url,
-    apiKey: row.api_key,
-    enabled: !!row.enabled
-  });
+  res.json(mapProvider(row));
 });
 
 /**

@@ -31,6 +31,21 @@ function initializeSchema(db) {
   db.pragma('foreign_keys = ON');
 
   db.exec(`
+    CREATE TABLE IF NOT EXISTS users (
+                                       id            TEXT PRIMARY KEY,
+                                       username      TEXT NOT NULL UNIQUE,
+                                       email         TEXT UNIQUE,
+                                       phone_number  TEXT UNIQUE,
+                                       password_hash TEXT NOT NULL,
+                                       created_at    TEXT DEFAULT (datetime('now')),
+      updated_at    TEXT DEFAULT (datetime('now'))
+      );
+
+    CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+    CREATE INDEX IF NOT EXISTS idx_users_phone ON users(phone_number);
+  `);
+
+  db.exec(`
     CREATE TABLE IF NOT EXISTS providers (
                                            id TEXT PRIMARY KEY,
                                            name TEXT NOT NULL,
@@ -38,8 +53,12 @@ function initializeSchema(db) {
                                            base_url TEXT NOT NULL,
                                            api_key TEXT NOT NULL,
                                            enabled INTEGER DEFAULT 1,
-                                           created_at TEXT DEFAULT (datetime('now'))
+                                           user_id TEXT,
+                                           created_at TEXT DEFAULT (datetime('now')),
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
       );
+
+
 
     CREATE TABLE IF NOT EXISTS models (
                                         id TEXT PRIMARY KEY,
@@ -100,7 +119,7 @@ function initializeSchema(db) {
                                             id TEXT PRIMARY KEY,
                                             chat_id TEXT NOT NULL,
                                             parent_id TEXT,
-      role TEXT NOT NULL CHECK(role IN ('user', 'assistant', 'system')),
+                                            role TEXT NOT NULL CHECK(role IN ('user', 'assistant', 'system')),
       content TEXT NOT NULL,
       thinking TEXT,
       model_id TEXT,
@@ -125,26 +144,32 @@ function initializeSchema(db) {
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS topics (
-      id                    TEXT PRIMARY KEY,
-      name                  TEXT NOT NULL,
-      description           TEXT DEFAULT '',
-      default_model_id      TEXT,
-      default_system_prompt TEXT DEFAULT '',
-      icon                  TEXT DEFAULT '',
-      created_at            TEXT DEFAULT (datetime('now')),
-      updated_at            TEXT DEFAULT (datetime('now'))
-    );
+                                        id                    TEXT PRIMARY KEY,
+                                        name                  TEXT NOT NULL,
+                                        description           TEXT DEFAULT '',
+                                        default_model_id      TEXT,
+                                        default_system_prompt TEXT DEFAULT '',
+                                        icon                  TEXT DEFAULT '',
+                                        user_id               TEXT,
+                                        created_at            TEXT DEFAULT (datetime('now')),
+      updated_at            TEXT DEFAULT (datetime('now')),
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+      );
+
+
   `);
+
+
 
   db.exec(`
 
     CREATE TABLE IF NOT EXISTS topic_projects (
-      topic_id   TEXT NOT NULL,
-      project_id TEXT NOT NULL,
-      PRIMARY KEY (topic_id, project_id),
+                                                topic_id   TEXT NOT NULL,
+                                                project_id TEXT NOT NULL,
+                                                PRIMARY KEY (topic_id, project_id),
       FOREIGN KEY (topic_id)   REFERENCES topics(id)   ON DELETE CASCADE,
       FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
-    );
+      );
 
     CREATE INDEX IF NOT EXISTS idx_topic_projects_topic   ON topic_projects(topic_id);
     CREATE INDEX IF NOT EXISTS idx_topic_projects_project ON topic_projects(project_id);
@@ -203,6 +228,20 @@ function initializeSchema(db) {
         db.exec(`CREATE INDEX IF NOT EXISTS idx_${table}_chat_parameters_id ON ${table}(chat_parameters_id)`);
         console.log(`Migrated ${table}: added chat_parameters_id`);
       }
+    }
+
+    const providerCols = db.prepare(`PRAGMA table_info(providers)`).all().map(c => c.name);
+    if (!providerCols.includes('user_id')) {
+      db.exec(`ALTER TABLE providers ADD COLUMN user_id TEXT REFERENCES users(id) ON DELETE SET NULL`);
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_providers_user_id ON providers(user_id)`);
+      console.log('Migrated providers: added user_id');
+    }
+
+    const topicCols = db.prepare(`PRAGMA table_info(topics)`).all().map(c => c.name);
+    if (!topicCols.includes('user_id')) {
+      db.exec(`ALTER TABLE topics ADD COLUMN user_id TEXT REFERENCES users(id) ON DELETE SET NULL`);
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_topics_user_id ON topics(user_id)`);
+      console.log('Migrated topics: added user_id');
     }
 
     const chatNodeCols = db.prepare(`PRAGMA table_info(chat_nodes)`).all().map(c => c.name);
@@ -280,6 +319,10 @@ function initializeSchema(db) {
         PRAGMA foreign_key_check;
       `);
     }
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_topics_user_id ON topics(user_id);
+             CREATE INDEX IF NOT EXISTS idx_providers_user_id ON providers(user_id);
+     `);
+
   } catch (e) {
     console.warn('chat_nodes.role migration skipped', e.message);
   }

@@ -2,8 +2,18 @@ const express = require('express');
 const { v4: uuidv4 } = require('uuid');
 const db = require('../db');
 const { resolveChatParametersId, assertChatParametersExists } = require('../chatParameters');
+const { assertUserExists } = require('../users');
 
 const router = express.Router();
+
+function resolveUserId(body, fallback) {
+  if (body.userId === undefined && body.user_id === undefined) {
+    return fallback === undefined ? null : fallback;
+  }
+  const raw = body.userId !== undefined ? body.userId : body.user_id;
+  if (raw === null || raw === '') return null;
+  return raw;
+}
 
 function mapTopic(row) {
   if (!row) return null;
@@ -21,6 +31,7 @@ function mapTopic(row) {
     defaultSystemPrompt: row.default_system_prompt || '',
     icon: row.icon || '',
     projectIds,
+    userId: row.user_id || null,
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };
@@ -37,6 +48,14 @@ function mapTopic(row) {
  *     summary: List all topics
  *     tags:
  *       - Topics
+ *     parameters:
+ *       - in: query
+ *         name: userId
+ *         required: false
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         description: When set, only topics owned by this user are returned
  *     responses:
  *       200:
  *         description: Array of topics
@@ -47,8 +66,11 @@ function mapTopic(row) {
  *               items:
  *                 $ref: '#/components/schemas/Topic'
  */
-router.get('/', (_req, res) => {
-  const rows = db.prepare('SELECT * FROM topics ORDER BY name').all();
+router.get('/', (req, res) => {
+  const userId = req.query.userId || req.query.user_id;
+  const rows = userId
+    ? db.prepare('SELECT * FROM topics WHERE user_id = ? ORDER BY name').all(userId)
+    : db.prepare('SELECT * FROM topics ORDER BY name').all();
   res.json(rows.map(mapTopic));
 });
 
@@ -119,6 +141,11 @@ router.get('/:id', (req, res) => {
  *                   type: string
  *                   format: uuid
  *                 description: Optional initial list of project IDs to attach
+ *               userId:
+ *                 type: string
+ *                 format: uuid
+ *                 nullable: true
+ *                 description: Optional owning user. Omit for unscoped / legacy clients.
  *     responses:
  *       201:
  *         description: Topic created
@@ -148,13 +175,18 @@ router.post('/', (req, res) => {
     return res.status(400).json({ error: 'chatParametersId does not exist' });
   }
 
+  const userId = resolveUserId(req.body, null);
+  if (!assertUserExists(userId)) {
+    return res.status(400).json({ error: 'userId does not exist' });
+  }
+
   const id = uuidv4();
   const now = new Date().toISOString();
 
   db.prepare(`
     INSERT INTO topics
-    (id, name, description, default_model_id, default_system_prompt, icon, chat_parameters_id, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    (id, name, description, default_model_id, default_system_prompt, icon, chat_parameters_id, user_id, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     id,
     name.trim(),
@@ -163,6 +195,7 @@ router.post('/', (req, res) => {
     defaultSystemPrompt,
     icon,
     chatParametersId,
+    userId,
     now,
     now
   );
@@ -210,6 +243,10 @@ router.post('/', (req, res) => {
  *                 type: string
  *               icon:
  *                 type: string
+ *               userId:
+ *                 type: string
+ *                 format: uuid
+ *                 nullable: true
  *     responses:
  *       200:
  *         description: Topic updated
@@ -238,6 +275,11 @@ router.put('/:id', (req, res) => {
     return res.status(400).json({ error: 'chatParametersId does not exist' });
   }
 
+  const userId = resolveUserId(req.body, existing.user_id);
+  if (!assertUserExists(userId)) {
+    return res.status(400).json({ error: 'userId does not exist' });
+  }
+
   db.prepare(`
     UPDATE topics SET
                     name                  = COALESCE(?, name),
@@ -246,6 +288,7 @@ router.put('/:id', (req, res) => {
                     default_system_prompt = COALESCE(?, default_system_prompt),
                     icon                  = COALESCE(?, icon),
                     chat_parameters_id    = ?,
+                    user_id               = ?,
                     updated_at            = datetime('now')
     WHERE id = ?
   `).run(
@@ -255,6 +298,7 @@ router.put('/:id', (req, res) => {
     defaultSystemPrompt !== undefined ? defaultSystemPrompt : null,
     icon !== undefined ? icon : null,
     chatParametersId,
+    userId,
     id
   );
 

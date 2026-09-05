@@ -6,7 +6,7 @@ const options = {
     info: {
       title: 'Chat Server API',
       version: '1.0.0',
-      description: 'API for the Chat Client (providers, models, chats, nodes, projects, personas, chat parameters)'
+      description: 'API for the Chat Client (users, providers, models, chats, nodes, projects, personas, chat parameters)'
     },
     servers: [
       {
@@ -15,6 +15,7 @@ const options = {
       }
     ],
     tags: [
+      { name: 'Users', description: 'Local client accounts. Password is stored as Argon2id. No OIDC yet.' },
       { name: 'Providers', description: 'AI provider configuration' },
       { name: 'Models', description: 'Available models and presets' },
       { name: 'Chats', description: 'Chat management' },
@@ -26,6 +27,46 @@ const options = {
     ],
     components: {
       schemas: {
+        User: {
+          type: 'object',
+          properties: {
+            id: { type: 'string', format: 'uuid' },
+            username: { type: 'string', example: 'andi' },
+            email: { type: 'string', nullable: true, example: 'andi@example.com' },
+            phoneNumber: { type: 'string', nullable: true, example: '+15551234567' },
+            createdAt: { type: 'string', format: 'date-time' },
+            updatedAt: { type: 'string', format: 'date-time' }
+          }
+        },
+        UserCreate: {
+          type: 'object',
+          required: ['username', 'password'],
+          properties: {
+            username: { type: 'string' },
+            password: { type: 'string', format: 'password' },
+            email: { type: 'string', nullable: true },
+            phoneNumber: { type: 'string', nullable: true }
+          }
+        },
+        UserUpdate: {
+          type: 'object',
+          properties: {
+            username: { type: 'string' },
+            password: { type: 'string', format: 'password', description: 'When set, stored as a new Argon2id hash' },
+            email: { type: 'string', nullable: true },
+            phoneNumber: { type: 'string', nullable: true }
+          }
+        },
+        UserLogin: {
+          type: 'object',
+          required: ['password'],
+          properties: {
+            username: { type: 'string' },
+            email: { type: 'string' },
+            phoneNumber: { type: 'string' },
+            password: { type: 'string', format: 'password' }
+          }
+        },
         Provider: {
           type: 'object',
           properties: {
@@ -53,6 +94,12 @@ const options = {
             enabled: {
               type: 'boolean',
               example: true
+            },
+            userId: {
+              type: 'string',
+              format: 'uuid',
+              nullable: true,
+              description: 'Owning user. Null for unscoped / legacy providers.'
             }
           }
         },
@@ -375,6 +422,12 @@ const options = {
                 type: 'string',
                 format: 'uuid'
               }
+            },
+            userId: {
+              type: 'string',
+              format: 'uuid',
+              nullable: true,
+              description: 'Owning user. Null for unscoped / legacy topics.'
             },
             createdAt: {
               type: 'string',
