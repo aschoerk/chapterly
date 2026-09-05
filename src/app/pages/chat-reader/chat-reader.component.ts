@@ -3,15 +3,23 @@ import {
   afterNextRender, computed, effect, inject, signal, viewChild
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import { ChatService } from '../../core/chat.service';
 import { MarkdownService } from '../../core/markdown.service';
 import { ChatNode } from '../../models/chat';
 
+export interface ReaderFont {
+  id: string;
+  label: string;
+  stack: string;
+  sample: string;
+}
+
 @Component({
   selector: 'app-chat-reader',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, FormsModule],
   templateUrl: './chat-reader.component.html',
   styleUrl: './chat-reader.component.css'
 })
@@ -28,9 +36,82 @@ export class ChatReaderComponent implements OnInit, OnDestroy {
   readonly hideQuestions = signal(false);
   readonly docIndex = signal(0);
   private static readonly COLS_KEY = 'chat-reader.columnCount';
+  private static readonly FONT_KEY = 'chat-reader.fontId';
+  private static readonly SIZE_KEY = 'chat-reader.fontSize';
 
   readonly columnChoices = [1, 2, 3] as const;
   readonly columnCount = signal<1 | 2 | 3>(this.readStoredColumnCount());
+
+  readonly fontChoices: readonly ReaderFont[] = [
+    {
+      id: 'georgia',
+      label: 'Georgia',
+      stack: 'Georgia, "Times New Roman", Times, serif',
+      sample: 'The lamp was still warm.'
+    },
+    {
+      id: 'palatino',
+      label: 'Palatino',
+      stack: 'Palatino, "Palatino Linotype", "Book Antiqua", "URW Palladio L", serif',
+      sample: 'Rain ticked the glass.'
+    },
+    {
+      id: 'garamond',
+      label: 'Garamond',
+      stack: 'Garamond, "EB Garamond", "Palatino Linotype", "Times New Roman", serif',
+      sample: 'She folded the letter twice.'
+    },
+    {
+      id: 'times',
+      label: 'Times',
+      stack: '"Times New Roman", Times, "Liberation Serif", serif',
+      sample: 'Nobody spoke for a while.'
+    },
+    {
+      id: 'system',
+      label: 'System UI',
+      stack: 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif',
+      sample: 'The hallway lights hummed.'
+    },
+    {
+      id: 'helvetica',
+      label: 'Helvetica',
+      stack: 'Helvetica, "Helvetica Neue", Arial, "Nimbus Sans", sans-serif',
+      sample: 'He checked the lock again.'
+    },
+    {
+      id: 'verdana',
+      label: 'Verdana',
+      stack: 'Verdana, Geneva, Tahoma, sans-serif',
+      sample: 'A chair scraped the floor.'
+    },
+    {
+      id: 'trebuchet',
+      label: 'Trebuchet',
+      stack: '"Trebuchet MS", "Lucida Grande", "Lucida Sans Unicode", sans-serif',
+      sample: 'The kettle clicked off.'
+    },
+    {
+      id: 'mono',
+      label: 'Typewriter',
+      stack: 'ui-monospace, "Cascadia Mono", "Courier New", Courier, monospace',
+      sample: 'Draft 3 — scene break.'
+    }
+  ] as const;
+
+  readonly sizeChoices = [14, 16, 18, 20, 22, 24] as const;
+  readonly minFontSize = 12;
+  readonly maxFontSize = 28;
+
+  readonly fontId = signal<string>(this.readStoredFontId());
+  readonly fontSize = signal<number>(this.readStoredFontSize());
+  readonly typeModalOpen = signal(false);
+
+  readonly font = computed(() =>
+    this.fontChoices.find(f => f.id === this.fontId()) ?? this.fontChoices[0]
+  );
+
+  readonly fontStack = computed(() => this.font().stack);
 
   private readStoredColumnCount(): 1 | 2 | 3 {
     try {
@@ -38,6 +119,25 @@ export class ChatReaderComponent implements OnInit, OnDestroy {
       return n === 1 || n === 2 || n === 3 ? n : 3;
     } catch {
       return 3;
+    }
+  }
+
+  private readStoredFontId(): string {
+    try {
+      const id = localStorage.getItem(ChatReaderComponent.FONT_KEY);
+      return this.fontChoices.some(f => f.id === id) ? id! : 'georgia';
+    } catch {
+      return 'georgia';
+    }
+  }
+
+  private readStoredFontSize(): number {
+    try {
+      const n = Number(localStorage.getItem(ChatReaderComponent.SIZE_KEY));
+      if (!Number.isFinite(n)) return 16;
+      return Math.min(this.maxFontSize, Math.max(this.minFontSize, Math.round(n)));
+    } catch {
+      return 16;
     }
   }
 
@@ -51,6 +151,43 @@ export class ChatReaderComponent implements OnInit, OnDestroy {
     }
     this.page.set(0);
     queueMicrotask(() => this.layout());
+  }
+
+  setFontId(id: string): void {
+    if (!this.fontChoices.some(f => f.id === id)) return;
+    if (this.fontId() === id) return;
+    this.fontId.set(id);
+    try {
+      localStorage.setItem(ChatReaderComponent.FONT_KEY, id);
+    } catch { /* ignore */ }
+    queueMicrotask(() => this.layout());
+  }
+
+  setFontSize(n: number): void {
+    const next = Math.min(this.maxFontSize, Math.max(this.minFontSize, Math.round(Number(n) || 16)));
+    if (this.fontSize() === next) return;
+    this.fontSize.set(next);
+    try {
+      localStorage.setItem(ChatReaderComponent.SIZE_KEY, String(next));
+    } catch { /* ignore */ }
+    queueMicrotask(() => this.layout());
+  }
+
+  onFontSizeInput(raw: string | number): void {
+    this.setFontSize(Number(raw));
+  }
+
+  openTypeModal(): void {
+    this.typeModalOpen.set(true);
+  }
+
+  closeTypeModal(): void {
+    this.typeModalOpen.set(false);
+    queueMicrotask(() => this.layout());
+  }
+
+  onTypeBackdrop(ev: MouseEvent): void {
+    if (ev.target === ev.currentTarget) this.closeTypeModal();
   }
 
   private isUsable(n: ChatNode): boolean {
@@ -97,6 +234,21 @@ export class ChatReaderComponent implements OnInit, OnDestroy {
       .filter(n => !(hideQ && n.role === 'user'))
       .map(n => this.nodeToHtml(n))
       .join('');
+  });
+
+  /** First stretch of the open document, used as a live type sample. */
+  readonly previewHtml = computed(() => {
+    const hideQ = this.hideQuestions();
+    const parts: string[] = [];
+    let chars = 0;
+    for (const n of this.currentDoc()) {
+      if (hideQ && n.role === 'user') continue;
+      if (!this.isUsable(n)) continue;
+      parts.push(this.nodeToHtml(n));
+      chars += (n.content || '').length;
+      if (parts.length >= 2 || chars >= 900) break;
+    }
+    return parts.join('') || '<p class="empty">Nothing on this path to preview yet.</p>';
   });
 
   readonly docLabel = computed(() => {
@@ -378,7 +530,20 @@ export class ChatReaderComponent implements OnInit, OnDestroy {
   onKey(event: KeyboardEvent) {
     if (this.isTyping(event)) return;
 
+    if (this.typeModalOpen()) {
+      if (event.key === 'Escape' || event.key === 'f' || event.key === 'F') {
+        event.preventDefault();
+        this.closeTypeModal();
+      }
+      return;
+    }
+
     switch (event.key) {
+      case 'f':
+      case 'F':
+        event.preventDefault();
+        this.openTypeModal();
+        break;
       case 'd':
       case 'D':
         event.preventDefault();

@@ -1,5 +1,3 @@
-
-
 <div class="reader-shell">
   <header class="reader-bar">
     <h1 class="reader-title">{{ title() }}</h1>
@@ -31,6 +29,22 @@
               [disabled]="docIndex() >= documents().length - 1"
               (click)="goLastDoc()" title="Newest document">»</button>
     </div>
+    <button class="btn-icon"
+            type="button"
+            [class.active]="typeModalOpen()"
+            (click)="typeModalOpen() ? closeTypeModal() : openTypeModal()"
+            [attr.aria-pressed]="typeModalOpen()"
+            title="Typeface and size (f)">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+           stroke="currentColor" stroke-width="2"
+           stroke-linecap="round" stroke-linejoin="round"
+           aria-hidden="true">
+        <path d="M4 20h6"/>
+        <path d="M14 20h6"/>
+        <path d="M7 20V6.5L12 4l5 2.5V20"/>
+        <path d="M9.5 13h5"/>
+      </svg>
+    </button>
     <button class="btn-icon"
             type="button"
             [class.active]="hideQuestions()"
@@ -65,8 +79,91 @@
       #reader
       class="reader markdown-body"
       [style.--reader-cols]="columnCount()"
+      [style.font-family]="fontStack()"
+      [style.font-size.px]="fontSize()"
       [innerHTML]="bookHtml()"
       (wheel)="onWheel($event)">
     </article>
   </div>
 </div>
+
+@if (typeModalOpen()) {
+  <div
+    class="type-backdrop"
+    (click)="onTypeBackdrop($event)"
+    role="presentation">
+    <div
+      class="type-dialog"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="type-title"
+      (click)="$event.stopPropagation()">
+      <header class="type-head">
+        <h2 id="type-title">Type</h2>
+        <p class="type-sub">Face and size for this reader. Preview uses the open document.</p>
+        <button class="btn-icon type-close" type="button" (click)="closeTypeModal()" title="Close">
+          ×
+        </button>
+      </header>
+
+      <div class="type-grid">
+        <section class="type-faces" aria-label="Typefaces">
+          @for (face of fontChoices; track face.id) {
+            <button
+              type="button"
+              class="face-card"
+              [class.active]="fontId() === face.id"
+              [attr.aria-pressed]="fontId() === face.id"
+              (click)="setFontId(face.id)">
+              <span class="face-label">{{ face.label }}</span>
+              <span class="face-sample" [style.font-family]="face.stack">{{ face.sample }}</span>
+            </button>
+          }
+        </section>
+
+        <section class="type-preview-col">
+          <div class="type-size" aria-label="Size">
+            <div class="type-size-row">
+              <span class="type-size-label">Size</span>
+              <span class="type-size-value">{{ fontSize() }}px</span>
+            </div>
+            <input
+              class="type-range"
+              type="range"
+              [min]="minFontSize"
+              [max]="maxFontSize"
+              step="1"
+              [ngModel]="fontSize()"
+              (ngModelChange)="onFontSizeInput($event)"
+              [attr.aria-valuemin]="minFontSize"
+              [attr.aria-valuemax]="maxFontSize"
+              [attr.aria-valuenow]="fontSize()"
+              aria-label="Font size in pixels">
+            <div class="pager size-pager" role="group" aria-label="Size presets">
+              @for (n of sizeChoices; track n) {
+                <button
+                  class="btn-icon"
+                  type="button"
+                  [class.active]="fontSize() === n"
+                  (click)="setFontSize(n)">{{ n }}</button>
+              }
+            </div>
+          </div>
+
+          <div class="type-preview-frame">
+            <div
+              class="type-preview markdown-body"
+              [style.font-family]="fontStack()"
+              [style.font-size.px]="fontSize()"
+              [innerHTML]="previewHtml()">
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <footer class="type-actions">
+        <button class="btn" type="button" (click)="closeTypeModal()">Done</button>
+      </footer>
+    </div>
+  </div>
+}

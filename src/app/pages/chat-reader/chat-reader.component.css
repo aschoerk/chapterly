@@ -65,7 +65,6 @@
   height: 100%;
 }
 
-
 .reader-frame {
   flex: 1;
   min-height: 0;          /* without this, flex item won’t shrink */
@@ -82,6 +81,7 @@
   column-fill: auto;
   overflow: hidden;
   color: var(--text, #1c1917);
+  line-height: 1.55;
 }
 
 .cols-pager .btn-icon {
@@ -147,5 +147,224 @@
   .reader {
     column-count: 1;
     column-rule: none;
+  }
+}
+
+/* -------------------------------------------------------------------------- */
+/* Type modal                                                                  */
+/* -------------------------------------------------------------------------- */
+
+.type-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4vh 4vw;
+  box-sizing: border-box;
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.type-dialog {
+  width: min(920px, 100%);
+  max-height: min(88vh, 760px);
+  display: flex;
+  flex-direction: column;
+  padding: 1.15rem 1.25rem 1rem;
+  border-radius: 12px;
+  background: var(--panel, #fff);
+  color: var(--text, #111);
+  border: 1px solid var(--border, #e5e5e5);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
+  box-sizing: border-box;
+}
+
+.type-head {
+  position: relative;
+  padding-right: 2rem;
+  margin-bottom: 0.85rem;
+}
+
+.type-head h2 {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 650;
+}
+
+.type-sub {
+  margin: 0.25rem 0 0;
+  font-size: 0.82rem;
+  color: var(--text-muted, #666);
+}
+
+.type-close {
+  position: absolute;
+  top: -0.15rem;
+  right: -0.25rem;
+  font-size: 1.25rem;
+  line-height: 1;
+  padding: 0.2rem 0.45rem;
+}
+
+.type-grid {
+  display: grid;
+  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+  gap: 1rem;
+  min-height: 0;
+  flex: 1;
+}
+
+.type-faces {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  overflow: auto;
+  min-height: 0;
+  max-height: min(52vh, 420px);
+  padding-right: 0.15rem;
+}
+
+.face-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.15rem;
+  width: 100%;
+  text-align: left;
+  padding: 0.5rem 0.65rem;
+  border-radius: 8px;
+  border: 1px solid var(--border, #e5e5e5);
+  background: var(--bg-page, #fff);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.face-card:hover {
+  background: var(--bg-hover, #f0f0f0);
+}
+
+.face-card.active {
+  border-color: var(--accent, #2563eb);
+  background: var(--bg-active, #e0e7ff);
+}
+
+.face-label {
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted, #666);
+}
+
+.face-sample {
+  font-size: 1.05rem;
+  line-height: 1.35;
+  color: var(--text);
+}
+
+.type-preview-col {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  min-width: 0;
+  min-height: 0;
+}
+
+.type-size-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 0.35rem;
+}
+
+.type-size-label {
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted, #666);
+}
+
+.type-size-value {
+  font-variant-numeric: tabular-nums;
+  font-size: 0.85rem;
+  color: var(--text);
+}
+
+.type-range {
+  width: 100%;
+  accent-color: var(--accent, #2563eb);
+}
+
+.size-pager {
+  margin-top: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.size-pager .btn-icon {
+  min-width: 2.1rem;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.8rem;
+}
+
+.type-preview-frame {
+  flex: 1;
+  min-height: 180px;
+  max-height: min(46vh, 380px);
+  overflow: auto;
+  border: 1px solid var(--border, #e5e5e5);
+  border-radius: 8px;
+  background: var(--bg-page, #faf8f4);
+}
+
+.type-preview {
+  padding: 0.9rem 1rem 1.1rem;
+  line-height: 1.55;
+  color: var(--text, #1c1917);
+}
+
+.type-preview .book-node {
+  break-inside: auto;
+  margin-bottom: 0.9rem;
+}
+
+.type-preview .book-node:last-child {
+  margin-bottom: 0;
+}
+
+.type-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 0.85rem;
+}
+
+.btn {
+  padding: 0.4rem 0.85rem;
+  border: 1px solid var(--color-input-border, #ccc);
+  border-radius: 8px;
+  background: var(--panel, #fff);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 0.875rem;
+  font-family: inherit;
+}
+
+.btn:hover:not(:disabled) {
+  background: var(--bg-hover, #f0f0f0);
+}
+
+@media (max-width: 720px) {
+  .type-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .type-faces {
+    max-height: 28vh;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+  }
+
+  .face-card {
+    min-width: 11rem;
   }
 }
