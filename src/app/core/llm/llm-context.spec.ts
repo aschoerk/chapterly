@@ -13,7 +13,7 @@ import {
   Persona,
   Project,
   Topic
-} from '../models/chat';
+} from '../../models/chat';
 
 const NOW = '2026-09-03T00:00:00.000Z';
 

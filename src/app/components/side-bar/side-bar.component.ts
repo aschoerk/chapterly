@@ -9,7 +9,7 @@ import {Chat, Project, Topic} from '../../models/chat';
 import {CHAT_API} from '../../api/chat-api.token';
 import { AvatarViewComponent } from '../avatar-view/avatar-view.component';
 import { ConfirmService } from '../../core/confirm.service';
-import { buildSeedNodeDrafts } from '../../core/llm-context';
+import { buildSeedNodeDrafts } from '../../core/llm/llm-context';
 import {ProjectService} from '../../core/project.service';
 import {PersonaService} from '../../core/persona.service';
 

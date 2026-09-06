@@ -111,35 +111,7 @@ export class ChatParametersService {
     return this.resolve(owners);
   }
 
-  topicForProject(projectId: string | null | undefined, topics: Topic[]): Topic | undefined {
-    if (!projectId) return undefined;
-    return topics.find(t => t.projectIds?.includes(projectId));
-  }
 
-  toLlmExtras(resolved: ResolvedChatParameters): Record<string, unknown> {
-    const extras: Record<string, unknown> = {};
-    if (resolved.temperature != null) extras['temperature'] = resolved.temperature;
-    if (resolved.topK != null) extras['top_k'] = resolved.topK;
-    if (resolved.topM != null) extras['top_p'] = resolved.topM;
-    extras['stream'] = resolved.stream ?? true;
-
-    if (resolved.thinking === false) {
-      extras['include_reasoning'] = false;
-      return extras;
-    }
-
-    if (resolved.thinking === true || resolved.thinkingLevel) {
-      extras['include_reasoning'] = true;
-      if (resolved.thinkingLevel && resolved.thinkingLevel !== 'none') {
-        extras['reasoning'] = { effort: resolved.thinkingLevel };
-      } else if (resolved.thinkingLevel === 'none') {
-        extras['include_reasoning'] = false;
-      } else {
-        extras['reasoning'] = { enabled: true };
-      }
-    }
-    return extras;
-  }
 
   private remember(row: ChatParameters): void {
     this._byId.update(map => ({ ...map, [row.id]: row }));
@@ -147,6 +119,3 @@ export class ChatParametersService {
 
 }
 
-export function cloneDraft(draft?: ChatParametersDraft | null): ChatParametersDraft {
-  return { ...(draft ?? emptyParametersDraft()) };
-}

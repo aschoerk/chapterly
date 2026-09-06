@@ -12,9 +12,9 @@ import {ModelEntry} from '../../models/chat-config';
 import {NodeEditSession} from '../../core/node-edit-session';
 import {ConfirmDialogComponent} from '../confirm-dialog/confirm-dialog.component';
 import {ConfirmService} from '../../core/confirm.service';
-import {LlmService} from '../../core/llm.service';
+import {LlmService} from '../../core/llm/llm.service';
 import { ChatParametersService } from '../../core/chat-parameters.service';
-import { inferMimeType, nodeToMessageContent } from '../../core/llm-message';
+import { inferMimeType, nodeToMessageContent } from '../../core/llm/llm-message';
 import { formatParametersSummary } from '../../models/chat-parameters';
 import {ProjectService} from '../../core/project.service';
 

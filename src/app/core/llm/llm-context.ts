@@ -5,7 +5,7 @@ import {
   Persona,
   Project,
   Topic
-} from '../models/chat';
+} from '../../models/chat';
 import { nodeToMessageContent } from './llm-message';
 
 export interface SeedNodeDraft {

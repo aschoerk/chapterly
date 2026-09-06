@@ -1,5 +1,5 @@
 import { Component, inject, signal } from '@angular/core';
-import { RouterOutlet } from '@angular/router';
+import { Router, RouterOutlet } from '@angular/router';
 import {ConfirmDialogComponent} from './components/confirm-dialog/confirm-dialog.component';
 import {AppNavComponent} from './components/app-nav/app-nav.component';
 import { ThemeService } from './core/theme.service';
@@ -14,4 +14,9 @@ import { ThemeService } from './core/theme.service';
 export class App {
   protected readonly title = signal('chat');
   private readonly theme = inject(ThemeService);
+  readonly router = inject(Router);
+
+  showNav(): boolean {
+    return !this.router.url.startsWith('/login');
+  }
 }

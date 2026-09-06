@@ -1,6 +1,9 @@
 const express = require('express');
 const {
   issueTokensForGrant,
+  issueTokensFromAuthorizationCode,
+  claimsFromUserAuthorizations,
+  createAuthorizationCode,
   refreshAccessToken,
   validateAccessToken,
   revokeToken,
@@ -18,6 +21,7 @@ const router = express.Router();
  *     description: |
  *       Supported grant_type values:
  *       - password: username/email/phone + password + claims (or legacy client_id)
+ *       - authorization_code: one-time code from POST /api/oauth/dev/authorize
  *       - refresh_token: refresh_token (copies stored claims)
  *
  *       The Bearer string contains no claims. Topic and provider claims are stored on the token row.
@@ -49,6 +53,13 @@ const router = express.Router();
 router.post('/token', async (req, res) => {
   const grantType = req.body.grant_type || req.body.grantType;
 
+  if (grantType === 'authorization_code') {
+    const code = req.body.code;
+    const result = issueTokensFromAuthorizationCode(code);
+    if (result.error) return res.status(result.status).json({ error: result.error });
+    return res.json(result.token);
+  }
+
   if (grantType === 'refresh_token') {
     const refresh = req.body.refresh_token || req.body.refreshToken;
     const result = refreshAccessToken(refresh);
@@ -66,7 +77,7 @@ router.post('/token', async (req, res) => {
   const password = req.body.password;
   const clientId = req.body.client_id || req.body.clientId;
   const extraClientIds = req.body.wallet_ids
-    || req.body.walletIds
+    || req.body.providerClientIds
     || req.body.additional_client_ids
     || req.body.additionalClientIds
     || [];
@@ -182,5 +193,59 @@ router.post('/revoke', (req, res) => {
 router.get('/tokeninfo', requireAuth, (req, res) => {
   res.json(req.auth);
 });
+
+async function authorizeWithPassword(req, res) {
+  const username = normalizeOptional(req.body.username);
+  const email = normalizeOptional(req.body.email);
+  const phoneNumber = normalizeOptional(req.body.phoneNumber ?? req.body.phone_number);
+  const password = req.body.password;
+  if (!password) return res.status(400).json({ error: 'password is required' });
+  if (!username && !email && !phoneNumber) {
+    return res.status(400).json({ error: 'username, email or phoneNumber is required' });
+  }
+  const user = findUserByLogin({ username, email, phoneNumber });
+  if (!user || !(await verifyPassword(user.password_hash, password))) {
+    return res.status(401).json({ error: 'Invalid credentials' });
+  }
+
+  const fromGrants = claimsFromUserAuthorizations(user.id);
+  if (fromGrants.error) {
+    return res.status(fromGrants.status || 403).json({ error: fromGrants.error });
+  }
+  const created = createAuthorizationCode({ userId: user.id, claims: fromGrants.claims });
+  res.status(201).json({
+    code: created.code,
+    expires_in: created.expiresIn,
+    user_id: user.id,
+    claims: fromGrants.claims
+  });
+}
+
+/**
+ * @openapi
+ * /api/oauth/dev/authorize:
+ *   post:
+ *     summary: Exchange username/password for a one-time authorization code
+ *     description: |
+ *       SPA login helper. Checks local credentials, snapshots the user's workspace
+ *       and wallet grants into a code (2 minutes, single use).
+ *       The SPA then POST /api/oauth/token grant_type=authorization_code.
+ *     tags: [OAuth]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/UserLogin'
+ *     responses:
+ *       201:
+ *         description: One-time code
+ *       401:
+ *         description: Invalid credentials
+ *       403:
+ *         description: User has no workspace or wallet grant
+ */
+router.post('/dev/authorize', authorizeWithPassword);
+router.post('/authorize', authorizeWithPassword);
 
 module.exports = router;

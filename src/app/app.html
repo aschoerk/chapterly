@@ -1,5 +1,7 @@
 <div class="app-shell">
-  <app-nav />
+  @if (showNav()) {
+    <app-nav />
+  }
   <div class="app-body">
     <router-outlet></router-outlet>
   </div>

@@ -5,9 +5,6 @@ import {
   CreatePersonaRequest,
   UpdatePersonaRequest,
 } from '../api/chat-api.types';
-import { getServerConfig } from './server-config';
-import { firstValueFrom } from "rxjs";
-import {NodeEditSession} from './node-edit-session';
 
 const LS_CHAT  = 'chat.currentChatId';
 const LS_SCROLL = 'chat.scrollByChatId';

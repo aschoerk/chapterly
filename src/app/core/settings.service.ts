@@ -2,7 +2,7 @@ import { Injectable, signal, computed, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import { ProviderConfig, ModelEntry, ModelArchitecture } from '../models/chat-config';
-import { getServerConfig } from './server-config';
+import { getServerConfig } from './common/server-config';
 import { CHAT_API } from '../api/chat-api.token';
 import { ChatApiPort } from '../api/chat-api.port';
 import {

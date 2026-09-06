@@ -352,7 +352,7 @@ export class ChatComponent implements OnInit {
   async refreshChatParams() {
     const chat = this.currentChat();
     const project = chat?.projectId ? this.projectService.getProject(chat.projectId) : null;
-    const topic = this.parameters.topicForProject(project?.id, this.projectService.topics()) ?? null;
+    const topic = this.projectService.topicForProject(project?.id, this.projectService.topics()) ?? null;
     const model = this.settings.models().find(m => m.id === this.lastModelService.selectedModelId())
       || this.settings.enabledModels()[0]
       || null;

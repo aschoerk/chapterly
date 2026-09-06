@@ -1,13 +1,13 @@
-import { ChatMessage, ChatNode } from '../models/chat';
-import { ModelEntry } from '../models/chat-config';
-import { getServerConfig } from './server-config';
+import { ChatMessage, ChatNode } from '../../models/chat';
+import { ModelEntry } from '../../models/chat-config';
+import { getServerConfig } from '../common/server-config';
 import { inject, Injectable } from '@angular/core';
-import { ChatService } from './chat.service';
-import { ChatParametersService } from './chat-parameters.service';
+import { ChatService } from '../chat.service';
+import { ChatParametersService } from '../chat-parameters.service';
 import { normalizeChatMessages } from './llm-message';
 import { extractLlmDelta, LlmChunk, readSseStream } from './llm-sse';
-import { ResolvedChatParameters } from '../models/chat-parameters';
-import { ProjectService } from './project.service';
+import {ChatParameters, ResolvedChatParameters} from '../../models/chat-parameters';
+import { ProjectService } from '../project.service';
 
 export type { LlmChunk };
 
@@ -113,6 +113,32 @@ export class LlmService {
     return { content, thinking };
   }
 
+  toLlmExtras(resolved: ResolvedChatParameters): Record<string, unknown> {
+    const extras: Record<string, unknown> = {};
+    if (resolved.temperature != null) extras['temperature'] = resolved.temperature;
+    if (resolved.topK != null) extras['top_k'] = resolved.topK;
+    if (resolved.topM != null) extras['top_p'] = resolved.topM;
+    extras['stream'] = resolved.stream ?? true;
+
+    if (resolved.thinking === false) {
+      extras['include_reasoning'] = false;
+      return extras;
+    }
+
+    if (resolved.thinking === true || resolved.thinkingLevel) {
+      extras['include_reasoning'] = true;
+      if (resolved.thinkingLevel && resolved.thinkingLevel !== 'none') {
+        extras['reasoning'] = { effort: resolved.thinkingLevel };
+      } else if (resolved.thinkingLevel === 'none') {
+        extras['include_reasoning'] = false;
+      } else {
+        extras['reasoning'] = { enabled: true };
+      }
+    }
+    return extras;
+  }
+
+
   async streamAnswer(
     chatId: string,
     questionNodeId: string,
@@ -124,8 +150,10 @@ export class LlmService {
     const resolved = await this.resolveForCurrentChat(model);
     const extras = {
       ...this.reasoningExtras(model, resolved),
-      ...this.parameters.toLlmExtras(resolved)
+      ...this.toLlmExtras(resolved)
     };
+
+
 
     const answerNode = await this.chatService.addNode(chatId, {
       parentId: questionNodeId,
@@ -302,7 +330,7 @@ export class LlmService {
     const chatId = this.chatService.currentChatId();
     const chat = this.chatService.chats().find(c => c.id === chatId) ?? null;
     const project = chat?.projectId ? this.projectService.getProject(chat.projectId) ?? null : null;
-    const topic = this.parameters.topicForProject(project?.id, this.projectService.topics()) ?? null;
+    const topic = this.projectService.topicForProject(project?.id, this.projectService.topics()) ?? null;
     await this.parameters.loadMany([
       model.chatParametersId,
       topic?.chatParametersId,

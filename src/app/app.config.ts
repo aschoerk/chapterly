@@ -1,6 +1,7 @@
 import { ApplicationConfig, provideBrowserGlobalErrorListeners, provideZonelessChangeDetection } from '@angular/core';
 import {provideRouter, withHashLocation} from '@angular/router';
-import { provideHttpClient } from '@angular/common/http';
+import { provideHttpClient, withInterceptors } from '@angular/common/http';
+import { authInterceptor } from './core/auth.interceptor';
 
 import { routes } from './app.routes';
 import {provideChatApi} from './api/chat-api.token';
@@ -10,7 +11,7 @@ export const appConfig: ApplicationConfig = {
     provideBrowserGlobalErrorListeners(),
     provideZonelessChangeDetection(),
     provideRouter(routes, withHashLocation()),
-    provideHttpClient(),
+    provideHttpClient(withInterceptors([authInterceptor])),
     provideChatApi()
   ]
 };

@@ -1,4 +1,4 @@
-import { ChatMessage, ChatNode, NodeAttachment } from '../models/chat';
+import { ChatMessage, ChatNode, NodeAttachment } from '../../models/chat';
 
 export type MessagePart =
   | { type: 'text'; text: string }

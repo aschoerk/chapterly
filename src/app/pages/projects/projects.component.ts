@@ -20,7 +20,7 @@ import { ChatParametersService } from '../../core/chat-parameters.service';
 import { ChatParametersEditorComponent } from '../../components/chat-parameters-editor/chat-parameters-editor.component';
 import { AvatarPickerComponent } from '../../components/avatar-picker/avatar-picker.component';
 import { AvatarViewComponent } from '../../components/avatar-view/avatar-view.component';
-import { isImageRef } from '../../core/image-ref';
+import { isImageRef } from '../../core/common/image-ref';
 import {
   ChatParametersDraft,
   ResolvedChatParameters,
@@ -658,7 +658,7 @@ export class ProjectsComponent implements OnInit {
   }
 
   private async loadProjectParams(project: Project) {
-    const topic = this.parameters.topicForProject(project.id, this.topics());
+    const topic = this.projectService.topicForProject(project.id, this.topics());
     const model = this.settings.models().find(m => m.id === project.defaultModelId);
     await this.parameters.loadMany([
       project.chatParametersId,
@@ -679,7 +679,7 @@ export class ProjectsComponent implements OnInit {
   private refreshProjectInherited(project: Project | null) {
     const modelId = project?.defaultModelId ?? this.form.defaultModelId;
     const model = this.settings.models().find(m => m.id === modelId) || null;
-    const topic = this.parameters.topicForProject(project?.id ?? null, this.topics()) || null;
+    const topic = this.projectService.topicForProject(project?.id ?? null, this.topics()) || null;
     this.projectParamsInherited.set(this.parameters.resolveForChat({ model, topic }));
   }
 

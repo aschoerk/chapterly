@@ -88,3 +88,13 @@
   font-weight: 700;
   letter-spacing: 0.01em;
 }
+
+.logout {
+  margin-left: auto;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+

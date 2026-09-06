@@ -6,7 +6,7 @@ import {
   normalizeChatMessages,
   type MessagePart
 } from './llm-message';
-import { ChatMessage, NodeAttachment } from '../models/chat';
+import { ChatMessage, NodeAttachment } from '../../models/chat';
 
 function dataUrl(mime: string, text: string, base64 = true): string {
   if (!base64) return `data:${mime},${encodeURIComponent(text)}`;

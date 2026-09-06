@@ -1,7 +1,7 @@
 import { Component, EventEmitter, Input, Output, computed, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { isImageRef } from '../../core/image-ref';
+import { isImageRef } from '../../core/common/image-ref';
 import { AvatarViewComponent } from '../avatar-view/avatar-view.component';
 
 export interface EmojiBlock {

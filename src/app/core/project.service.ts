@@ -9,6 +9,7 @@ import {
   UpdateTopicRequest
 } from '../api/chat-api.types';
 import {ChatService} from './chat.service';
+import {ResolvedChatParameters} from '../models/chat-parameters';
 
 @Injectable({
   providedIn: 'root'
@@ -110,10 +111,11 @@ export class ProjectService {
     return topic;
   }
 
-  getTopic(id: string | null | undefined): Topic | undefined {
-    if (!id) return undefined;
-    return this._topics().find(t => t.id === id);
+  topicForProject(projectId: string | null | undefined, topics: Topic[]): Topic | undefined {
+    if (!projectId) return undefined;
+    return topics.find(t => t.projectIds?.includes(projectId));
   }
+
 
 
 }
