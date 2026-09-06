@@ -1,0 +1,24 @@
+<div class="login-page">
+  <form class="card" (ngSubmit)="submit()">
+    <h1>Chapterly</h1>
+    <p class="hint">Temporary local login. Uses chat-server authorize → code → access token.</p>
+
+    <label>
+      Username
+      <input name="username" [(ngModel)]="username" autocomplete="username" required />
+    </label>
+    <label>
+      Password
+      <input name="password" type="password" [(ngModel)]="password" autocomplete="current-password" required />
+    </label>
+
+    @if (error()) {
+      <p class="error">{{ error() }}</p>
+    }
+
+    <button class="btn primary" type="submit" [disabled]="busy() || !username || !password">
+      {{ busy() ? 'Signing in…' : 'Sign in' }}
+    </button>
+    <button class="btn" type="button" (click)="skip()">Continue without token</button>
+  </form>
+</div>
