@@ -1,0 +1,92 @@
+<div class="claims-page">
+  <header class="page-header">
+    <h1>Claims</h1>
+    <p class="hint">
+      Grants cap what a later access token may claim.
+      One token: many workspaces, one wallet. After a change the user must sign in again.
+    </p>
+  </header>
+
+  @if (error()) {
+    <p class="error">{{ error() }}</p>
+  }
+  @if (notice()) {
+    <p class="notice">{{ notice() }}</p>
+  }
+
+  <section class="section">
+    <h2>This session</h2>
+    @if (auth.accessToken()) {
+      <pre class="claims-json">{{ tokenClaims() | json }}</pre>
+    } @else {
+      <p class="hint">No access token. Sign in first, or continue without token (lists may be unfiltered).</p>
+    }
+  </section>
+
+  <section class="section">
+    <h2>User</h2>
+    <select [ngModel]="selectedUserId()" (ngModelChange)="onUserChange($event)">
+      @for (user of users(); track user.id) {
+        <option [value]="user.id">{{ user.username }}{{ user.isAdmin ? ' (admin)' : '' }}</option>
+      }
+    </select>
+    <input class="uid" placeholder="or paste user id" [(ngModel)]="typedUserId" />
+    <button class="btn" type="button" (click)="onUserChange(typedUserId || selectedUserId())">Use id</button>
+    <button class="btn" type="button" (click)="reload()">Reload</button>
+  </section>
+
+  <section class="section">
+    <h2>Workspaces (tenants)</h2>
+    @if (workspaces().length === 0) {
+      <p class="hint">No workspaces visible.</p>
+    }
+    @for (ws of workspaces(); track ws.id) {
+      <div class="row">
+        <div>
+          <strong>{{ ws.name }}</strong>
+          <div class="id">{{ ws.id }}</div>
+        </div>
+        <label>
+          <input type="radio" [name]="'ws-' + ws.id" [checked]="workspaceAccess(ws.id) === 'none'" (change)="setWorkspace(ws.id, 'none')" />
+          none
+        </label>
+        <label>
+          <input type="radio" [name]="'ws-' + ws.id" [checked]="workspaceAccess(ws.id) === 'read'" (change)="setWorkspace(ws.id, 'read')" />
+          read
+        </label>
+        <label>
+          <input type="radio" [name]="'ws-' + ws.id" [checked]="workspaceAccess(ws.id) === 'write'" (change)="setWorkspace(ws.id, 'write')" />
+          write
+        </label>
+      </div>
+    }
+  </section>
+
+  <section class="section">
+    <h2>Wallets</h2>
+    <p class="hint">A token may bind only one wallet. Granting several is allowed; login picks manage if present.</p>
+    @if (wallets().length === 0) {
+      <p class="hint">No wallets visible.</p>
+    }
+    @for (w of wallets(); track w.id) {
+      <div class="row">
+        <div>
+          <strong>{{ w.name }}</strong>
+          <div class="id">{{ w.id }}</div>
+        </div>
+        <label>
+          <input type="radio" [name]="'wl-' + w.id" [checked]="walletAccess(w.id) === 'none'" (change)="setWallet(w.id, 'none')" />
+          none
+        </label>
+        <label>
+          <input type="radio" [name]="'wl-' + w.id" [checked]="walletAccess(w.id) === 'run'" (change)="setWallet(w.id, 'run')" />
+          run
+        </label>
+        <label>
+          <input type="radio" [name]="'wl-' + w.id" [checked]="walletAccess(w.id) === 'manage'" (change)="setWallet(w.id, 'manage')" />
+          manage
+        </label>
+      </div>
+    }
+  </section>
+</div>

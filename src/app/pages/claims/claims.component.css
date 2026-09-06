@@ -1,0 +1,46 @@
+.claims-page {
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 1.5rem;
+  color: var(--text, #111);
+  font-family: system-ui, sans-serif;
+}
+
+.page-header h1 { margin: 0 0 0.35rem; }
+.hint { color: var(--muted, #666); font-size: 0.9rem; }
+.error { color: #b91c1c; }
+.notice { color: #166534; }
+
+.section { margin: 1.5rem 0; }
+.section h2 { font-size: 1.05rem; margin-bottom: 0.6rem; }
+
+select, .btn {
+  margin-right: 0.5rem;
+  padding: 0.35rem 0.55rem;
+  border-radius: 6px;
+  border: 1px solid var(--border, #ccc);
+  background: var(--panel, #fff);
+  color: inherit;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 1fr auto auto auto;
+  gap: 0.75rem;
+  align-items: center;
+  padding: 0.6rem 0;
+  border-bottom: 1px solid var(--border, #eee);
+}
+
+.id { font-size: 0.75rem; color: var(--muted, #888); word-break: break-all; }
+
+.claims-json {
+  padding: 0.75rem;
+  border-radius: 8px;
+  background: var(--panel, #fafafa);
+  border: 1px solid var(--border, #ddd);
+  overflow: auto;
+  font-size: 0.8rem;
+}
+
+label { font-size: 0.85rem; display: inline-flex; align-items: center; gap: 0.25rem; }
