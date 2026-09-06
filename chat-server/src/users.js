@@ -23,6 +23,7 @@ function mapUser(row) {
     username: row.username,
     email: row.email || null,
     phoneNumber: row.phone_number || null,
+    isAdmin: !!row.is_admin,
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };

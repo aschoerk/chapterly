@@ -5,8 +5,16 @@ const options = {
     openapi: '3.0.0',
     info: {
       title: 'Chat Server API',
-      version: '1.0.0',
-      description: 'API for the Chat Client (users, providers, models, chats, nodes, projects, personas, chat parameters)'
+      version: '1.1.0',
+      description: `API for the chat client (users, workspaces, wallets, providers, models, chats, nodes, projects, personas, chat parameters).
+
+**Auth model (no OIDC yet)**
+- The OAuth2 client is the Chapterly app, not a workspace or wallet.
+- workspaces are workspaces (topic tenants). wallets are wallets (API-key sets).
+- Access tokens are opaque. Claims are stored on oauth_tokens.grants_json and returned by introspect/tokeninfo.
+- A token may list N topic claims (read or write per workspace) and at most one provider claim (run or manage, optional contingent).
+- Send Authorization: Bearer <access_token> to enforce those claims. If the header is omitted, claim checks are skipped (legacy public access).
+- A malformed or expired Bearer is 401. A valid token without the required claim is 403.`
     },
     servers: [
       {
@@ -14,18 +22,33 @@ const options = {
         description: 'Local development server'
       }
     ],
+    security: [
+      {},
+      { BearerAuth: [] }
+    ],
     tags: [
-      { name: 'Users', description: 'Local client accounts. Password is stored as Argon2id. No OIDC yet.' },
-      { name: 'Providers', description: 'AI provider configuration' },
+      { name: 'Users', description: 'Identities only. Password is stored as Argon2id. No OIDC yet.' },
+      { name: 'Workspaces', description: 'Topic tenants. Not OAuth2 clients. Users gain a grant ceiling through authorizations.' },
+      { name: 'Wallets', description: 'Credential sets that own provider API keys. Not OAuth2 clients.' },
+      { name: 'OAuth', description: 'Opaque access tokens with server-side ABAC claims. No OIDC.' },
+      { name: 'Providers', description: 'AI provider configuration and API keys belonging to one wallet' },
       { name: 'Models', description: 'Available models and presets' },
-      { name: 'Chats', description: 'Chat management' },
-      { name: 'Topics', description: 'Topic / grouping management for projects' },
+      { name: 'Chats', description: 'Chat management. Bearer requires a topic claim on the chat workspace; modelId also requires the token wallet claim.' },
+      { name: 'Topics', description: 'Topic grouping for projects. Owned by a content client (workspace).' },
       { name: 'Nodes', description: 'Chat nodes (questions & answers)' },
-      { name: 'Projects', description: 'Project / workspace management' },
-      { name: 'Personas', description: 'Reusable personas / characters for chats' },
-      { name: 'ChatParameters', description: 'Reusable LLM generation parameters (OpenAI-compatible extensions)' }
+      { name: 'Projects', description: 'Project management. Every project belongs to a topic.' },
+      { name: 'Personas', description: 'Workspace-owned characters. Topic claim required when Bearer is set.' },
+      { name: 'ChatParameters', description: 'Content documentation (workspace) or run settings (wallet), depending on owner.' }
     ],
     components: {
+      securitySchemes: {
+        BearerAuth: {
+          type: 'http',
+          scheme: 'bearer',
+          bearerFormat: 'opaque',
+          description: 'Opaque access token from POST /api/oauth/token. Claims are not in the string; the server loads them by token hash.'
+        }
+      },
       schemas: {
         User: {
           type: 'object',
@@ -67,6 +90,131 @@ const options = {
             password: { type: 'string', format: 'password' }
           }
         },
+        ContentClient: {
+          type: 'object',
+          properties: {
+            id: { type: 'string', format: 'uuid' },
+            name: { type: 'string', example: 'Studio' },
+            redirectUris: { type: 'array', items: { type: 'string' } },
+            grantTypes: { type: 'array', items: { type: 'string' } },
+            createdAt: { type: 'string', format: 'date-time' },
+            updatedAt: { type: 'string', format: 'date-time' }
+          }
+        },
+        ContentClientInput: {
+          type: 'object',
+          required: ['name'],
+          properties: {
+            name: { type: 'string' },
+            redirectUris: { type: 'array', items: { type: 'string' } },
+            grantTypes: { type: 'array', items: { type: 'string' } }
+          }
+        },
+        ProviderClient: {
+          type: 'object',
+          properties: {
+            id: { type: 'string', format: 'uuid' },
+            name: { type: 'string', example: 'OpenRouter account' },
+            redirectUris: { type: 'array', items: { type: 'string' } },
+            grantTypes: { type: 'array', items: { type: 'string' } },
+            createdAt: { type: 'string', format: 'date-time' },
+            updatedAt: { type: 'string', format: 'date-time' }
+          }
+        },
+        ClientAuthorization: {
+          type: 'object',
+          description: 'Issuance ceiling: the maximum verbs a user may put on a token claim for this workspace or wallet.',
+          properties: {
+            id: { type: 'string', format: 'uuid' },
+            userId: { type: 'string', format: 'uuid' },
+            clientId: { type: 'string', format: 'uuid' },
+            scopes: { type: 'array', items: { type: 'string' }, example: ['topics.read', 'topics.write'] },
+            status: { type: 'string', enum: ['granted', 'revoked'] },
+            createdAt: { type: 'string', format: 'date-time' },
+            updatedAt: { type: 'string', format: 'date-time' }
+          }
+        },
+        TopicClaim: {
+          type: 'object',
+          required: ['workspaceId', 'access'],
+          properties: {
+            workspaceId: { type: 'string', format: 'uuid' },
+            access: { type: 'string', enum: ['read', 'write'], description: 'write includes read. May differ per workspace on the same token.' }
+          }
+        },
+        ProviderContingent: {
+          type: 'object',
+          nullable: true,
+          properties: {
+            maxCost: { type: 'number', nullable: true },
+            maxTokens: { type: 'integer', nullable: true },
+            spentCost: { type: 'number', default: 0 },
+            spentTokens: { type: 'integer', default: 0 }
+          }
+        },
+        ProviderClaim: {
+          type: 'object',
+          required: ['walletId', 'access'],
+          properties: {
+            walletId: { type: 'string', format: 'uuid' },
+            access: { type: 'string', enum: ['run', 'manage'], description: 'run = call models. manage = rotate keys (includes run). At most one provider claim per token.' },
+            contingent: { $ref: '#/components/schemas/ProviderContingent' }
+          }
+        },
+        TokenClaims: {
+          type: 'object',
+          properties: {
+            topics: { type: 'array', items: { $ref: '#/components/schemas/TopicClaim' } },
+            provider: { $ref: '#/components/schemas/ProviderClaim' }
+          }
+        },
+        TokenRequest: {
+          type: 'object',
+          required: ['password'],
+          properties: {
+            grant_type: { type: 'string', enum: ['password', 'refresh_token'], default: 'password' },
+            username: { type: 'string' },
+            email: { type: 'string' },
+            phoneNumber: { type: 'string' },
+            password: { type: 'string', format: 'password' },
+            client_id: { type: 'string', format: 'uuid', description: 'Legacy: one workspace or wallet; becomes a single write/manage claim' },
+            additional_client_ids: { type: 'array', items: { type: 'string', format: 'uuid' }, description: 'Legacy extra workspaces. A second wallet is rejected.' },
+            refresh_token: { type: 'string' },
+            claims: { $ref: '#/components/schemas/TokenClaims' },
+            topicClaims: { type: 'array', items: { $ref: '#/components/schemas/TopicClaim' } },
+            providerClaim: { $ref: '#/components/schemas/ProviderClaim' }
+          }
+        },
+        TokenResponse: {
+          type: 'object',
+          properties: {
+            access_token: { type: 'string', description: 'Opaque handle. Do not parse.' },
+            token_type: { type: 'string', example: 'Bearer' },
+            expires_in: { type: 'integer', example: 3600 },
+            refresh_token: { type: 'string' },
+            scope: { type: 'string', description: 'Derived summary of claim verbs' },
+            audience: { type: 'string', enum: ['content', 'provider'], nullable: true },
+            client_id: { type: 'string', format: 'uuid', nullable: true, description: 'Primary partition id, not an OAuth client' },
+            user_id: { type: 'string', format: 'uuid' },
+            claims: { $ref: '#/components/schemas/TokenClaims' },
+            grants: { type: 'array', items: { type: 'object' }, description: 'Legacy view of the same claims' }
+          }
+        },
+        TokenIntrospection: {
+          type: 'object',
+          properties: {
+            active: { type: 'boolean' },
+            tokenId: { type: 'string', format: 'uuid' },
+            tokenType: { type: 'string', enum: ['access', 'refresh'] },
+            userId: { type: 'string', format: 'uuid' },
+            clientId: { type: 'string', format: 'uuid' },
+            audience: { type: 'string' },
+            scopes: { type: 'array', items: { type: 'string' } },
+            claims: { $ref: '#/components/schemas/TokenClaims' },
+            grants: { type: 'array', items: { type: 'object' } },
+            expiresAt: { type: 'string', format: 'date-time' }
+          }
+        },
         Provider: {
           type: 'object',
           properties: {
@@ -95,11 +243,11 @@ const options = {
               type: 'boolean',
               example: true
             },
-            userId: {
+            walletId: {
               type: 'string',
               format: 'uuid',
               nullable: true,
-              description: 'Owning user. Null for unscoped / legacy providers.'
+              description: 'Owning wallet (wallets.id). The token may name at most one wallet.'
             }
           }
         },
@@ -155,6 +303,11 @@ const options = {
             title: {
               type: 'string',
               example: 'My first chat'
+            },
+            projectId: {
+              type: 'string',
+              format: 'uuid',
+              description: 'Owning project. Always set; unassign moves the chat onto the topic default project.'
             },
             created_at: {
               type: 'string',
@@ -304,6 +457,9 @@ const options = {
               nullable: true,
               enum: ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']
             },
+            kind: { type: 'string', nullable: true, enum: ['content', 'run'], description: 'content = chat documentation; run = topic/project/model generation settings' },
+            workspaceId: { type: 'string', format: 'uuid', nullable: true, description: 'Workspace owner when kind=content' },
+            walletId: { type: 'string', format: 'uuid', nullable: true, description: 'Wallet owner when kind=run' },
             createdAt: { type: 'string', format: 'date-time' },
             updatedAt: { type: 'string', format: 'date-time' }
           }
@@ -322,7 +478,10 @@ const options = {
             stream: { type: 'boolean', nullable: true },
             thinking: { type: 'boolean', nullable: true },
             thinkingLevel: { type: 'string', nullable: true, enum: ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] },
-            reasoningEffort: { type: 'string', nullable: true, enum: ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] }
+            reasoningEffort: { type: 'string', nullable: true, enum: ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] },
+            kind: { type: 'string', enum: ['content', 'run'] },
+            workspaceId: { type: 'string', format: 'uuid', nullable: true },
+            walletId: { type: 'string', format: 'uuid', nullable: true }
           }
         },
         Error: {
@@ -378,6 +537,14 @@ const options = {
               },
               example: ['550e8400-e29b-41d4-a716-446655440001']
             },
+            isDefault: {
+              type: 'boolean',
+              description: 'True when this is the topic inbox used for unassigned chats'
+            },
+            topicIds: {
+              type: 'array',
+              items: { type: 'string', format: 'uuid' }
+            },
             createdAt: {
               type: 'string',
               format: 'date-time'
@@ -423,11 +590,17 @@ const options = {
                 format: 'uuid'
               }
             },
-            userId: {
+            workspaceId: {
               type: 'string',
               format: 'uuid',
               nullable: true,
-              description: 'Owning user. Null for unscoped / legacy topics.'
+              description: 'Owning workspace (workspaces.id). Token topic claims must name this id.'
+            },
+            defaultProjectId: {
+              type: 'string',
+              format: 'uuid',
+              nullable: true,
+              description: 'Inbox project that receives chats unassigned from other projects in this topic'
             },
             createdAt: {
               type: 'string',
@@ -463,6 +636,12 @@ const options = {
               type: 'string',
               description: 'URL or data URL for the persona avatar',
               example: 'https://example.com/avatars/elena.png'
+            },
+            workspaceId: {
+              type: 'string',
+              format: 'uuid',
+              nullable: true,
+              description: 'Owning workspace'
             },
             createdAt: {
               type: 'string',

@@ -1,0 +1,60 @@
+@startuml token_claims
+title Opaque access token — server-side claims
+
+skinparam classAttributeIconSize 0
+hide circle
+hide methods
+
+class "OAuth2 access token\n(Bearer string)" as Bearer {
+  random 256-bit handle
+  no claims inside
+}
+
+class oauth_tokens {
+  token_hash = sha256(Bearer)
+  user_id
+  grants_json
+}
+
+class Claims {
+  topics : TopicClaim[0..*]
+  provider : ProviderClaim[0..1]
+}
+
+class TopicClaim {
+  contentClientId
+  access : read | write
+}
+
+class ProviderClaim {
+  providerClientId
+  access : run | manage
+  contingent : Contingent[0..1]
+}
+
+class Contingent {
+  maxCost
+  maxTokens
+  spentCost
+  spentTokens
+}
+
+Bearer ..> oauth_tokens : lookup by hash
+oauth_tokens *-- Claims : grants_json
+Claims *-- TopicClaim
+Claims *-- ProviderClaim
+ProviderClaim *-- Contingent
+
+note right of TopicClaim
+  write implies read.
+  Different studios on one token
+  may have opposite access.
+end note
+
+note right of ProviderClaim
+  Exactly one wallet per token.
+  run = call models
+  manage = rotate keys (includes run)
+end note
+
+@enduml

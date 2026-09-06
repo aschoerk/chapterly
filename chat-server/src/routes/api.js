@@ -1,8 +1,20 @@
 const express = require('express');
 const { v4: uuidv4 } = require('uuid');
 const db = require('../db');
-const { resolveChatParametersId, assertChatParametersExists } = require('../chatParameters');
-const { assertUserExists } = require('../users');
+const { resolveChatParametersId, assertChatParametersExists, assertChatParametersKind } = require('../chatParameters');
+const {
+  resolveProviderClientId,
+  validateProviderClientId
+} = require('../clients');
+const {
+  enforceGrant,
+  enforceAudience,
+  walletIdOfProvider,
+  walletIdOfModel,
+  primaryClientId,
+  authClientIds,
+  placeholders
+} = require('../oauth');
 
 function mapProvider(row) {
   return {
@@ -12,17 +24,8 @@ function mapProvider(row) {
     baseUrl: row.base_url,
     apiKey: row.api_key,
     enabled: !!row.enabled,
-    userId: row.user_id || null
+    walletId: row.wallet_id || null
   };
-}
-
-function resolveUserId(body, fallback) {
-  if (body.userId === undefined && body.user_id === undefined) {
-    return fallback === undefined ? null : fallback;
-  }
-  const raw = body.userId !== undefined ? body.userId : body.user_id;
-  if (raw === null || raw === '') return null;
-  return raw;
 }
 
 const router = express.Router();
@@ -33,17 +36,23 @@ const router = express.Router();
  * @openapi
  * /api/providers:
  *   get:
- *     summary: List all providers
+ *     summary: List providers
+ *     description: |
+ *       Optional Bearer. With a token, only providers of the token's single wallet claim are listed
+ *       (`run` or `manage`). Without a token, all providers or the walletId filter.
  *     tags:
  *       - Providers
+ *     security:
+ *       - {}
+ *       - BearerAuth: []
  *     parameters:
  *       - in: query
- *         name: userId
+ *         name: walletId
  *         required: false
  *         schema:
  *           type: string
  *           format: uuid
- *         description: When set, only providers owned by this user are returned
+ *         description: Ignored when a Bearer is present. Otherwise filters by wallet.
  *     responses:
  *       200:
  *         description: List of providers
@@ -55,10 +64,19 @@ const router = express.Router();
  *                 $ref: '#/components/schemas/Provider'
  */
 router.get('/providers', (req, res) => {
-  const userId = req.query.userId || req.query.user_id;
-  const rows = userId
-    ? db.prepare('SELECT * FROM providers WHERE user_id = ? ORDER BY created_at').all(userId)
-    : db.prepare('SELECT * FROM providers ORDER BY created_at').all();
+  if (enforceAudience(req, res, 'provider')) return;
+  let rows;
+  if (req.auth) {
+    const ids = authClientIds(req, 'provider');
+    rows = db.prepare(
+      `SELECT * FROM providers WHERE wallet_id IN (${placeholders(ids)}) ORDER BY created_at`
+    ).all(...ids);
+  } else {
+    const walletId = req.query.walletId || req.query.wallet_id;
+    rows = walletId
+      ? db.prepare('SELECT * FROM providers WHERE wallet_id = ? ORDER BY created_at').all(walletId)
+      : db.prepare('SELECT * FROM providers ORDER BY created_at').all();
+  }
   res.json(rows.map(mapProvider));
 });
 
@@ -67,8 +85,14 @@ router.get('/providers', (req, res) => {
  * /api/providers:
  *   post:
  *     summary: Create a new provider
+ *     description: |
+ *       Optional Bearer. With a token, requires a `manage` provider claim on the target wallet.
+ *       The new provider (and its API key) belongs to that wallet and is not shareable.
  *     tags:
  *       - Providers
+ *     security:
+ *       - {}
+ *       - BearerAuth: []
  *     requestBody:
  *       required: true
  *       content:
@@ -91,11 +115,10 @@ router.get('/providers', (req, res) => {
  *               enabled:
  *                 type: boolean
  *                 default: true
- *               userId:
+ *               walletId:
  *                 type: string
  *                 format: uuid
  *                 nullable: true
- *                 description: Optional owning user. Omit for unscoped / legacy clients.
  *     responses:
  *       201:
  *         description: Provider created
@@ -113,17 +136,19 @@ router.post('/providers', (req, res) => {
     return res.status(400).json({ error: 'name, baseUrl and apiKey are required' });
   }
 
-  const userId = resolveUserId(req.body, null);
-  if (!assertUserExists(userId)) {
-    return res.status(400).json({ error: 'userId does not exist' });
+  const walletId = resolveProviderClientId(req.body, req.auth ? primaryClientId(req, 'provider') : null);
+  const wallet = validateProviderClientId(walletId);
+  if (!wallet.ok) {
+    return res.status(400).json({ error: wallet.error });
   }
+  if (enforceGrant(req, res, { audience: 'provider', clientId: wallet.id })) return;
 
   const id = uuidv4();
 
   db.prepare(`
-    INSERT INTO providers (id, name, type, base_url, api_key, enabled, user_id)
+    INSERT INTO providers (id, name, type, base_url, api_key, enabled, wallet_id)
     VALUES (?, ?, ?, ?, ?, ?, ?)
-  `).run(id, name, type || 'custom', baseUrl, apiKey, enabled ? 1 : 0, userId);
+  `).run(id, name, type || 'custom', baseUrl, apiKey, enabled ? 1 : 0, wallet.id);
 
   const row = db.prepare('SELECT * FROM providers WHERE id = ?').get(id);
   res.status(201).json(mapProvider(row));
@@ -158,7 +183,7 @@ router.post('/providers', (req, res) => {
  *                 type: string
  *               enabled:
  *                 type: boolean
- *               userId:
+ *               walletId:
  *                 type: string
  *                 format: uuid
  *                 nullable: true
@@ -178,12 +203,15 @@ router.put('/providers/:id', (req, res) => {
   if (!existing) {
     return res.status(404).json({ error: 'Provider not found' });
   }
+  if (enforceGrant(req, res, { audience: 'provider', clientId: existing.wallet_id })) return;
 
   const { name, type, baseUrl, apiKey, enabled } = req.body;
-  const userId = resolveUserId(req.body, existing.user_id);
-  if (!assertUserExists(userId)) {
-    return res.status(400).json({ error: 'userId does not exist' });
+  const walletId = resolveProviderClientId(req.body, existing.wallet_id);
+  const wallet = validateProviderClientId(walletId);
+  if (!wallet.ok) {
+    return res.status(400).json({ error: wallet.error });
   }
+  if (enforceGrant(req, res, { audience: 'provider', clientId: wallet.id })) return;
 
   db.prepare(`
     UPDATE providers
@@ -192,7 +220,7 @@ router.put('/providers/:id', (req, res) => {
         base_url = COALESCE(?, base_url),
         api_key = COALESCE(?, api_key),
         enabled = COALESCE(?, enabled),
-        user_id = ?
+        wallet_id = ?
     WHERE id = ?
   `).run(
     name,
@@ -200,7 +228,7 @@ router.put('/providers/:id', (req, res) => {
     baseUrl,
     apiKey,
     enabled === undefined ? null : (enabled ? 1 : 0),
-    userId,
+    wallet.id,
     id
   );
 
@@ -228,6 +256,9 @@ router.put('/providers/:id', (req, res) => {
  *         description: Provider not found
  */
 router.delete('/providers/:id', (req, res) => {
+  const existing = db.prepare('SELECT * FROM providers WHERE id = ?').get(req.params.id);
+  if (!existing) return res.status(404).json({ error: 'Provider not found' });
+  if (enforceGrant(req, res, { audience: 'provider', clientId: existing.wallet_id })) return;
   const result = db.prepare('DELETE FROM providers WHERE id = ?').run(req.params.id);
   if (result.changes === 0) {
     return res.status(404).json({ error: 'Provider not found' });
@@ -325,9 +356,14 @@ function mapModelRow(row) {
  * @openapi
  * /api/models:
  *   get:
- *     summary: List all models
+ *     summary: List models
+ *     description: |
+ *       Optional Bearer. With a token, only models whose provider belongs to the token wallet claim.
  *     tags:
  *       - Models
+ *     security:
+ *       - {}
+ *       - BearerAuth: []
  *     responses:
  *       200:
  *         description: List of models
@@ -339,7 +375,15 @@ function mapModelRow(row) {
  *                 $ref: '#/components/schemas/Model'
  */
 router.get('/models', (req, res) => {
-  const rows = db.prepare('SELECT * FROM models ORDER BY enabled DESC, display_name').all();
+  if (enforceAudience(req, res, 'provider')) return;
+  const rows = req.auth
+    ? db.prepare(`
+        SELECT m.* FROM models m
+        JOIN providers p ON p.id = m.provider_id
+        WHERE p.wallet_id IN (${placeholders(authClientIds(req, 'provider'))})
+        ORDER BY m.enabled DESC, m.display_name
+      `).all(...authClientIds(req, 'provider'))
+    : db.prepare('SELECT * FROM models ORDER BY enabled DESC, display_name').all();
   res.json(rows.map(mapModelRow));
 });
 
@@ -396,6 +440,7 @@ router.post('/models', (req, res) => {
   if (!displayName || !modelId || !providerId) {
     return res.status(400).json({ error: 'displayName, modelId and providerId are required' });
   }
+  if (enforceGrant(req, res, { audience: 'provider', clientId: walletIdOfProvider(providerId) })) return;
 
   const id = uuidv4();
   const catalog = extractCatalog(req.body);
@@ -403,6 +448,10 @@ router.post('/models', (req, res) => {
   const chatParametersId = resolveChatParametersId(req.body, null);
   if (!assertChatParametersExists(chatParametersId)) {
     return res.status(400).json({ error: 'chatParametersId does not exist' });
+  }
+  const paramKind = assertChatParametersKind(chatParametersId, 'run');
+  if (!paramKind.ok) {
+    return res.status(400).json({ error: paramKind.error });
   }
 
   db.prepare(`
@@ -430,6 +479,7 @@ router.put('/models/:id', (req, res) => {
   if (!existing) {
     return res.status(404).json({ error: 'Model not found' });
   }
+  if (enforceGrant(req, res, { audience: 'provider', clientId: walletIdOfModel(existing.id) })) return;
 
   const nextDisplayName = req.body.displayName ?? existing.display_name;
   const nextModelId = req.body.modelId ?? existing.model_id;
@@ -450,6 +500,10 @@ router.put('/models/:id', (req, res) => {
   const chatParametersId = resolveChatParametersId(req.body, existing.chat_parameters_id);
   if (!assertChatParametersExists(chatParametersId)) {
     return res.status(400).json({ error: 'chatParametersId does not exist' });
+  }
+  const paramKind = assertChatParametersKind(chatParametersId, 'run');
+  if (!paramKind.ok) {
+    return res.status(400).json({ error: paramKind.error });
   }
 
   db.prepare(`
@@ -497,6 +551,9 @@ router.put('/models/:id', (req, res) => {
  *         description: Model not found
  */
 router.delete('/models/:id', (req, res) => {
+  const existing = db.prepare('SELECT id FROM models WHERE id = ?').get(req.params.id);
+  if (!existing) return res.status(404).json({ error: 'Model not found' });
+  if (enforceGrant(req, res, { audience: 'provider', clientId: walletIdOfModel(req.params.id) })) return;
   const result = db.prepare('DELETE FROM models WHERE id = ?').run(req.params.id);
   if (result.changes === 0) {
     return res.status(404).json({ error: 'Model not found' });
@@ -537,6 +594,7 @@ router.patch('/models/:id/toggle', (req, res) => {
   if (!row) {
     return res.status(404).json({ error: 'Model not found' });
   }
+  if (enforceGrant(req, res, { audience: 'provider', clientId: walletIdOfModel(req.params.id) })) return;
 
   const newEnabled = row.enabled ? 0 : 1;
   db.prepare('UPDATE models SET enabled = ? WHERE id = ?').run(newEnabled, req.params.id);

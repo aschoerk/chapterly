@@ -1,6 +1,17 @@
 const express = require('express');
 const { v4: uuidv4 } = require('uuid');
 const db = require('../db');
+const {
+  resolveContentClientId,
+  validateContentClientId
+} = require('../clients');
+const {
+  enforceGrant,
+  enforceAudience,
+  authClientIds,
+  placeholders,
+  primaryClientId
+} = require('../oauth');
 
 const router = express.Router();
 
@@ -10,9 +21,14 @@ const router = express.Router();
  * @openapi
  * /api/personas:
  *   get:
- *     summary: List all personas
+ *     summary: List personas
+ *     description: |
+ *       Content objects owned by a workspace. Optional Bearer: only personas of claimed workspaces.
  *     tags:
  *       - Personas
+ *     security:
+ *       - {}
+ *       - BearerAuth: []
  *     responses:
  *       200:
  *         description: List of personas ordered by name
@@ -24,9 +40,16 @@ const router = express.Router();
  *                 $ref: '#/components/schemas/Persona'
  */
 router.get('/', (req, res) => {
-  const rows = db.prepare(`
-    SELECT * FROM personas ORDER BY name COLLATE NOCASE
-  `).all();
+  if (enforceAudience(req, res, 'content')) return;
+  let rows;
+  if (req.auth) {
+    const ids = authClientIds(req, 'content');
+    rows = db.prepare(
+      `SELECT * FROM personas WHERE workspace_id IN (${placeholders(ids)}) ORDER BY name COLLATE NOCASE`
+    ).all(...ids);
+  } else {
+    rows = db.prepare(`SELECT * FROM personas ORDER BY name COLLATE NOCASE`).all();
+  }
   res.json(rows.map(mapPersona));
 });
 
@@ -35,8 +58,12 @@ router.get('/', (req, res) => {
  * /api/personas:
  *   post:
  *     summary: Create a new persona
+ *     description: Optional Bearer requires a write topic claim on the target workspace.
  *     tags:
  *       - Personas
+ *     security:
+ *       - {}
+ *       - BearerAuth: []
  *     requestBody:
  *       required: true
  *       content:
@@ -77,16 +104,22 @@ router.post('/', (req, res) => {
     return res.status(400).json({ error: 'shortName is required' });
   }
 
+  const workspaceId = resolveContentClientId(req.body, req.auth ? primaryClientId(req, 'content') : null);
+  const workspace = validateContentClientId(workspaceId);
+  if (!workspace.ok) return res.status(400).json({ error: workspace.error });
+  if (enforceGrant(req, res, { audience: 'content', clientId: workspace.id })) return;
+
   const id = uuidv4();
   db.prepare(`
-    INSERT INTO personas (id, name, short_name, description, avatar)
-    VALUES (?, ?, ?, ?, ?)
+    INSERT INTO personas (id, name, short_name, description, avatar, workspace_id)
+    VALUES (?, ?, ?, ?, ?, ?)
   `).run(
     id,
     name.trim(),
     shortName.trim(),
     description || '',
-    avatar || ''
+    avatar || '',
+    workspace.id
   );
 
   const row = db.prepare('SELECT * FROM personas WHERE id = ?').get(id);
@@ -120,6 +153,7 @@ router.post('/', (req, res) => {
 router.get('/:id', (req, res) => {
   const row = db.prepare('SELECT * FROM personas WHERE id = ?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'Persona not found' });
+  if (enforceGrant(req, res, { audience: 'content', clientId: row.workspace_id })) return;
   res.json(mapPersona(row));
 });
 
@@ -167,6 +201,14 @@ router.put('/:id', (req, res) => {
 
   const existing = db.prepare('SELECT * FROM personas WHERE id = ?').get(id);
   if (!existing) return res.status(404).json({ error: 'Persona not found' });
+  if (enforceGrant(req, res, { audience: 'content', clientId: existing.workspace_id })) return;
+
+  const nextClientId = resolveContentClientId(req.body, existing.workspace_id);
+  const workspace = validateContentClientId(nextClientId);
+  if (!workspace.ok) return res.status(400).json({ error: workspace.error });
+  if (workspace.id !== existing.workspace_id) {
+    if (enforceGrant(req, res, { audience: 'content', clientId: workspace.id })) return;
+  }
 
   db.prepare(`
     UPDATE personas
@@ -174,6 +216,7 @@ router.put('/:id', (req, res) => {
         short_name = COALESCE(?, short_name),
         description = COALESCE(?, description),
         avatar = COALESCE(?, avatar),
+        workspace_id = ?,
         updated_at = datetime('now')
     WHERE id = ?
   `).run(
@@ -181,6 +224,7 @@ router.put('/:id', (req, res) => {
     shortName !== undefined ? shortName.trim() : null,
     description !== undefined ? description : null,
     avatar !== undefined ? avatar : null,
+    workspace.id,
     id
   );
 
@@ -209,6 +253,9 @@ router.put('/:id', (req, res) => {
  *         description: Persona not found
  */
 router.delete('/:id', (req, res) => {
+  const existing = db.prepare('SELECT * FROM personas WHERE id = ?').get(req.params.id);
+  if (!existing) return res.status(404).json({ error: 'Persona not found' });
+  if (enforceGrant(req, res, { audience: 'content', clientId: existing.workspace_id })) return;
   const result = db.prepare('DELETE FROM personas WHERE id = ?').run(req.params.id);
   if (result.changes === 0) {
     return res.status(404).json({ error: 'Persona not found' });
@@ -223,6 +270,7 @@ function mapPersona(row) {
     shortName: row.short_name,
     description: row.description || '',
     avatar: row.avatar || '',
+    workspaceId: row.workspace_id || null,
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };

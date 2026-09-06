@@ -86,6 +86,13 @@ function parseChatParametersInput(body = {}) {
   };
 }
 
+function parameterKind(row) {
+  if (!row) return null;
+  if (row.wallet_id) return 'run';
+  if (row.workspace_id) return 'content';
+  return null;
+}
+
 function mapChatParameters(row) {
   if (!row) return null;
   return {
@@ -99,19 +106,41 @@ function mapChatParameters(row) {
     thinking: row.thinking === null || row.thinking === undefined ? null : !!row.thinking,
     thinkingLevel: row.thinking_level || null,
     reasoningEffort: row.thinking_level || null,
+    kind: parameterKind(row),
+    workspaceId: row.workspace_id || null,
+    walletId: row.wallet_id || null,
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };
 }
 
+function resolveParameterOwners(input = {}) {
+  const kind = input.kind || input.usage || null;
+  let workspaceId = input.workspaceId ?? input.workspace_id ?? null;
+  let walletId = input.walletId ?? input.wallet_id ?? null;
+  if (kind === 'run') workspaceId = workspaceId || null;
+  if (kind === 'content') walletId = walletId || null;
+  if (workspaceId && walletId) {
+    return { error: 'chat parameters cannot belong to both a workspace and a wallet' };
+  }
+  return { workspaceId, walletId };
+}
+
 function insertChatParameters(input = {}) {
   const parsed = parseChatParametersInput(input);
+  const owners = resolveParameterOwners(input);
+  if (owners.error) {
+    const err = new Error(owners.error);
+    err.status = 400;
+    throw err;
+  }
   const id = uuidv4();
   const now = new Date().toISOString();
   db.prepare(`
     INSERT INTO chat_parameters (
-      id, name, temperature, top_k, top_m, stream, thinking, thinking_level, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      id, name, temperature, top_k, top_m, stream, thinking, thinking_level,
+      workspace_id, wallet_id, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     id,
     parsed.name || '',
@@ -121,6 +150,8 @@ function insertChatParameters(input = {}) {
     parsed.stream === null ? null : (parsed.stream ? 1 : 0),
     parsed.thinking === null ? null : (parsed.thinking ? 1 : 0),
     parsed.thinkingLevel,
+    owners.workspaceId,
+    owners.walletId,
     now,
     now
   );
@@ -162,6 +193,27 @@ function updateChatParameters(id, body = {}) {
   ].some(v => v !== undefined);
   const nextLevel = hasLevel ? parsed.thinkingLevel : existing.thinking_level;
 
+  const hasContent = body.workspaceId !== undefined || body.workspace_id !== undefined || body.kind === 'content';
+  const hasProvider = body.walletId !== undefined || body.wallet_id !== undefined || body.kind === 'run';
+  let workspaceId = existing.workspace_id;
+  let walletId = existing.wallet_id;
+  if (hasContent || hasProvider || body.kind) {
+    const owners = resolveParameterOwners({
+      kind: body.kind,
+      workspaceId: hasContent ? (body.workspaceId ?? body.workspace_id ?? null) : workspaceId,
+      walletId: hasProvider ? (body.walletId ?? body.wallet_id ?? null) : walletId
+    });
+    if (owners.error) {
+      const err = new Error(owners.error);
+      err.status = 400;
+      throw err;
+    }
+    workspaceId = owners.workspaceId;
+    walletId = owners.walletId;
+    if (body.kind === 'content') walletId = null;
+    if (body.kind === 'run') workspaceId = null;
+  }
+
   db.prepare(`
     UPDATE chat_parameters
     SET name = ?,
@@ -171,6 +223,8 @@ function updateChatParameters(id, body = {}) {
         stream = ?,
         thinking = ?,
         thinking_level = ?,
+        workspace_id = ?,
+        wallet_id = ?,
         updated_at = datetime('now')
     WHERE id = ?
   `).run(
@@ -181,6 +235,8 @@ function updateChatParameters(id, body = {}) {
     nextStream,
     nextThinking,
     nextLevel,
+    workspaceId,
+    walletId,
     id
   );
 
@@ -192,7 +248,7 @@ function updateChatParameters(id, body = {}) {
  * Accepts chatParametersId / chat_parameters_id, or a nested chatParameters object
  * which is inserted as a new row.
  */
-function resolveChatParametersId(body = {}, previousId = undefined) {
+function resolveChatParametersId(body = {}, previousId = undefined, ownerHint = {}) {
   if (!body || typeof body !== 'object') return previousId ?? null;
 
   if (Object.prototype.hasOwnProperty.call(body, 'chatParametersId')) {
@@ -203,7 +259,7 @@ function resolveChatParametersId(body = {}, previousId = undefined) {
   }
   if (body.chatParameters && typeof body.chatParameters === 'object') {
     if (body.chatParameters.id) return body.chatParameters.id;
-    const created = insertChatParameters(body.chatParameters);
+    const created = insertChatParameters({ ...ownerHint, ...body.chatParameters });
     return created.id;
   }
   return previousId ?? null;
@@ -213,6 +269,29 @@ function assertChatParametersExists(id) {
   if (!id) return true;
   const row = db.prepare('SELECT id FROM chat_parameters WHERE id = ?').get(id);
   return !!row;
+}
+
+function getChatParameters(id) {
+  if (!id) return null;
+  return db.prepare('SELECT * FROM chat_parameters WHERE id = ?').get(id);
+}
+
+function assertChatParametersKind(id, kind) {
+  if (!id) return { ok: true };
+  const row = getChatParameters(id);
+  if (!row) return { ok: false, error: 'chatParametersId does not exist' };
+  const actual = parameterKind(row);
+  if (!kind) return { ok: true, row };
+  if (!actual) return { ok: true, row };
+  if (actual !== kind) {
+    return {
+      ok: false,
+      error: kind === 'run'
+        ? 'topic/project/model run parameters must belong to a provider wallet'
+        : 'chat parameter documentation must belong to a content workspace'
+    };
+  }
+  return { ok: true, row };
 }
 
 function listOwners(parameterId) {
@@ -247,6 +326,9 @@ module.exports = {
   updateChatParameters,
   resolveChatParametersId,
   assertChatParametersExists,
+  assertChatParametersKind,
+  parameterKind,
+  getChatParameters,
   listOwners,
   findByOwner
 };

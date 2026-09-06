@@ -1,8 +1,26 @@
 const express = require('express');
 const { v4: uuidv4 } = require('uuid');
 const db = require('../db');
-const { resolveChatParametersId, assertChatParametersExists } = require('../chatParameters');
+const { resolveChatParametersId, assertChatParametersExists, assertChatParametersKind } = require('../chatParameters');
+const { resolveRequiredProjectId } = require('../assignment');
+const {
+  enforceGrant,
+  enforceAudience,
+  enforceModelUse,
+  consumeContingent,
+  workspaceIdOfChat,
+  workspaceIdOfProject,
+  authClientIds,
+  placeholders
+} = require('../oauth');
 const router = express.Router();
+
+function paramChatGrant(req, res, next, chatId) {
+  if (enforceGrant(req, res, { audience: 'content', clientId: workspaceIdOfChat(chatId) })) return;
+  next();
+}
+router.param('id', paramChatGrant);
+router.param('chatId', paramChatGrant);
 
 // ---------- Chats ----------
 
@@ -10,10 +28,15 @@ const router = express.Router();
  * @openapi
  * /api/chats:
  *   get:
- *     summary: List all chats
- *     description: Returns every chat ordered by most recently updated first.
+ *     summary: List chats
+ *     description: |
+ *       Optional Bearer. With a token, only chats whose topic workspace is in the token
+ *       topic claims are returned. Without a token, every chat (optionally filtered by projectId).
  *     tags:
  *       - Chats
+ *     security:
+ *       - {}
+ *       - BearerAuth: []
  *     responses:
  *       200:
  *         description: A list of chats
@@ -39,8 +62,22 @@ const router = express.Router();
  *                     format: date-time
  */
 router.get('/', (req, res) => {
+  if (enforceAudience(req, res, 'content')) return;
   const { projectId } = req.query;
+  if (projectId && enforceGrant(req, res, { audience: 'content', clientId: workspaceIdOfProject(projectId) })) return;
   let rows;
+  if (req.auth) {
+    const clientIds = authClientIds(req, 'content');
+    rows = db.prepare(`
+      SELECT DISTINCT c.* FROM chats c
+      JOIN topic_projects tp ON tp.project_id = c.project_id
+      JOIN topics t ON t.id = tp.topic_id
+      WHERE t.workspace_id IN (${placeholders(clientIds)})
+        AND (? IS NULL OR c.project_id = ?)
+      ORDER BY c.updated_at DESC
+    `).all(...clientIds, projectId || null, projectId || null);
+    return res.json(rows.map(mapChat));
+  }
   if (projectId) {
     rows = db.prepare(`
       SELECT * FROM chats WHERE project_id = ? ORDER BY updated_at DESC
@@ -58,9 +95,15 @@ router.get('/', (req, res) => {
  * /api/chats:
  *   post:
  *     summary: Create a new chat
- *     description: Creates a chat with an optional title. Defaults to "New Chat".
+ *     description: |
+ *       Creates a chat with an optional title (default "New Chat").
+ *       Every chat must belong to a project, and every project to a topic.
+ *       Optional Bearer: the project/topic workspace must match a `write` topic claim.
  *     tags:
  *       - Chats
+ *     security:
+ *       - {}
+ *       - BearerAuth: []
  *     requestBody:
  *       required: true
  *       content:
@@ -98,10 +141,33 @@ router.post('/', (req, res) => {
   if (!assertChatParametersExists(chatParametersId)) {
     return res.status(400).json({ error: 'chatParametersId does not exist' });
   }
+  const paramKind = assertChatParametersKind(chatParametersId, 'content');
+  if (!paramKind.ok) {
+    return res.status(400).json({ error: paramKind.error });
+  }
+  if (enforceAudience(req, res, 'content')) return;
+  let resolved;
+  if (req.auth && !projectId) {
+    const owned = db.prepare(`
+      SELECT t.default_project_id AS project_id
+      FROM topics t
+      WHERE t.workspace_id IN (${placeholders(authClientIds(req, 'content'))}) AND t.default_project_id IS NOT NULL
+      ORDER BY t.name
+      LIMIT 1
+    `).get(...authClientIds(req, 'content'));
+    if (!owned) return res.status(400).json({ error: 'no project exists for the authorized content client' });
+    resolved = { projectId: owned.project_id };
+  } else {
+    resolved = resolveRequiredProjectId(projectId || null, null);
+    if (resolved.error) {
+      return res.status(400).json({ error: resolved.error });
+    }
+  }
+  if (enforceGrant(req, res, { audience: 'content', clientId: workspaceIdOfProject(resolved.projectId) })) return;
   const id = uuidv4();
   db.prepare(`
     INSERT INTO chats (id, title, project_id, chat_parameters_id) VALUES (?, ?, ?, ?)
-  `).run(id, title, projectId || null, chatParametersId);
+  `).run(id, title, resolved.projectId, chatParametersId);
   const chat = db.prepare('SELECT * FROM chats WHERE id = ?').get(id);
   res.status(201).json(mapChat(chat));
 });
@@ -236,11 +302,16 @@ router.get('/:chatId/nodes', (req, res) => {
  *   post:
  *     summary: Create a new question or answer node
  *     description: |
- *       Adds a new node (question or answer) to the chat tree.
- *       parentId may be null for root-level questions.
- *       Optional attachments (images, documents, …) can be supplied as data-URLs.
+ *       Adds a node to the chat tree. parentId may be null for a root question.
+ *       Optional attachments can be supplied as data-URLs.
+ *       Optional Bearer: needs a `write` topic claim on the chat workspace.
+ *       If modelId or providerId is set, also needs the token provider claim (`run` or `manage`)
+ *       for that wallet, and the contingent must not be exhausted.
  *     tags:
  *       - Nodes
+ *     security:
+ *       - {}
+ *       - BearerAuth: []
  *     parameters:
  *       - in: path
  *         name: chatId
@@ -304,6 +375,10 @@ router.post('/:chatId/nodes', (req, res) => {
   if (!assertChatParametersExists(chatParametersId)) {
     return res.status(400).json({ error: 'chatParametersId does not exist' });
   }
+  const paramKind = assertChatParametersKind(chatParametersId, 'content');
+  if (!paramKind.ok) {
+    return res.status(400).json({ error: paramKind.error });
+  }
 
   if (!role) {
     return res.status(400).json({ error: 'role is required' });
@@ -311,6 +386,7 @@ router.post('/:chatId/nodes', (req, res) => {
   if (role !== 'system' && role !== 'user' && role != 'assistant') {
     return res.status(400).json({ error: 'role must be "system","user" or "assistant"' });
   }
+  if (enforceModelUse(req, res, { modelId, providerId })) return;
 
   const id = uuidv4();
   const attachmentsJson = JSON.stringify(Array.isArray(attachments) ? attachments : []);
@@ -326,6 +402,12 @@ router.post('/:chatId/nodes', (req, res) => {
   db.prepare(`UPDATE chats SET updated_at = datetime('now'), node_number = node_number + 1 WHERE id = ?`).run(chatId);
 
   const node = db.prepare('SELECT * FROM chat_nodes WHERE id = ?').get(id);
+  if (modelId || providerId) {
+    consumeContingent(req, {
+      cost: req.body.totalCost || req.body.total_cost || 0,
+      tokens: req.body.totalTokens || req.body.total_tokens || req.body.promptTokens || 0
+    });
+  }
   res.status(201).json(mapNode(node));
 });
 
@@ -574,9 +656,14 @@ router.post('/:chatId/nodes/:nodeId/branch-user', (req, res) => {
   if (oldNode.role !== 'user') {
     return res.status(400).json({ error: 'Only questions can be branched this way' });
   }
+  if (enforceModelUse(req, res, { modelId, providerId })) return;
   const chatParametersId = resolveChatParametersId(req.body, oldNode.chat_parameters_id);
   if (!assertChatParametersExists(chatParametersId)) {
     return res.status(400).json({ error: 'chatParametersId does not exist' });
+  }
+  const paramKind = assertChatParametersKind(chatParametersId, 'content');
+  if (!paramKind.ok) {
+    return res.status(400).json({ error: paramKind.error });
   }
 
   const newId = uuidv4();
@@ -645,6 +732,10 @@ router.patch('/:id', (req, res) => {
   if (!assertChatParametersExists(chatParametersId)) {
     return res.status(400).json({ error: 'chatParametersId does not exist' });
   }
+  const paramKind = assertChatParametersKind(chatParametersId, 'content');
+  if (!paramKind.ok) {
+    return res.status(400).json({ error: paramKind.error });
+  }
 
   // only update title when a non-empty string is provided
   const newTitle =
@@ -652,12 +743,19 @@ router.patch('/:id', (req, res) => {
       ? title.trim()
       : chat.title;
 
-  // projectId is updated only when the key is present in the body
-  // (allows explicit null = unassign)
-  const newProjectId =
-    projectId !== undefined
-      ? (projectId === null || projectId === '' ? null : projectId)
-      : chat.project_id;
+  // projectId is updated only when the key is present in the body.
+  // null / '' unassigns from the current project and places the chat
+  // on the default project of the same topic.
+  let newProjectId = chat.project_id;
+  if (projectId !== undefined) {
+    const requested = (projectId === null || projectId === '') ? null : projectId;
+    const resolved = resolveRequiredProjectId(requested, chat.project_id);
+    if (!resolved.error && enforceGrant(req, res, { audience: 'content', clientId: workspaceIdOfProject(resolved.projectId) })) return;
+    if (resolved.error) {
+      return res.status(400).json({ error: resolved.error });
+    }
+    newProjectId = resolved.projectId;
+  }
 
   db.prepare(`
     UPDATE chats
@@ -682,6 +780,14 @@ router.patch('/:chatId/nodes/:nodeId', (req, res) => {
   if (!assertChatParametersExists(chatParametersId)) {
     return res.status(400).json({ error: 'chatParametersId does not exist' });
   }
+  const paramKind = assertChatParametersKind(chatParametersId, 'content');
+  if (!paramKind.ok) {
+    return res.status(400).json({ error: paramKind.error });
+  }
+  if (enforceModelUse(req, res, {
+    modelId: modelId !== undefined ? modelId : oldNode.model_id,
+    providerId: providerId !== undefined ? providerId : oldNode.provider_id
+  })) return;
 
   const nextContent = content !== undefined ? content : oldNode.content;
   const nextThinking = thinking !== undefined ? thinking : oldNode.thinking;

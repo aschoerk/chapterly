@@ -1,0 +1,33 @@
+@startuml model_use_contingent
+title Chat node with model — provider claim and contingent
+
+actor User
+participant "API" as Api
+database SQLite
+
+User -> Api : POST /api/chats/{id}/nodes\nBearer <opaque>\n{role: assistant, modelId, totalCost}
+
+Api -> SQLite : load token claims
+Api -> SQLite : chat → topic → content_client S
+Api -> Api : need topic claim write on S
+
+Api -> SQLite : model → provider.provider_client_id = W'
+alt claims.provider missing or W' != claims.provider.W
+  Api --> User : 403 token is not valid for this provider
+else access is neither run nor manage
+  Api --> User : 403
+else contingent.spentCost >= maxCost\nor spentTokens >= maxTokens
+  Api --> User : 403 provider contingent exceeded
+else
+  Api -> SQLite : INSERT chat_nodes
+  Api -> SQLite : UPDATE oauth_tokens.grants_json\nspentCost += totalCost
+  Api --> User : 201 Node
+end
+
+note over Api
+  Same opaque token.
+  Studio access from topic claims.
+  Key vault from the single provider claim.
+end note
+
+@enduml

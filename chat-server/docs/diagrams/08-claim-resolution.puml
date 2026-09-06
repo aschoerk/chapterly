@@ -1,0 +1,31 @@
+@startuml claim_resolution
+title How a chat and a model map to token claims
+
+actor User
+participant Token as "oauth_tokens.grants_json"
+participant TopicClaim
+participant ProviderClaim
+participant Topic
+participant Chat
+participant Provider
+participant Model
+
+User -> Token : opaque Bearer
+Token -> TopicClaim : topics[]\n{contentClientId, access}
+Token -> ProviderClaim : provider?\n{providerClientId, access, contingent}
+
+TopicClaim -> Topic : topic.content_client_id\nin token topic claims
+Topic -> Chat : project / topic_projects
+
+ProviderClaim -> Provider : provider.provider_client_id\n== token wallet
+Provider -> Model : models.provider_id
+
+note bottom
+  Write a node: TopicClaim.access = write for that topic.
+  Use a model: ProviderClaim.access in {run, manage}
+  and contingent not exhausted.
+  Objects (topic, chat, model) stay in the DB.
+  Claims name partitions only.
+end note
+
+@enduml

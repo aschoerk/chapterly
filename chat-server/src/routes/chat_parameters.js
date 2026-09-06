@@ -6,10 +6,31 @@ const {
   updateChatParameters,
   listOwners,
   findByOwner,
+  getChatParameters,
+  parameterKind,
   OWNER_TABLES
 } = require('../chatParameters');
+const {
+  enforceGrant,
+  enforceAudience,
+  authClientIds,
+  primaryClientId,
+  placeholders
+} = require('../oauth');
 
 const router = express.Router();
+
+function enforceParamsRow(req, res, row) {
+  if (!req.auth) return false;
+  if (row.wallet_id) {
+    return enforceGrant(req, res, { audience: 'provider', clientId: row.wallet_id });
+  }
+  if (row.workspace_id) {
+    return enforceGrant(req, res, { audience: 'content', clientId: row.workspace_id });
+  }
+  res.status(403).json({ error: 'token cannot access unscoped chat parameters' });
+  return true;
+}
 
 /**
  * @openapi
@@ -17,9 +38,10 @@ const router = express.Router();
  *   get:
  *     summary: List chat parameter sets
  *     description: |
- *       Reusable generation settings (OpenAI-compatible extensions):
- *       temperature, top_k, top_m / top_p, stream, thinking and thinkingLevel
- *       (reasoning_effort). Filter by owner with ownerType + ownerId.
+ *       Two kinds of parameter sets:
+ *       - content: documentation attached to chats/nodes, owned by a workspace
+ *       - run: generation settings attached to topics/projects/models, owned by a wallet
+ *       Optional Bearer filters to claimed workspaces and the token wallet.
  *     tags:
  *       - ChatParameters
  *     parameters:
@@ -58,12 +80,31 @@ router.get('/', (req, res) => {
       });
     }
     const row = findByOwner(ownerType, ownerId);
+    if (row && enforceParamsRow(req, res, row)) return;
     return res.json(row ? [mapChatParameters(row)] : []);
   }
 
-  const rows = db.prepare(`
-    SELECT * FROM chat_parameters ORDER BY updated_at DESC
-  `).all();
+  let rows;
+  if (req.auth) {
+    const contentIds = authClientIds(req, 'content');
+    const walletId = primaryClientId(req, 'provider');
+    const clauses = [];
+    const params = [];
+    if (contentIds.length) {
+      clauses.push(`workspace_id IN (${placeholders(contentIds)})`);
+      params.push(...contentIds);
+    }
+    if (walletId) {
+      clauses.push('wallet_id = ?');
+      params.push(walletId);
+    }
+    if (!clauses.length) return res.json([]);
+    rows = db.prepare(
+      `SELECT * FROM chat_parameters WHERE ${clauses.join(' OR ')} ORDER BY updated_at DESC`
+    ).all(...params);
+  } else {
+    rows = db.prepare(`SELECT * FROM chat_parameters ORDER BY updated_at DESC`).all();
+  }
   res.json(rows.map(mapChatParameters));
 });
 
@@ -89,7 +130,23 @@ router.get('/', (req, res) => {
  *               $ref: '#/components/schemas/ChatParameters'
  */
 router.post('/', (req, res) => {
-  const row = insertChatParameters(req.body || {});
+  const body = req.body || {};
+  if (req.auth) {
+    if (!body.walletId && !body.wallet_id && !body.workspaceId && !body.workspace_id) {
+      if (body.kind === 'run') body.walletId = primaryClientId(req, 'provider');
+      else body.workspaceId = primaryClientId(req, 'content');
+    }
+  }
+  let row;
+  try {
+    row = insertChatParameters(body);
+  } catch (err) {
+    return res.status(err.status || 400).json({ error: err.message });
+  }
+  if (enforceParamsRow(req, res, row)) {
+    db.prepare('DELETE FROM chat_parameters WHERE id = ?').run(row.id);
+    return;
+  }
   res.status(201).json(mapChatParameters(row));
 });
 
@@ -120,6 +177,7 @@ router.post('/', (req, res) => {
 router.get('/:id', (req, res) => {
   const row = db.prepare('SELECT * FROM chat_parameters WHERE id = ?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'Chat parameters not found' });
+  if (enforceParamsRow(req, res, row)) return;
   res.json(mapChatParameters(row));
 });
 
@@ -144,8 +202,9 @@ router.get('/:id', (req, res) => {
  *         description: Not found
  */
 router.get('/:id/owners', (req, res) => {
-  const row = db.prepare('SELECT id FROM chat_parameters WHERE id = ?').get(req.params.id);
+  const row = db.prepare('SELECT * FROM chat_parameters WHERE id = ?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'Chat parameters not found' });
+  if (enforceParamsRow(req, res, row)) return;
   res.json(listOwners(req.params.id));
 });
 
@@ -180,8 +239,16 @@ router.get('/:id/owners', (req, res) => {
  *         description: Not found
  */
 router.put('/:id', (req, res) => {
-  const row = updateChatParameters(req.params.id, req.body || {});
-  if (!row) return res.status(404).json({ error: 'Chat parameters not found' });
+  const existing = getChatParameters(req.params.id);
+  if (!existing) return res.status(404).json({ error: 'Chat parameters not found' });
+  if (enforceParamsRow(req, res, existing)) return;
+  let row;
+  try {
+    row = updateChatParameters(req.params.id, req.body || {});
+  } catch (err) {
+    return res.status(err.status || 400).json({ error: err.message });
+  }
+  if (row && enforceParamsRow(req, res, row)) return;
   res.json(mapChatParameters(row));
 });
 
@@ -215,8 +282,16 @@ router.put('/:id', (req, res) => {
  *         description: Not found
  */
 router.patch('/:id', (req, res) => {
-  const row = updateChatParameters(req.params.id, req.body || {});
-  if (!row) return res.status(404).json({ error: 'Chat parameters not found' });
+  const existing = getChatParameters(req.params.id);
+  if (!existing) return res.status(404).json({ error: 'Chat parameters not found' });
+  if (enforceParamsRow(req, res, existing)) return;
+  let row;
+  try {
+    row = updateChatParameters(req.params.id, req.body || {});
+  } catch (err) {
+    return res.status(err.status || 400).json({ error: err.message });
+  }
+  if (row && enforceParamsRow(req, res, row)) return;
   res.json(mapChatParameters(row));
 });
 
@@ -244,6 +319,9 @@ router.patch('/:id', (req, res) => {
  *         description: Not found
  */
 router.delete('/:id', (req, res) => {
+  const existing = getChatParameters(req.params.id);
+  if (!existing) return res.status(404).json({ error: 'Chat parameters not found' });
+  if (enforceParamsRow(req, res, existing)) return;
   const result = db.prepare('DELETE FROM chat_parameters WHERE id = ?').run(req.params.id);
   if (result.changes === 0) {
     return res.status(404).json({ error: 'Chat parameters not found' });

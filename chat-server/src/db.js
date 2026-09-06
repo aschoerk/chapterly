@@ -37,12 +37,89 @@ function initializeSchema(db) {
                                        email         TEXT UNIQUE,
                                        phone_number  TEXT UNIQUE,
                                        password_hash TEXT NOT NULL,
+                                       is_admin      INTEGER NOT NULL DEFAULT 0,
                                        created_at    TEXT DEFAULT (datetime('now')),
       updated_at    TEXT DEFAULT (datetime('now'))
       );
 
     CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
     CREATE INDEX IF NOT EXISTS idx_users_phone ON users(phone_number);
+  `);
+
+  const userCols = db.prepare(`PRAGMA table_info(users)`).all().map(c => c.name);
+  if (userCols.length && !userCols.includes('is_admin')) {
+    db.exec(`ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0`);
+    console.log('Migrated users: added is_admin');
+  }
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS workspaces (
+      id            TEXT PRIMARY KEY,
+      name          TEXT NOT NULL,
+      redirect_uris TEXT DEFAULT '[]',
+      grant_types   TEXT DEFAULT '["authorization_code"]',
+      created_at    TEXT DEFAULT (datetime('now')),
+      updated_at    TEXT DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS wallets (
+      id            TEXT PRIMARY KEY,
+      name          TEXT NOT NULL,
+      redirect_uris TEXT DEFAULT '[]',
+      grant_types   TEXT DEFAULT '["authorization_code"]',
+      created_at    TEXT DEFAULT (datetime('now')),
+      updated_at    TEXT DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS workspace_authorizations (
+      id           TEXT PRIMARY KEY,
+      user_id      TEXT NOT NULL,
+      workspace_id TEXT NOT NULL,
+      scopes       TEXT NOT NULL DEFAULT '["topics.read","topics.write"]',
+      status       TEXT NOT NULL DEFAULT 'granted' CHECK (status IN ('granted', 'revoked')),
+      created_at   TEXT DEFAULT (datetime('now')),
+      updated_at   TEXT DEFAULT (datetime('now')),
+      UNIQUE (user_id, workspace_id),
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_workspace_auth_user ON workspace_authorizations(user_id);
+    CREATE INDEX IF NOT EXISTS idx_workspace_auth_workspace ON workspace_authorizations(workspace_id);
+
+    CREATE TABLE IF NOT EXISTS wallet_authorizations (
+      id         TEXT PRIMARY KEY,
+      user_id    TEXT NOT NULL,
+      wallet_id  TEXT NOT NULL,
+      scopes     TEXT NOT NULL DEFAULT '["providers.read","providers.write"]',
+      status     TEXT NOT NULL DEFAULT 'granted' CHECK (status IN ('granted', 'revoked')),
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now')),
+      UNIQUE (user_id, wallet_id),
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (wallet_id) REFERENCES wallets(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_wallet_auth_user ON wallet_authorizations(user_id);
+    CREATE INDEX IF NOT EXISTS idx_wallet_auth_wallet ON wallet_authorizations(wallet_id);
+
+    CREATE TABLE IF NOT EXISTS oauth_tokens (
+      id          TEXT PRIMARY KEY,
+      token_hash  TEXT NOT NULL UNIQUE,
+      token_type  TEXT NOT NULL CHECK (token_type IN ('access', 'refresh')),
+      user_id     TEXT NOT NULL,
+      audience    TEXT NOT NULL CHECK (audience IN ('content', 'provider')),
+      client_id   TEXT NOT NULL,
+      scopes      TEXT NOT NULL,
+      grants_json TEXT NOT NULL DEFAULT '[]',
+      expires_at  TEXT NOT NULL,
+      revoked     INTEGER NOT NULL DEFAULT 0,
+      created_at  TEXT DEFAULT (datetime('now')),
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_oauth_tokens_hash ON oauth_tokens(token_hash);
+    CREATE INDEX IF NOT EXISTS idx_oauth_tokens_user ON oauth_tokens(user_id);
   `);
 
   db.exec(`
@@ -53,9 +130,9 @@ function initializeSchema(db) {
                                            base_url TEXT NOT NULL,
                                            api_key TEXT NOT NULL,
                                            enabled INTEGER DEFAULT 1,
-                                           user_id TEXT,
+                                           wallet_id TEXT,
                                            created_at TEXT DEFAULT (datetime('now')),
-      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+      FOREIGN KEY (wallet_id) REFERENCES wallets(id) ON DELETE SET NULL
       );
 
 
@@ -83,6 +160,7 @@ function initializeSchema(db) {
                                           default_model_id TEXT,
                                           avatar TEXT DEFAULT '',
                                           persona_ids TEXT DEFAULT '[]',
+                                          is_default INTEGER DEFAULT 0,
                                           created_at TEXT DEFAULT (datetime('now')),
       updated_at TEXT DEFAULT (datetime('now'))
       );
@@ -95,8 +173,10 @@ function initializeSchema(db) {
                                           short_name TEXT NOT NULL,
                                           description TEXT DEFAULT '',
                                           avatar TEXT DEFAULT '',
+                                          workspace_id TEXT,
                                           created_at TEXT DEFAULT (datetime('now')),
-      updated_at TEXT DEFAULT (datetime('now'))
+      updated_at TEXT DEFAULT (datetime('now')),
+      FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE SET NULL
       );
   `);
 
@@ -150,10 +230,11 @@ function initializeSchema(db) {
                                         default_model_id      TEXT,
                                         default_system_prompt TEXT DEFAULT '',
                                         icon                  TEXT DEFAULT '',
-                                        user_id               TEXT,
+                                        workspace_id     TEXT,
+                                        default_project_id    TEXT,
                                         created_at            TEXT DEFAULT (datetime('now')),
       updated_at            TEXT DEFAULT (datetime('now')),
-      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+      FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE SET NULL
       );
 
 
@@ -178,16 +259,20 @@ function initializeSchema(db) {
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS chat_parameters (
-      id              TEXT PRIMARY KEY,
-      name            TEXT DEFAULT '',
-      temperature     REAL,
-      top_k           INTEGER,
-      top_m           REAL,
-      stream          INTEGER,
-      thinking        INTEGER,
-      thinking_level  TEXT,
-      created_at      TEXT DEFAULT (datetime('now')),
-      updated_at      TEXT DEFAULT (datetime('now'))
+      id                 TEXT PRIMARY KEY,
+      name               TEXT DEFAULT '',
+      temperature        REAL,
+      top_k              INTEGER,
+      top_m              REAL,
+      stream             INTEGER,
+      thinking           INTEGER,
+      thinking_level     TEXT,
+      workspace_id  TEXT,
+      wallet_id TEXT,
+      created_at         TEXT DEFAULT (datetime('now')),
+      updated_at         TEXT DEFAULT (datetime('now')),
+      FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE SET NULL,
+      FOREIGN KEY (wallet_id) REFERENCES wallets(id) ON DELETE SET NULL
     );
 
     CREATE INDEX IF NOT EXISTS idx_chat_parameters_updated
@@ -230,18 +315,80 @@ function initializeSchema(db) {
       }
     }
 
-    const providerCols = db.prepare(`PRAGMA table_info(providers)`).all().map(c => c.name);
-    if (!providerCols.includes('user_id')) {
-      db.exec(`ALTER TABLE providers ADD COLUMN user_id TEXT REFERENCES users(id) ON DELETE SET NULL`);
-      db.exec(`CREATE INDEX IF NOT EXISTS idx_providers_user_id ON providers(user_id)`);
-      console.log('Migrated providers: added user_id');
+    const providerColsForClient = db.prepare(`PRAGMA table_info(providers)`).all().map(c => c.name);
+    if (!providerColsForClient.includes('wallet_id')) {
+      db.exec(`ALTER TABLE providers ADD COLUMN wallet_id TEXT REFERENCES wallets(id) ON DELETE SET NULL`);
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_providers_wallet_id ON providers(wallet_id)`);
+      console.log('Migrated providers: added wallet_id');
     }
 
-    const topicCols = db.prepare(`PRAGMA table_info(topics)`).all().map(c => c.name);
-    if (!topicCols.includes('user_id')) {
-      db.exec(`ALTER TABLE topics ADD COLUMN user_id TEXT REFERENCES users(id) ON DELETE SET NULL`);
-      db.exec(`CREATE INDEX IF NOT EXISTS idx_topics_user_id ON topics(user_id)`);
-      console.log('Migrated topics: added user_id');
+    const topicColsForClient = db.prepare(`PRAGMA table_info(topics)`).all().map(c => c.name);
+    if (!topicColsForClient.includes('workspace_id')) {
+      db.exec(`ALTER TABLE topics ADD COLUMN workspace_id TEXT REFERENCES workspaces(id) ON DELETE SET NULL`);
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_topics_workspace_id ON topics(workspace_id)`);
+      console.log('Migrated topics: added workspace_id');
+    }
+
+    const leftoverProviderUser = db.prepare(`PRAGMA table_info(providers)`).all().map(c => c.name);
+    if (leftoverProviderUser.includes('user_id')) {
+      db.exec(`DROP INDEX IF EXISTS idx_providers_user_id`);
+      db.exec(`ALTER TABLE providers DROP COLUMN user_id`);
+      console.log('Migrated providers: dropped user_id');
+    }
+
+    const leftoverTopicUser = db.prepare(`PRAGMA table_info(topics)`).all().map(c => c.name);
+    if (leftoverTopicUser.includes('user_id')) {
+      db.exec(`DROP INDEX IF EXISTS idx_topics_user_id`);
+      db.exec(`ALTER TABLE topics DROP COLUMN user_id`);
+      console.log('Migrated topics: dropped user_id');
+    }
+
+    const workspaceCols = db.prepare(`PRAGMA table_info(workspaces)`).all().map(c => c.name);
+    if (workspaceCols.includes('user_id')) {
+      db.exec(`DROP INDEX IF EXISTS idx_workspaces_user_id`);
+      db.exec(`ALTER TABLE workspaces DROP COLUMN user_id`);
+      console.log('Migrated workspaces: dropped user_id');
+    }
+    if (!workspaceCols.includes('redirect_uris')) {
+      db.exec(`ALTER TABLE workspaces ADD COLUMN redirect_uris TEXT DEFAULT '[]'`);
+    }
+    if (!workspaceCols.includes('grant_types')) {
+      db.exec(`ALTER TABLE workspaces ADD COLUMN grant_types TEXT DEFAULT '["authorization_code"]'`);
+    }
+
+    const walletCols = db.prepare(`PRAGMA table_info(wallets)`).all().map(c => c.name);
+    if (walletCols.includes('user_id')) {
+      db.exec(`DROP INDEX IF EXISTS idx_wallets_user_id`);
+      db.exec(`ALTER TABLE wallets DROP COLUMN user_id`);
+      console.log('Migrated wallets: dropped user_id');
+    }
+    if (!walletCols.includes('redirect_uris')) {
+      db.exec(`ALTER TABLE wallets ADD COLUMN redirect_uris TEXT DEFAULT '[]'`);
+    }
+    if (!walletCols.includes('grant_types')) {
+      db.exec(`ALTER TABLE wallets ADD COLUMN grant_types TEXT DEFAULT '["authorization_code"]'`);
+    }
+
+    const tokenCols = db.prepare(`PRAGMA table_info(oauth_tokens)`).all().map(c => c.name);
+    if (tokenCols.length && !tokenCols.includes('grants_json')) {
+      db.exec(`ALTER TABLE oauth_tokens ADD COLUMN grants_json TEXT NOT NULL DEFAULT '[]'`);
+      console.log('Migrated oauth_tokens: added grants_json');
+    }
+
+    const personaCols = db.prepare(`PRAGMA table_info(personas)`).all().map(c => c.name);
+    if (personaCols.length && !personaCols.includes('workspace_id')) {
+      db.exec(`ALTER TABLE personas ADD COLUMN workspace_id TEXT REFERENCES workspaces(id) ON DELETE SET NULL`);
+      console.log('Migrated personas: added workspace_id');
+    }
+
+    const paramCols = db.prepare(`PRAGMA table_info(chat_parameters)`).all().map(c => c.name);
+    if (paramCols.length && !paramCols.includes('workspace_id')) {
+      db.exec(`ALTER TABLE chat_parameters ADD COLUMN workspace_id TEXT REFERENCES workspaces(id) ON DELETE SET NULL`);
+      console.log('Migrated chat_parameters: added workspace_id');
+    }
+    if (paramCols.length && !paramCols.includes('wallet_id')) {
+      db.exec(`ALTER TABLE chat_parameters ADD COLUMN wallet_id TEXT REFERENCES wallets(id) ON DELETE SET NULL`);
+      console.log('Migrated chat_parameters: added wallet_id');
     }
 
     const chatNodeCols = db.prepare(`PRAGMA table_info(chat_nodes)`).all().map(c => c.name);
@@ -319,9 +466,26 @@ function initializeSchema(db) {
         PRAGMA foreign_key_check;
       `);
     }
-    db.exec(`CREATE INDEX IF NOT EXISTS idx_topics_user_id ON topics(user_id);
-             CREATE INDEX IF NOT EXISTS idx_providers_user_id ON providers(user_id);
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_topics_workspace_id ON topics(workspace_id);
+             CREATE INDEX IF NOT EXISTS idx_providers_wallet_id ON providers(wallet_id);
      `);
+
+    const projectCols = db.prepare(`PRAGMA table_info(projects)`).all().map(c => c.name);
+    if (!projectCols.includes('is_default')) {
+      db.exec(`ALTER TABLE projects ADD COLUMN is_default INTEGER DEFAULT 0`);
+      console.log('Migrated projects: added is_default');
+    }
+
+    const topicColsForDefault = db.prepare(`PRAGMA table_info(topics)`).all().map(c => c.name);
+    if (!topicColsForDefault.includes('default_project_id')) {
+      db.exec(`ALTER TABLE topics ADD COLUMN default_project_id TEXT`);
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_topics_default_project_id ON topics(default_project_id)`);
+      console.log('Migrated topics: added default_project_id');
+    }
+
+    const assignment = require('./assignment');
+    assignment.setDb(db);
+    assignment.backfillAssignmentInvariants();
 
   } catch (e) {
     console.warn('chat_nodes.role migration skipped', e.message);

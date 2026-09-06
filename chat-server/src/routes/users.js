@@ -12,6 +12,21 @@ const {
 
 const router = express.Router();
 
+const { mapContentClient, mapProviderClient } = require('../clients');
+const {
+  listContentAuthorizations,
+  listProviderAuthorizations
+} = require('../oauth');
+
+function enforceSelf(req, res) {
+  if (!req.auth) return false;
+  if (req.auth.userId !== req.params.id) {
+    res.status(403).json({ error: 'token is not valid for this user' });
+    return true;
+  }
+  return false;
+}
+
 function mapProvider(row) {
   return {
     id: row.id,
@@ -20,7 +35,7 @@ function mapProvider(row) {
     baseUrl: row.base_url,
     apiKey: row.api_key,
     enabled: !!row.enabled,
-    userId: row.user_id || null
+    walletId: row.wallet_id || null
   };
 }
 
@@ -39,7 +54,8 @@ function mapTopic(row) {
     defaultSystemPrompt: row.default_system_prompt || '',
     icon: row.icon || '',
     projectIds,
-    userId: row.user_id || null,
+    workspaceId: row.workspace_id || null,
+    defaultProjectId: row.default_project_id || null,
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };
@@ -49,9 +65,15 @@ function mapTopic(row) {
  * @openapi
  * /api/users:
  *   get:
- *     summary: List all users
+ *     summary: List users
+ *     description: |
+ *       Optional Bearer. With a token, only the authenticated identity is returned.
+ *       Without a token, all users (password hashes omitted).
  *     tags:
  *       - Users
+ *     security:
+ *       - {}
+ *       - BearerAuth: []
  *     responses:
  *       200:
  *         description: Array of users (password hashes are never returned)
@@ -62,7 +84,11 @@ function mapTopic(row) {
  *               items:
  *                 $ref: '#/components/schemas/User'
  */
-router.get('/', (_req, res) => {
+router.get('/', (req, res) => {
+  if (req.auth) {
+    const row = db.prepare('SELECT * FROM users WHERE id = ?').get(req.auth.userId);
+    return res.json(row ? [mapUser(row)] : []);
+  }
   const rows = db.prepare('SELECT * FROM users ORDER BY created_at').all();
   res.json(rows.map(mapUser));
 });
@@ -133,7 +159,8 @@ router.post('/', async (req, res) => {
  *     summary: Verify local credentials
  *     description: |
  *       Accepts username, email or phoneNumber plus password.
- *       On success returns the user record. No session or OIDC token is issued yet.
+ *       Returns the user record only. To obtain an opaque access token with claims,
+ *       use POST /api/oauth/token. No OIDC yet.
  *     tags:
  *       - Users
  *     requestBody:
@@ -205,6 +232,7 @@ router.post('/login', async (req, res) => {
  *         description: User not found
  */
 router.get('/:id', (req, res) => {
+  if (enforceSelf(req, res)) return;
   const row = db.prepare('SELECT * FROM users WHERE id = ?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'User not found' });
   res.json(mapUser(row));
@@ -242,6 +270,7 @@ router.get('/:id', (req, res) => {
  *         description: Username, email or phone already in use
  */
 router.put('/:id', async (req, res) => {
+  if (enforceSelf(req, res)) return;
   const existing = db.prepare('SELECT * FROM users WHERE id = ?').get(req.params.id);
   if (!existing) return res.status(404).json({ error: 'User not found' });
 
@@ -297,8 +326,8 @@ router.put('/:id', async (req, res) => {
  *   delete:
  *     summary: Delete a user
  *     description: |
- *       Owned topics and providers keep existing rows; their user_id is set to NULL
- *       (ON DELETE SET NULL) so unscoped clients continue to see that data.
+ *       OAuth authorizations for this identity are removed.
+ *       Clients, topics and providers remain.
  *     tags:
  *       - Users
  *     parameters:
@@ -315,6 +344,7 @@ router.put('/:id', async (req, res) => {
  *         description: User not found
  */
 router.delete('/:id', (req, res) => {
+  if (enforceSelf(req, res)) return;
   const result = db.prepare('DELETE FROM users WHERE id = ?').run(req.params.id);
   if (result.changes === 0) {
     return res.status(404).json({ error: 'User not found' });
@@ -326,7 +356,7 @@ router.delete('/:id', (req, res) => {
  * @openapi
  * /api/users/{id}/topics:
  *   get:
- *     summary: List topics owned by a user
+ *     summary: List topics owned through this user's content clients
  *     tags:
  *       - Users
  *     parameters:
@@ -343,20 +373,52 @@ router.delete('/:id', (req, res) => {
  *         description: User not found
  */
 router.get('/:id/topics', (req, res) => {
+  if (enforceSelf(req, res)) return;
   const user = db.prepare('SELECT id FROM users WHERE id = ?').get(req.params.id);
   if (!user) return res.status(404).json({ error: 'User not found' });
 
-  const rows = db.prepare(
-    'SELECT * FROM topics WHERE user_id = ? ORDER BY name'
-  ).all(req.params.id);
+  const rows = db.prepare(`
+    SELECT DISTINCT t.* FROM topics t
+    JOIN workspace_authorizations a ON a.workspace_id = t.workspace_id
+    WHERE a.user_id = ? AND a.status = 'granted'
+    ORDER BY t.name
+  `).all(req.params.id);
   res.json(rows.map(mapTopic));
+});
+
+/**
+ * @openapi
+ * /api/users/{id}/content-clients:
+ *   get:
+ *     summary: List content clients linked to this identity
+ *     tags:
+ *       - Users
+ */
+router.get('/:id/workspaces', (req, res) => {
+  if (enforceSelf(req, res)) return;
+  const user = db.prepare('SELECT id FROM users WHERE id = ?').get(req.params.id);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+  const rows = db.prepare(`
+    SELECT c.* FROM workspaces c
+    JOIN workspace_authorizations a ON a.workspace_id = c.id
+    WHERE a.user_id = ? AND a.status = 'granted'
+    ORDER BY c.created_at
+  `).all(req.params.id);
+  res.json(rows.map(mapContentClient));
+});
+
+router.get('/:id/content-authorizations', (req, res) => {
+  if (enforceSelf(req, res)) return;
+  const user = db.prepare('SELECT id FROM users WHERE id = ?').get(req.params.id);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+  res.json(listContentAuthorizations({ userId: req.params.id }));
 });
 
 /**
  * @openapi
  * /api/users/{id}/providers:
  *   get:
- *     summary: List providers owned by a user
+ *     summary: List providers owned through this user's provider clients
  *     tags:
  *       - Users
  *     parameters:
@@ -373,13 +435,45 @@ router.get('/:id/topics', (req, res) => {
  *         description: User not found
  */
 router.get('/:id/providers', (req, res) => {
+  if (enforceSelf(req, res)) return;
   const user = db.prepare('SELECT id FROM users WHERE id = ?').get(req.params.id);
   if (!user) return res.status(404).json({ error: 'User not found' });
 
-  const rows = db.prepare(
-    'SELECT * FROM providers WHERE user_id = ? ORDER BY created_at'
-  ).all(req.params.id);
+  const rows = db.prepare(`
+    SELECT DISTINCT p.* FROM providers p
+    JOIN wallet_authorizations a ON a.wallet_id = p.wallet_id
+    WHERE a.user_id = ? AND a.status = 'granted'
+    ORDER BY p.created_at
+  `).all(req.params.id);
   res.json(rows.map(mapProvider));
+});
+
+/**
+ * @openapi
+ * /api/users/{id}/provider-clients:
+ *   get:
+ *     summary: List provider clients linked to this identity
+ *     tags:
+ *       - Users
+ */
+router.get('/:id/wallets', (req, res) => {
+  if (enforceSelf(req, res)) return;
+  const user = db.prepare('SELECT id FROM users WHERE id = ?').get(req.params.id);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+  const rows = db.prepare(`
+    SELECT c.* FROM wallets c
+    JOIN wallet_authorizations a ON a.wallet_id = c.id
+    WHERE a.user_id = ? AND a.status = 'granted'
+    ORDER BY c.created_at
+  `).all(req.params.id);
+  res.json(rows.map(mapProviderClient));
+});
+
+router.get('/:id/provider-authorizations', (req, res) => {
+  if (enforceSelf(req, res)) return;
+  const user = db.prepare('SELECT id FROM users WHERE id = ?').get(req.params.id);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+  res.json(listProviderAuthorizations({ userId: req.params.id }));
 });
 
 module.exports = router;

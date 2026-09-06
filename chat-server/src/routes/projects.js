@@ -1,7 +1,22 @@
 const express = require('express');
 const { v4: uuidv4 } = require('uuid');
 const db = require('../db');
-const { resolveChatParametersId, assertChatParametersExists } = require('../chatParameters');
+const { resolveChatParametersId, assertChatParametersExists, assertChatParametersKind } = require('../chatParameters');
+const {
+  attachProjectToTopic,
+  ensureProjectHasTopic,
+  ensureTopicDefaultProject,
+  rehomeChatsFromProject,
+  topicIdsOfProject
+} = require('../assignment');
+const {
+  enforceGrant,
+  enforceAudience,
+  workspaceIdOfProject,
+  workspaceIdOfTopic,
+  authClientIds,
+  placeholders
+} = require('../oauth');
 
 const router = express.Router();
 
@@ -30,9 +45,14 @@ function serializePersonaIds(ids) {
  * @openapi
  * /api/projects:
  *   get:
- *     summary: List all projects
+ *     summary: List projects
+ *     description: |
+ *       Optional Bearer. With a token, only projects attached to topics of claimed workspaces.
  *     tags:
  *       - Projects
+ *     security:
+ *       - {}
+ *       - BearerAuth: []
  *     responses:
  *       200:
  *         description: List of projects ordered by name
@@ -44,9 +64,21 @@ function serializePersonaIds(ids) {
  *                 $ref: '#/components/schemas/Project'
  */
 router.get('/', (req, res) => {
-  const rows = db.prepare(`
-    SELECT * FROM projects ORDER BY name COLLATE NOCASE
-  `).all();
+  if (enforceAudience(req, res, 'content')) return;
+  let rows;
+  if (req.auth) {
+    rows = db.prepare(`
+      SELECT DISTINCT p.* FROM projects p
+      JOIN topic_projects tp ON tp.project_id = p.id
+      JOIN topics t ON t.id = tp.topic_id
+      WHERE t.workspace_id IN (${placeholders(authClientIds(req, 'content'))})
+      ORDER BY p.name COLLATE NOCASE
+    `).all(...authClientIds(req, 'content'));
+  } else {
+    rows = db.prepare(`
+      SELECT * FROM projects ORDER BY name COLLATE NOCASE
+    `).all();
+  }
   res.json(rows.map(mapProject));
 });
 
@@ -104,16 +136,23 @@ router.post('/', (req, res) => {
     systemPrompt = '',
     defaultModelId = null,
     avatar = '',
-    personaIds = []
+    personaIds = [],
+    topicId = null,
+    topicIds = []
   } = req.body;
 
   if (!name || !name.trim()) {
     return res.status(400).json({ error: 'name is required' });
   }
+  if (enforceAudience(req, res, 'content')) return;
 
   const chatParametersId = resolveChatParametersId(req.body, null);
   if (!assertChatParametersExists(chatParametersId)) {
     return res.status(400).json({ error: 'chatParametersId does not exist' });
+  }
+  const paramKind = assertChatParametersKind(chatParametersId, 'run');
+  if (!paramKind.ok) {
+    return res.status(400).json({ error: paramKind.error });
   }
 
   const id = uuidv4();
@@ -130,6 +169,40 @@ router.post('/', (req, res) => {
     serializePersonaIds(personaIds),
     chatParametersId
   );
+
+  const requestedTopicIds = [
+    ...(topicId ? [topicId] : []),
+    ...(Array.isArray(topicIds) ? topicIds : [])
+  ].filter(Boolean);
+
+  if (req.auth && requestedTopicIds.length === 0) {
+    const owned = db.prepare(
+      `SELECT id FROM topics WHERE workspace_id IN (${placeholders(authClientIds(req, 'content'))}) ORDER BY name LIMIT 1`
+    ).get(...authClientIds(req, 'content'));
+    if (!owned) {
+      db.prepare('DELETE FROM projects WHERE id = ?').run(id);
+      return res.status(400).json({ error: 'no topic exists for the authorized content client' });
+    }
+    requestedTopicIds.push(owned.id);
+  }
+
+  if (requestedTopicIds.length) {
+    for (const tid of requestedTopicIds) {
+      const topic = db.prepare('SELECT id FROM topics WHERE id = ?').get(tid);
+      if (!topic) {
+        db.prepare('DELETE FROM projects WHERE id = ?').run(id);
+        return res.status(400).json({ error: `topicId ${tid} does not exist` });
+      }
+      if (enforceGrant(req, res, { audience: 'content', clientId: workspaceIdOfTopic(tid) })) {
+        db.prepare('DELETE FROM projects WHERE id = ?').run(id);
+        return;
+      }
+      attachProjectToTopic(tid, id);
+      ensureTopicDefaultProject(tid);
+    }
+  } else {
+    ensureProjectHasTopic(id);
+  }
 
   const row = db.prepare('SELECT * FROM projects WHERE id = ?').get(id);
   res.status(201).json(mapProject(row));
@@ -166,6 +239,7 @@ router.post('/', (req, res) => {
 router.get('/:id', (req, res) => {
   const row = db.prepare('SELECT * FROM projects WHERE id = ?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'Project not found' });
+  if (enforceGrant(req, res, { audience: 'content', clientId: workspaceIdOfProject(row.id) })) return;
   res.json(mapProject(row));
 });
 
@@ -232,10 +306,15 @@ router.put('/:id', (req, res) => {
 
   const existing = db.prepare('SELECT * FROM projects WHERE id = ?').get(id);
   if (!existing) return res.status(404).json({ error: 'Project not found' });
+  if (enforceGrant(req, res, { audience: 'content', clientId: workspaceIdOfProject(existing.id) })) return;
 
   const chatParametersId = resolveChatParametersId(req.body, existing.chat_parameters_id);
   if (!assertChatParametersExists(chatParametersId)) {
     return res.status(400).json({ error: 'chatParametersId does not exist' });
+  }
+  const paramKind = assertChatParametersKind(chatParametersId, 'run');
+  if (!paramKind.ok) {
+    return res.status(400).json({ error: paramKind.error });
   }
 
   try {
@@ -274,7 +353,10 @@ router.put('/:id', (req, res) => {
  * @openapi
  * /api/projects/{id}:
  *   delete:
- *     summary: Delete a project (chats become unassigned)
+ *     summary: Delete a project
+ *     description: |
+ *       Chats on this project are moved to the topic's default Unassigned project
+ *       unless deleteChats=true, in which case those chats are removed.
  *     tags:
  *       - Projects
  *     parameters:
@@ -295,16 +377,27 @@ router.put('/:id', (req, res) => {
  *               $ref: '#/components/schemas/Error'
  */
 router.delete('/:id', (req, res) => {
+  const existing = db.prepare('SELECT id FROM projects WHERE id = ?').get(req.params.id);
+  if (!existing) return res.status(404).json({ error: 'Project not found' });
+  if (enforceGrant(req, res, { audience: 'content', clientId: workspaceIdOfProject(existing.id) })) return;
+
   const deleteChats = req.query.deleteChats === 'true';
 
   if (deleteChats) {
     db.prepare('DELETE FROM chats WHERE project_id = ?').run(req.params.id);
+  } else {
+    rehomeChatsFromProject(req.params.id);
   }
 
-  const result = db.prepare('DELETE FROM projects WHERE id = ?').run(req.params.id);
-  if (result.changes === 0) {
-    return res.status(404).json({ error: 'Project not found' });
+  db.prepare('UPDATE topics SET default_project_id = NULL WHERE default_project_id = ?').run(req.params.id);
+  const formerTopicIds = topicIdsOfProject(req.params.id);
+
+  db.prepare('DELETE FROM projects WHERE id = ?').run(req.params.id);
+
+  for (const topicId of formerTopicIds) {
+    ensureTopicDefaultProject(topicId);
   }
+
   res.status(204).end();
 });
 
@@ -318,6 +411,8 @@ function mapProject(row) {
     avatar: row.avatar || '',
     personaIds: parsePersonaIds(row.persona_ids),
     chatParametersId: row.chat_parameters_id || null,
+    isDefault: !!row.is_default,
+    topicIds: topicIdsOfProject(row.id),
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };

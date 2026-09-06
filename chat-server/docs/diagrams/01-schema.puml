@@ -1,0 +1,251 @@
+@startuml chapterly_schema
+title chapterly chat-server — data model
+
+skinparam linetype ortho
+skinparam classAttributeIconSize 0
+hide circle
+hide methods
+
+package "Identity" {
+  entity users {
+    * id : TEXT <<PK>>
+    --
+    * username : TEXT <<unique>>
+    email : TEXT <<unique>>
+    phone_number : TEXT <<unique>>
+    * password_hash : TEXT
+    created_at : TEXT
+    updated_at : TEXT
+  }
+}
+
+package "Workspaces and wallets\n(not OAuth clients)" {
+  entity content_clients {
+    * id : TEXT <<PK>>
+    --
+    * name : TEXT
+    redirect_uris : TEXT
+    grant_types : TEXT
+    created_at : TEXT
+    updated_at : TEXT
+  }
+
+  entity provider_clients {
+    * id : TEXT <<PK>>
+    --
+    * name : TEXT
+    redirect_uris : TEXT
+    grant_types : TEXT
+    created_at : TEXT
+    updated_at : TEXT
+  }
+
+  entity content_client_authorizations {
+    * id : TEXT <<PK>>
+    --
+    * user_id : TEXT <<FK>>
+    * client_id : TEXT <<FK>>
+    * scopes : TEXT
+    * status : granted | revoked
+    created_at : TEXT
+    updated_at : TEXT
+  }
+
+  entity provider_client_authorizations {
+    * id : TEXT <<PK>>
+    --
+    * user_id : TEXT <<FK>>
+    * client_id : TEXT <<FK>>
+    * scopes : TEXT
+    * status : granted | revoked
+    created_at : TEXT
+    updated_at : TEXT
+  }
+}
+
+package "Opaque tokens" {
+  entity oauth_tokens {
+    * id : TEXT <<PK>>
+    --
+    * token_hash : TEXT <<unique>>
+    * token_type : access | refresh
+    * user_id : TEXT <<FK>>
+    audience : TEXT
+    client_id : TEXT
+    scopes : TEXT
+    * grants_json : TEXT
+    * expires_at : TEXT
+    * revoked : INTEGER
+    created_at : TEXT
+  }
+}
+
+package "LLM providers" {
+  entity providers {
+    * id : TEXT <<PK>>
+    --
+    * name : TEXT
+    * type : TEXT
+    * base_url : TEXT
+    * api_key : TEXT
+    enabled : INTEGER
+    provider_client_id : TEXT <<FK>>
+    created_at : TEXT
+  }
+
+  entity models {
+    * id : TEXT <<PK>>
+    --
+    * display_name : TEXT
+    * model_id : TEXT
+    * provider_id : TEXT <<FK>>
+    * type : TEXT
+    enabled : INTEGER
+    context_length : INTEGER
+    catalog_json : TEXT
+    chat_parameters_id : TEXT <<FK>>
+    created_at : TEXT
+  }
+}
+
+package "Content" {
+  entity topics {
+    * id : TEXT <<PK>>
+    --
+    * name : TEXT
+    description : TEXT
+    default_model_id : TEXT
+    default_system_prompt : TEXT
+    icon : TEXT
+    content_client_id : TEXT <<FK>>
+    default_project_id : TEXT
+    chat_parameters_id : TEXT <<FK>>
+    created_at : TEXT
+    updated_at : TEXT
+  }
+
+  entity topic_projects {
+    * topic_id : TEXT <<PK,FK>>
+    * project_id : TEXT <<PK,FK>>
+  }
+
+  entity projects {
+    * id : TEXT <<PK>>
+    --
+    * name : TEXT
+    greeting : TEXT
+    system_prompt : TEXT
+    default_model_id : TEXT
+    avatar : TEXT
+    persona_ids : TEXT
+    is_default : INTEGER
+    chat_parameters_id : TEXT <<FK>>
+    created_at : TEXT
+    updated_at : TEXT
+  }
+
+  entity chats {
+    * id : TEXT <<PK>>
+    --
+    * title : TEXT
+    project_id : TEXT <<FK>>
+    node_number : INTEGER
+    chat_parameters_id : TEXT <<FK>>
+    created_at : TEXT
+    updated_at : TEXT
+  }
+
+  entity chat_nodes {
+    * id : TEXT <<PK>>
+    --
+    * chat_id : TEXT <<FK>>
+    parent_id : TEXT <<FK>>
+    * role : user | assistant | system
+    * content : TEXT
+    thinking : TEXT
+    model_id : TEXT
+    provider_id : TEXT
+    version : INTEGER
+    previous_version_id : TEXT <<FK>>
+    prompt_tokens : INTEGER
+    completion_tokens : INTEGER
+    total_cost : REAL
+    attachments : TEXT
+    is_current : INTEGER
+    chat_parameters_id : TEXT <<FK>>
+    created_at : TEXT
+    updated_at : TEXT
+  }
+
+  entity personas {
+    * id : TEXT <<PK>>
+    --
+    * name : TEXT
+    * short_name : TEXT
+    description : TEXT
+    avatar : TEXT
+    created_at : TEXT
+    updated_at : TEXT
+  }
+
+  entity chat_parameters {
+    * id : TEXT <<PK>>
+    --
+    name : TEXT
+    temperature : REAL
+    top_k : INTEGER
+    top_m : REAL
+    stream : INTEGER
+    thinking : INTEGER
+    thinking_level : TEXT
+    created_at : TEXT
+    updated_at : TEXT
+  }
+}
+
+users ||--o{ content_client_authorizations
+content_clients ||--o{ content_client_authorizations
+users ||--o{ provider_client_authorizations
+provider_clients ||--o{ provider_client_authorizations
+users ||--o{ oauth_tokens
+
+content_clients ||--o{ topics
+provider_clients ||--o{ providers
+providers ||--o{ models
+
+topics ||--o{ topic_projects
+projects ||--o{ topic_projects
+topics }o--o| projects : default_project_id
+projects ||--o{ chats
+chats ||--o{ chat_nodes
+chat_nodes ||--o{ chat_nodes : parent / previous_version
+
+chat_parameters ||--o{ topics
+chat_parameters ||--o{ projects
+chat_parameters ||--o{ chats
+chat_parameters ||--o{ models
+chat_parameters ||--o{ chat_nodes
+
+note right of content_clients
+  Product name: workspace / tenant.
+  Not the OAuth2 client of the token.
+end note
+
+note right of provider_clients
+  Product name: wallet / credential set.
+  Owns api_key rows. Do not share
+  a provider row across wallets.
+end note
+
+note bottom of oauth_tokens
+  Bearer string is opaque (token_hash only).
+  ABAC claims live in grants_json:
+  N topic claims + at most one provider claim.
+end note
+
+note bottom of personas
+  Linked from projects.persona_ids JSON,
+  no foreign key.
+end note
+
+@enduml

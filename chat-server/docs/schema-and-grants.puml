@@ -1,0 +1,373 @@
+@startuml chapterly_schema
+title chapterly chat-server — data model
+
+skinparam linetype ortho
+skinparam classAttributeIconSize 0
+hide circle
+hide methods
+
+package "Identity & OAuth2" {
+  entity users {
+    * id : TEXT <<PK>>
+    --
+    * username : TEXT <<unique>>
+    email : TEXT <<unique>>
+    phone_number : TEXT <<unique>>
+    * password_hash : TEXT
+    created_at : TEXT
+    updated_at : TEXT
+  }
+
+  entity content_clients {
+    * id : TEXT <<PK>>
+    --
+    * name : TEXT
+    redirect_uris : TEXT
+    grant_types : TEXT
+    created_at : TEXT
+    updated_at : TEXT
+  }
+
+  entity provider_clients {
+    * id : TEXT <<PK>>
+    --
+    * name : TEXT
+    redirect_uris : TEXT
+    grant_types : TEXT
+    created_at : TEXT
+    updated_at : TEXT
+  }
+
+  entity content_client_authorizations {
+    * id : TEXT <<PK>>
+    --
+    * user_id : TEXT <<FK>>
+    * client_id : TEXT <<FK>>
+    * scopes : TEXT
+    * status : granted | revoked
+    created_at : TEXT
+    updated_at : TEXT
+  }
+
+  entity provider_client_authorizations {
+    * id : TEXT <<PK>>
+    --
+    * user_id : TEXT <<FK>>
+    * client_id : TEXT <<FK>>
+    * scopes : TEXT
+    * status : granted | revoked
+    created_at : TEXT
+    updated_at : TEXT
+  }
+
+  entity oauth_tokens {
+    * id : TEXT <<PK>>
+    --
+    * token_hash : TEXT <<unique>>
+    * token_type : access | refresh
+    * user_id : TEXT <<FK>>
+    * audience : content | provider
+    * client_id : TEXT
+    * scopes : TEXT
+    * expires_at : TEXT
+    * revoked : INTEGER
+    created_at : TEXT
+  }
+}
+
+package "LLM providers" {
+  entity providers {
+    * id : TEXT <<PK>>
+    --
+    * name : TEXT
+    * type : TEXT
+    * base_url : TEXT
+    * api_key : TEXT
+    enabled : INTEGER
+    provider_client_id : TEXT <<FK>>
+    created_at : TEXT
+  }
+
+  entity models {
+    * id : TEXT <<PK>>
+    --
+    * display_name : TEXT
+    * model_id : TEXT
+    * provider_id : TEXT <<FK>>
+    * type : TEXT
+    enabled : INTEGER
+    context_length : INTEGER
+    catalog_json : TEXT
+    chat_parameters_id : TEXT <<FK>>
+    created_at : TEXT
+  }
+}
+
+package "Content" {
+  entity topics {
+    * id : TEXT <<PK>>
+    --
+    * name : TEXT
+    description : TEXT
+    default_model_id : TEXT
+    default_system_prompt : TEXT
+    icon : TEXT
+    content_client_id : TEXT <<FK>>
+    default_project_id : TEXT
+    chat_parameters_id : TEXT <<FK>>
+    created_at : TEXT
+    updated_at : TEXT
+  }
+
+  entity topic_projects {
+    * topic_id : TEXT <<PK,FK>>
+    * project_id : TEXT <<PK,FK>>
+  }
+
+  entity projects {
+    * id : TEXT <<PK>>
+    --
+    * name : TEXT
+    greeting : TEXT
+    system_prompt : TEXT
+    default_model_id : TEXT
+    avatar : TEXT
+    persona_ids : TEXT
+    is_default : INTEGER
+    chat_parameters_id : TEXT <<FK>>
+    created_at : TEXT
+    updated_at : TEXT
+  }
+
+  entity chats {
+    * id : TEXT <<PK>>
+    --
+    * title : TEXT
+    project_id : TEXT <<FK>>
+    node_number : INTEGER
+    chat_parameters_id : TEXT <<FK>>
+    created_at : TEXT
+    updated_at : TEXT
+  }
+
+  entity chat_nodes {
+    * id : TEXT <<PK>>
+    --
+    * chat_id : TEXT <<FK>>
+    parent_id : TEXT <<FK>>
+    * role : user | assistant | system
+    * content : TEXT
+    thinking : TEXT
+    model_id : TEXT
+    provider_id : TEXT
+    version : INTEGER
+    previous_version_id : TEXT <<FK>>
+    prompt_tokens : INTEGER
+    completion_tokens : INTEGER
+    total_cost : REAL
+    attachments : TEXT
+    is_current : INTEGER
+    chat_parameters_id : TEXT <<FK>>
+    created_at : TEXT
+    updated_at : TEXT
+  }
+
+  entity personas {
+    * id : TEXT <<PK>>
+    --
+    * name : TEXT
+    * short_name : TEXT
+    description : TEXT
+    avatar : TEXT
+    created_at : TEXT
+    updated_at : TEXT
+  }
+
+  entity chat_parameters {
+    * id : TEXT <<PK>>
+    --
+    name : TEXT
+    temperature : REAL
+    top_k : INTEGER
+    top_m : REAL
+    stream : INTEGER
+    thinking : INTEGER
+    thinking_level : TEXT
+    created_at : TEXT
+    updated_at : TEXT
+  }
+}
+
+users ||--o{ content_client_authorizations
+content_clients ||--o{ content_client_authorizations
+users ||--o{ provider_client_authorizations
+provider_clients ||--o{ provider_client_authorizations
+users ||--o{ oauth_tokens
+
+content_clients ||--o{ topics
+provider_clients ||--o{ providers
+providers ||--o{ models
+
+topics ||--o{ topic_projects
+projects ||--o{ topic_projects
+topics }o--o| projects : default_project_id
+projects ||--o{ chats
+chats ||--o{ chat_nodes
+chat_nodes ||--o{ chat_nodes : parent / previous_version
+
+chat_parameters ||--o{ topics
+chat_parameters ||--o{ projects
+chat_parameters ||--o{ chats
+chat_parameters ||--o{ models
+chat_parameters ||--o{ chat_nodes
+
+note right of content_client_authorizations
+  Grant, not ownership.
+  scopes: topics.read, topics.write
+end note
+
+note right of provider_client_authorizations
+  Grant, not ownership.
+  scopes: providers.read, providers.write
+end note
+
+note bottom of oauth_tokens
+  Opaque token; only SHA-256 hash is stored.
+  client_id is not a single FK
+  (content or provider, see audience).
+end note
+
+note bottom of personas
+  Linked from projects.persona_ids JSON,
+  no foreign key.
+end note
+
+@enduml
+
+@startuml grant_definition
+title Grant definition then token issue
+
+actor Admin
+actor User
+participant "API" as Api
+database SQLite
+
+== register identity ==
+User -> Api : POST /api/users\n{username, password}
+Api -> SQLite : INSERT users\n(password_hash = argon2id)
+Api --> User : 201 User
+
+== register OAuth client (no user on the client) ==
+Admin -> Api : POST /api/content-clients\n{name, redirectUris, grantTypes}
+Api -> SQLite : INSERT content_clients
+Api --> Admin : 201 ContentClient
+
+== define grant ==
+Admin -> Api : POST /api/content-clients/{id}/authorizations\n{userId, scopes}
+Api -> SQLite : SELECT users, content_clients
+Api -> SQLite : INSERT content_client_authorizations\nstatus=granted\nscopes=["topics.read","topics.write"]
+Api --> Admin : 201 ClientAuthorization
+
+== exchange credentials for a client-scoped token ==
+User -> Api : POST /api/oauth/token\ngrant_type=password\nusername + password + client_id
+Api -> SQLite : SELECT users WHERE login
+Api -> Api : verifyPassword(argon2id)
+Api -> SQLite : SELECT content_client_authorizations\nWHERE user + client AND status=granted
+alt no grant
+  Api --> User : 403 user is not authorized for this client
+else grant exists
+  Api -> SQLite : INSERT oauth_tokens (access, hash, audience=content)
+  Api -> SQLite : INSERT oauth_tokens (refresh, hash)
+  Api --> User : 200 {access_token, refresh_token,\naudience, client_id, scope, expires_in}
+end
+
+@enduml
+
+@startuml chat_change_with_grant_check
+title PATCH chat title — Bearer present, grant checked
+
+actor User
+participant "API\nparseBearer + route" as Api
+database SQLite
+
+User -> Api : PATCH /api/chats/{chatId}\nAuthorization: Bearer <access_token>\n{title: "Showdown v2"}
+
+== token validation ==
+Api -> Api : extract Bearer
+Api -> SQLite : SELECT oauth_tokens\nWHERE token_hash = sha256(token)\nAND token_type=access
+alt missing / revoked / expired
+  Api --> User : 401 invalid or expired access token
+else token row found
+  Api -> SQLite : SELECT content_client_authorizations\nWHERE user_id AND client_id\nAND status=granted
+  alt grant gone
+    Api --> User : 401 invalid or expired access token
+  else grant still active
+    Api -> Api : req.auth = {userId, clientId,\naudience=content, scopes}
+  end
+end
+
+== resource grant check ==
+Api -> SQLite : SELECT chat
+Api -> SQLite : chat → project → topic_projects → topic.content_client_id
+Api -> Api : enforceGrant(audience=content,\nclientId=topic.content_client_id,\nscope=topics.write)
+
+alt no Bearer would have been sent
+  note over Api : grant check skipped
+else audience or client mismatch
+  Api --> User : 403 token is not valid for this client
+else missing topics.write
+  Api --> User : 403 missing scope topics.write
+else grant matches
+  Api -> SQLite : UPDATE chats SET title, updated_at
+  Api --> User : 200 Chat
+end
+
+@enduml
+
+@startuml chat_node_with_and_without_bearer
+title Add chat node — with vs without Bearer
+
+actor User
+participant API
+database SQLite
+
+alt no Authorization header
+  User -> API : POST /api/chats/{id}/nodes\n{role, content}
+  API -> API : parseBearer: nothing to check
+  API -> SQLite : INSERT chat_nodes
+  API --> User : 201 Node
+  note over API : unauthenticated / legacy path
+else Bearer for content client C
+  User -> API : POST /api/chats/{id}/nodes\nAuthorization: Bearer …
+  API -> SQLite : validate access token + grant
+  API -> SQLite : resolve chat → project → topic → content_client
+  alt topic.content_client_id == C\nand scopes include topics.write
+    API -> SQLite : INSERT chat_nodes
+    API --> User : 201 Node
+  else other client or provider token
+    API --> User : 403
+  end
+end
+
+@enduml
+
+@startuml grant_check_resolution
+title How a chat maps to a grant
+
+User -> Token : access token\naudience=content\nclient_id=C\nscopes=topics.write
+Token -> Grant : content_client_authorizations\n(user, C, granted)
+Grant -> Client : content_clients.id = C
+Client -> Topic : topics.content_client_id = C
+Topic -> Membership : topic_projects
+Membership -> Project : projects.id
+Project -> Chat : chats.project_id
+Chat -> Node : chat_nodes.chat_id
+
+note bottom
+  A write to a node is allowed only when
+  the Bearer token's client_id equals
+  the topic.content_client_id found
+  by walking node → chat → project → topic.
+end note
+
+@enduml

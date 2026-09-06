@@ -1,0 +1,26 @@
+@startuml bearer_vs_none
+title Optional Bearer — ignore claims when header absent
+
+actor User
+participant API
+database SQLite
+
+alt no Authorization header
+  User -> API : POST /api/chats/{id}/nodes
+  API -> API : parseBearer: nothing to check
+  API -> SQLite : INSERT chat_nodes
+  API --> User : 201
+  note over API : unauthenticated / legacy path
+else Bearer present
+  User -> API : POST /api/chats/{id}/nodes\nAuthorization: Bearer …
+  API -> SQLite : validate access token + live grants
+  API -> SQLite : resolve chat → topic → content_client
+  alt matching write topic claim
+    API -> SQLite : INSERT chat_nodes
+    API --> User : 201
+  else other studio or read-only claim
+    API --> User : 403
+  end
+end
+
+@enduml

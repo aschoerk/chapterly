@@ -1,0 +1,35 @@
+@startuml token_issue
+title Issue opaque token and store ABAC claims
+
+actor User
+participant "API" as Api
+database SQLite
+
+User -> Api : POST /api/oauth/token\ngrant_type=password\nclaims.topics[A=write, B=read]\nclaims.provider[W=run, contingent]
+
+Api -> SQLite : SELECT users
+Api -> Api : verifyPassword(argon2id)
+
+loop each topic claim
+  Api -> SQLite : content_client_authorizations\nuser + studio, status=granted
+  alt missing grant or write>read cap
+    Api --> User : 403
+  end
+end
+
+Api -> SQLite : provider_client_authorizations\nuser + wallet W
+alt second wallet requested
+  Api --> User : 400 only one provider claim
+end
+
+Api -> SQLite : INSERT oauth_tokens access\n(token_hash, grants_json=claims)
+Api -> SQLite : INSERT oauth_tokens refresh\n(same claims)
+Api --> User : 200 {\n  access_token: opaque,\n  refresh_token,\n  claims\n}
+
+note over User, SQLite
+  The Bearer does not contain claims.
+  GET /api/oauth/tokeninfo and
+  POST /api/oauth/introspect load grants_json.
+end note
+
+@enduml

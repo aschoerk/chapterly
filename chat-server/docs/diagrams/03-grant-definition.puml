@@ -1,0 +1,41 @@
+@startuml grant_definition
+title Define user grants on workspaces and wallets
+
+actor Admin
+actor User
+participant "API" as Api
+database SQLite
+
+== identity ==
+User -> Api : POST /api/users\n{username, password}
+Api -> SQLite : INSERT users\n(password_hash = argon2id)
+Api --> User : 201 User
+
+== partitions (not OAuth clients) ==
+Admin -> Api : POST /api/content-clients {name}
+Api -> SQLite : INSERT content_clients
+Api --> Admin : 201 workspace
+
+Admin -> Api : POST /api/provider-clients {name}
+Api -> SQLite : INSERT provider_clients
+Api --> Admin : 201 wallet
+
+== grants (issuance ceiling) ==
+Admin -> Api : POST /api/content-clients/{A}/authorizations\n{userId, scopes:[topics.read, topics.write]}
+Api -> SQLite : INSERT content_client_authorizations
+Api --> Admin : 201
+
+Admin -> Api : POST /api/content-clients/{B}/authorizations\n{userId, scopes:[topics.read]}
+Api -> SQLite : INSERT content_client_authorizations
+Api --> Admin : 201
+
+Admin -> Api : POST /api/provider-clients/{W}/authorizations\n{userId, scopes:[providers.read, providers.write]}
+Api -> SQLite : INSERT provider_client_authorizations
+Api --> Admin : 201
+
+note over Api
+  These rows cap what a later token may claim.
+  They are not the access token.
+end note
+
+@enduml

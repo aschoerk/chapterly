@@ -1,0 +1,33 @@
+@startuml chat_write_claim_check
+title PATCH / POST chat — topic claim check
+
+actor User
+participant "API" as Api
+database SQLite
+
+User -> Api : POST /api/chats/{chatId}/nodes\nAuthorization: Bearer <opaque>\n{role, content}
+
+Api -> SQLite : oauth_tokens WHERE token_hash=sha256(Bearer)
+alt missing / revoked / expired
+  Api --> User : 401
+else
+  Api -> Api : req.auth.claims = grants_json\n(re-check live authorizations)
+end
+
+Api -> SQLite : chat → project → topic.content_client_id = S
+Api -> Api : topic claim for S?
+
+alt no Bearer
+  note over Api : claim check skipped
+  Api -> SQLite : INSERT chat_nodes
+  Api --> User : 201
+else no claim for S
+  Api --> User : 403 token is not valid for this client
+else claim.access = read and method is write
+  Api --> User : 403
+else claim.access = write
+  Api -> SQLite : INSERT chat_nodes
+  Api --> User : 201
+end
+
+@enduml
