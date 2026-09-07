@@ -265,7 +265,7 @@ class InMemoryChatApi implements Pick<
       providerId: data.providerId,
       type: data.type,
       enabled: data.enabled ?? true,
-      architecture: undefined,
+      architecture: data.architecture,
       chatParametersId: data['chatParametersId'] ?? null
     };
     this.models.push(row);

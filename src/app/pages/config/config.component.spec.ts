@@ -139,7 +139,7 @@ describe('ConfigComponent', () => {
       apiKey: 'key-xxxxxx',
       enabled: true
     });
-    const claude = await settings.addPreset('Claude', 'anthropic/claude', provider.id);
+    await settings.addPreset('Claude', 'anthropic/claude', provider.id);
     const gpt = await settings.addPreset('GPT-4o', 'openai/gpt-4o', provider.id);
     await settings.toggleModelEnabled(gpt.id); // gpt disabled
     fixture.detectChanges();
@@ -150,12 +150,13 @@ describe('ConfigComponent', () => {
     expect(component.filteredModels().map(m => m.displayName)).toEqual(['Claude', 'GPT-4o']);
     // default view: enabled stay visible, search only applies to disabled
 
+    component.searchTerm.set('');
     component.setEnabledOnly(true);
-    expect(component.filteredModels().map(m => m.displayName)).toEqual(['GPT-4o']);
+    expect(component.filteredModels().map(m => m.displayName)).toEqual(['Claude']);
 
     component.setDisabledOnly(true);
     expect(component.showEnabledOnly()).toBe(false);
-    expect(component.filteredModels().map(m => m.displayName)).toEqual(['Claude']);
+    expect(component.filteredModels().map(m => m.displayName)).toEqual(['GPT-4o']);
   });
 
   it('creates a preset against the selected provider', async () => {
