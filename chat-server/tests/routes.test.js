@@ -37,6 +37,7 @@ function clearDatabase() {
     'providers',
     'chat_parameters',
     'oauth_tokens',
+    'oauth_codes',
     'workspace_authorizations',
     'wallet_authorizations',
     'workspaces',
@@ -1161,6 +1162,48 @@ describe('API Routes (in-memory DB)', () => {
     });
   });
 
+  describe('User tenant bootstrapping', () => {
+    test('creating a user provisions a workspace, a wallet and a working token', async () => {
+      const res = await request(app).post('/api/users').send({
+        username: 'bootstrap',
+        password: 'secret-pass'
+      });
+      expect(res.status).toBe(201);
+
+      // A workspace and a wallet named after the user exist…
+      expect(res.body.workspace.name).toBe('bootstrap');
+      expect(res.body.wallet.name).toBe('bootstrap');
+
+      // …and the response carries a ready-to-use opaque token.
+      expect(res.body.token.accessToken).toBeTruthy();
+      expect(res.body.token.refreshToken).toBeTruthy();
+      expect(res.body.token.tokenType).toBe('Bearer');
+      expect(res.body.token.claims.topics).toEqual([
+        { workspaceId: res.body.workspace.id, access: 'write' }
+      ]);
+      expect(res.body.token.claims.provider.walletId).toBe(res.body.wallet.id);
+      expect(res.body.token.claims.provider.access).toBe('manage');
+
+      // The token is introspectable and grants write access to both clients.
+      const introspect = await request(app).post('/api/oauth/introspect').send({
+        token: res.body.token.accessToken
+      });
+      expect(introspect.status).toBe(200);
+      expect(introspect.body.active).toBe(true);
+      expect(introspect.body.userId).toBe(res.body.id);
+      expect(introspect.body.claims.topics).toEqual([
+        { workspaceId: res.body.workspace.id, access: 'write' }
+      ]);
+      expect(introspect.body.claims.provider.walletId).toBe(res.body.wallet.id);
+
+      // Listed as the identity's own clients.
+      const authContent = await request(app).get(`/api/users/${res.body.id}/workspaces`);
+      expect(authContent.body.some(c => c.id === res.body.workspace.id)).toBe(true);
+      const authProvider = await request(app).get(`/api/users/${res.body.id}/wallets`);
+      expect(authProvider.body.some(c => c.id === res.body.wallet.id)).toBe(true);
+    });
+  });
+
   describe('Content and provider clients', () => {
     test('content client owns topics; provider client owns providers', async () => {
       const identity = await request(app).post('/api/users').send({
@@ -1326,6 +1369,11 @@ describe('API Routes (in-memory DB)', () => {
         modelId: `test/${label}`,
         providerId: provider.body.id
       });
+      const otherModel = await request(app).post('/api/models').send({
+        displayName: `model-${label}`,
+        modelId: `test/${label}`,
+        providerId: otherProvider.body.id
+      });
       const chatA = await request(app).post('/api/chats').send({
         title: `chat-a-${label}`,
         projectId: topicA.body.defaultProjectId
@@ -1337,7 +1385,7 @@ describe('API Routes (in-memory DB)', () => {
 
       return {
         user, studioA, studioB, wallet, otherWallet,
-        topicA, topicB, provider, otherProvider, model, chatA, chatB
+        topicA, topicB, provider, otherProvider, model, otherModel, chatA, chatB
       };
     }
 
@@ -1478,7 +1526,7 @@ describe('API Routes (in-memory DB)', () => {
         .send({
           role: 'assistant',
           content: 'answer',
-          modelId: f.model.body.id,
+          modelId: f.model.body.modelId,
           providerId: f.provider.body.id
         });
       expect(node.status).toBe(201);
@@ -1504,7 +1552,8 @@ describe('API Routes (in-memory DB)', () => {
         .send({
           role: 'assistant',
           content: 'x',
-          providerId: f.otherProvider.body.id
+          modelId: f.otherModel.body.modelId,
+          providerId: f.otherModel.body.providerId
         });
       expect(denied.status).toBe(403);
     });
@@ -1542,7 +1591,8 @@ describe('API Routes (in-memory DB)', () => {
         .send({
           role: 'assistant',
           content: 'first',
-          modelId: f.model.body.id,
+          providerId: f.model.body.providerId,
+          modelId: f.model.body.modelId,
           totalCost: 1,
           totalTokens: 10
         });
@@ -1557,7 +1607,8 @@ describe('API Routes (in-memory DB)', () => {
         .send({
           role: 'assistant',
           content: 'second',
-          modelId: f.model.body.id,
+          providerId: f.model.body.providerId,
+          modelId: f.model.body.modelId,
           totalCost: 0.1
         });
       expect(second.status).toBe(403);

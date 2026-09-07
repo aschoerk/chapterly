@@ -319,6 +319,109 @@ function grantsFromClaims(claims) {
   return grants;
 }
 
+const AUTH_CODE_TTL_SECONDS = 2 * 60;
+
+/**
+ * Builds the maximum claims a user may put on a token from their granted
+ * content (workspace) and provider (wallet) authorizations.
+ *
+ * Returns { claims } where every `granted` workspace yields a read/write topic
+ * claim (write only when the `topics.write` scope is granted) and every
+ * `granted` wallet yields a run/manage provider claim. Returns
+ * { error, status: 403 } when the user has no usable grant at all.
+ */
+function claimsFromUserAuthorizations(userId) {
+  const topics = db.prepare(`
+    SELECT workspace_id AS workspace_id, scopes
+    FROM workspace_authorizations
+    WHERE user_id = ? AND status = 'granted'
+    ORDER BY created_at
+  `).all(userId).map(row => normalizeTopicClaim({
+    workspaceId: row.workspace_id,
+    scopes: parseJsonArray(row.scopes)
+  })).filter(Boolean);
+
+  let provider = null;
+  const wallets = db.prepare(`
+    SELECT wallet_id AS wallet_id, scopes
+    FROM wallet_authorizations
+    WHERE user_id = ? AND status = 'granted'
+    ORDER BY created_at
+  `).all(userId);
+  if (wallets.length > 1) {
+    return { error: 'a token may bind only one provider client', status: 400 };
+  }
+  if (wallets.length === 1) {
+    provider = normalizeProviderClaim({
+      walletId: wallets[0].wallet_id,
+      scopes: parseJsonArray(wallets[0].scopes)
+    });
+  }
+
+  if (!topics.length && !provider) {
+    return { error: 'user is not authorized for this token', status: 403 };
+  }
+  return { claims: { topics, provider } };
+}
+
+/** Stores a one-time authorization code snapshotting the given claims. */
+function createAuthorizationCode({ userId, claims }) {
+  // GC expired/single-use codes for this user before writing a fresh one.
+  db.prepare('DELETE FROM oauth_codes WHERE user_id = ?').run(userId);
+
+  const raw = newRawToken();
+  const id = uuidv4();
+  const expiresAt = new Date(Date.now() + AUTH_CODE_TTL_SECONDS * 1000).toISOString();
+  db.prepare(`
+    INSERT INTO oauth_codes (id, user_id, code_hash, grants_json, expires_at)
+    VALUES (?, ?, ?, ?, ?)
+  `).run(
+    id,
+    userId,
+    hashToken(raw),
+    JSON.stringify(claims || emptyClaims()),
+    expiresAt
+  );
+  return { code: raw, expiresIn: AUTH_CODE_TTL_SECONDS, expiresAt };
+}
+
+/**
+ * Redeems a one-time authorization code for an access/refresh token pair.
+ * The code is single-use; the claims snapshot is refreshed against the user's
+ * live grants before the token is minted.
+ */
+function issueTokensFromAuthorizationCode(code) {
+  if (!code) return { error: 'authorization code required', status: 400 };
+
+  const row = db.prepare(
+    'SELECT * FROM oauth_codes WHERE code_hash = ?'
+  ).get(hashToken(code));
+  if (!row) return { error: 'invalid authorization code', status: 400 };
+
+  // Single use: consume the code even if the later steps fail.
+  db.prepare('DELETE FROM oauth_codes WHERE id = ?').run(row.id);
+
+  if (Date.parse(row.expires_at) <= Date.now()) {
+    return { error: 'authorization code expired', status: 400 };
+  }
+
+  const stored = parseStoredClaims(row.grants_json);
+  const live = liveClaims(row.user_id, stored);
+  if (!live.topics.length && !live.provider) {
+    return { error: 'user is not authorized for this token', status: 403 };
+  }
+
+  const pair = persistPair(row.user_id, live);
+  return {
+    token: tokenResponse({
+      raw: pair.access.raw,
+      userId: row.user_id,
+      claims: live,
+      refreshRaw: pair.refresh.raw
+    })
+  };
+}
+
 function liveClaims(userId, claims) {
   const topics = [];
   for (const t of claims.topics || []) {
@@ -701,14 +804,33 @@ function contingentBlocked(contingent) {
   return null;
 }
 
+/**
+ * Enforces provider-scoped use of a model.
+ *
+ * The api_key that actually pays for a model call lives on the provider row
+ * (`providers.api_key`), which belongs to exactly one wallet. The wallet the
+ * token must be authorized for is therefore the wallet of the *provider* being
+ * used. A model_id alone is ambiguous (the same catalog id may be registered
+ * under multiple providers/wallets), so both `modelId` and `providerId` are
+ * required: the model must be backed by that provider before the provider's
+ * wallet is checked.
+ */
 function enforceModelUse(req, res, { modelId, providerId }) {
   if (!req.auth) return false;
-  if (!modelId && !providerId) return false;
-  const walletId = modelId
-    ? walletIdOfModel(modelId)
-    : walletIdOfProvider(providerId);
+  if (!modelId || !providerId) return false;
+
+  const row = db.prepare(`
+    SELECT p.wallet_id AS wallet_id
+    FROM models m
+    JOIN providers p ON p.id = m.provider_id
+    WHERE m.model_id = ? AND m.provider_id = ?
+  `).get(modelId, providerId);
+  if (!row || !row.wallet_id) {
+    return denyGrant(res, 'model is not available through this provider');
+  }
+
   const claims = authClaims(req);
-  if (!claimAllowsProvider(claims.provider, 'run') || claims.provider.walletId !== walletId) {
+  if (!claimAllowsProvider(claims.provider, 'run') || claims.provider.walletId !== row.wallet_id) {
     return denyGrant(res, 'token is not valid for this provider');
   }
   const blocked = contingentBlocked(claims.provider.contingent);
@@ -764,7 +886,15 @@ function walletIdOfProvider(providerId) {
   return row ? row.wallet_id || null : null;
 }
 
-function walletIdOfModel(modelId) {
+/**
+ * Wallet of a specific model row.
+ *
+ * The `model_id` column is a provider-catalog identifier, not a primary key:
+ * the same model_id may be registered under several providers/wallets. This
+ * helper therefore keys on the unique `models.id` (the row's primary key), not
+ * on the catalog model_id, so the returned wallet is unambiguous.
+ */
+function walletIdOfModelRow(modelId) {
   if (!modelId) return null;
   const row = db.prepare(`
     SELECT p.wallet_id AS wallet_id
@@ -790,6 +920,9 @@ module.exports = {
   validateAccessToken,
   issueTokensForGrant,
   refreshAccessToken,
+  claimsFromUserAuthorizations,
+  createAuthorizationCode,
+  issueTokensFromAuthorizationCode,
   revokeToken,
   parseBearer,
   requireAuth,
@@ -806,5 +939,5 @@ module.exports = {
   workspaceIdOfProject,
   workspaceIdOfChat,
   walletIdOfProvider,
-  walletIdOfModel
+  walletIdOfModelRow
 };

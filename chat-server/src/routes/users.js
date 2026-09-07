@@ -9,6 +9,7 @@ const {
   findConflictingUser,
   normalizeOptional
 } = require('../users');
+const { createUserWorkspaceWalletAndToken } = require('../userTenant');
 
 const router = express.Router();
 
@@ -101,6 +102,10 @@ router.get('/', (req, res) => {
  *     description: |
  *       Stores the password with Argon2id. Email and phone number are optional.
  *       No OIDC / federated identity is involved.
+ *
+ *       A workspace and a wallet named after the username are created up front and
+ *       granted to the new identity (`topics.write` / `providers.manage`), and the
+ *       response additionally carries a ready-to-use opaque access token for it.
  *     tags:
  *       - Users
  *     requestBody:
@@ -115,7 +120,31 @@ router.get('/', (req, res) => {
  *         content:
  *           application/json:
  *             schema:
- *               $ref: '#/components/schemas/User'
+ *               type: object
+ *               properties:
+ *                 id: { type: string, format: uuid }
+ *                 username: { type: string }
+ *                 email: { type: string, nullable: true }
+ *                 phoneNumber: { type: string, nullable: true }
+ *                 isAdmin: { type: boolean }
+ *                 createdAt: { type: string, format: date-time }
+ *                 updatedAt: { type: string, format: date-time }
+ *                 workspace:
+ *                   $ref: '#/components/schemas/ContentClient'
+ *                 wallet:
+ *                   $ref: '#/components/schemas/ProviderClient'
+ *                 token:
+ *                   type: object
+ *                   properties:
+ *                     accessToken: { type: string }
+ *                     refreshToken: { type: string }
+ *                     tokenType: { type: string, example: Bearer }
+ *                     expiresIn: { type: integer, example: 3600 }
+ *                     audience: { type: string, enum: [content, provider] }
+ *                     clientId: { type: string, format: uuid }
+ *                     claims:
+ *                       $ref: '#/components/schemas/TokenClaims'
+ *                     grants: { type: array, items: { type: object } }
  *       400:
  *         description: Validation error
  *       409:
@@ -149,7 +178,8 @@ router.post('/', async (req, res) => {
   `).run(id, username, email, phoneNumber, passwordHash, now, now);
 
   const row = db.prepare('SELECT * FROM users WHERE id = ?').get(id);
-  res.status(201).json(mapUser(row));
+  const { workspace, wallet, token } = createUserWorkspaceWalletAndToken({ user: row });
+  res.status(201).json({ ...mapUser(row), workspace, wallet, token });
 });
 
 /**

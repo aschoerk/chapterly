@@ -10,7 +10,7 @@ const {
   enforceGrant,
   enforceAudience,
   walletIdOfProvider,
-  walletIdOfModel,
+  walletIdOfModelRow,
   primaryClientId,
   authClientIds,
   placeholders
@@ -479,7 +479,7 @@ router.put('/models/:id', (req, res) => {
   if (!existing) {
     return res.status(404).json({ error: 'Model not found' });
   }
-  if (enforceGrant(req, res, { audience: 'provider', clientId: walletIdOfModel(existing.id) })) return;
+  if (enforceGrant(req, res, { audience: 'provider', clientId: walletIdOfModelRow(existing.id) })) return;
 
   const nextDisplayName = req.body.displayName ?? existing.display_name;
   const nextModelId = req.body.modelId ?? existing.model_id;
@@ -553,7 +553,7 @@ router.put('/models/:id', (req, res) => {
 router.delete('/models/:id', (req, res) => {
   const existing = db.prepare('SELECT id FROM models WHERE id = ?').get(req.params.id);
   if (!existing) return res.status(404).json({ error: 'Model not found' });
-  if (enforceGrant(req, res, { audience: 'provider', clientId: walletIdOfModel(req.params.id) })) return;
+  if (enforceGrant(req, res, { audience: 'provider', clientId: walletIdOfModelRow(req.params.id) })) return;
   const result = db.prepare('DELETE FROM models WHERE id = ?').run(req.params.id);
   if (result.changes === 0) {
     return res.status(404).json({ error: 'Model not found' });
@@ -594,7 +594,7 @@ router.patch('/models/:id/toggle', (req, res) => {
   if (!row) {
     return res.status(404).json({ error: 'Model not found' });
   }
-  if (enforceGrant(req, res, { audience: 'provider', clientId: walletIdOfModel(req.params.id) })) return;
+  if (enforceGrant(req, res, { audience: 'provider', clientId: walletIdOfModelRow(req.params.id) })) return;
 
   const newEnabled = row.enabled ? 0 : 1;
   db.prepare('UPDATE models SET enabled = ? WHERE id = ?').run(newEnabled, req.params.id);

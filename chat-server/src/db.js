@@ -120,6 +120,18 @@ function initializeSchema(db) {
 
     CREATE INDEX IF NOT EXISTS idx_oauth_tokens_hash ON oauth_tokens(token_hash);
     CREATE INDEX IF NOT EXISTS idx_oauth_tokens_user ON oauth_tokens(user_id);
+
+    CREATE TABLE IF NOT EXISTS oauth_codes (
+      id          TEXT PRIMARY KEY,
+      user_id     TEXT NOT NULL,
+      code_hash   TEXT NOT NULL UNIQUE,
+      grants_json TEXT NOT NULL DEFAULT '[]',
+      expires_at  TEXT NOT NULL,
+      created_at  TEXT DEFAULT (datetime('now')),
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_oauth_codes_user ON oauth_codes(user_id);
   `);
 
   db.exec(`
