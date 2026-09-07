@@ -2,6 +2,7 @@ import { Injectable, computed, inject, signal } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import { getServerConfig } from './common/server-config';
+import { isElectron } from './common/electron';
 
 const TOKEN_KEY = 'chapterly.access_token';
 const REFRESH_KEY = 'chapterly.refresh_token';
@@ -37,13 +38,16 @@ export interface TokenResponse {
 export class AuthService {
   private readonly http = inject(HttpClient);
 
+  /** When chapterly is launched as an Electron app, no login is used. */
+  readonly electron = isElectron();
+
   private readonly tokenSig = signal<string | null>(sessionStorage.getItem(TOKEN_KEY));
   private readonly claimsSig = signal<TokenClaims | null>(readClaims());
-  readonly skipAuth = signal(sessionStorage.getItem(SKIP_KEY) === '1');
+  readonly skipAuth = signal(this.electron || sessionStorage.getItem(SKIP_KEY) === '1');
 
   readonly accessToken = this.tokenSig.asReadonly();
   readonly claims = this.claimsSig.asReadonly();
-  readonly isLoggedIn = computed(() => !!this.tokenSig() || this.skipAuth());
+  readonly isLoggedIn = computed(() => this.skipAuth() || !!this.tokenSig());
 
   private api(path: string): string {
     return `${getServerConfig().apiBase}${path}`;

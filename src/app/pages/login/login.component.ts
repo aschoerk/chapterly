@@ -1,4 +1,4 @@
-import { Component, inject, signal } from '@angular/core';
+import { Component, OnInit, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
@@ -11,7 +11,7 @@ import { AuthService } from '../../core/auth.service';
   templateUrl: './login.component.html',
   styleUrl: './login.component.css'
 })
-export class LoginComponent {
+export class LoginComponent implements OnInit {
   private readonly auth = inject(AuthService);
   private readonly router = inject(Router);
 
@@ -19,6 +19,13 @@ export class LoginComponent {
   password = '';
   readonly busy = signal(false);
   readonly error = signal<string | null>(null);
+
+  ngOnInit(): void {
+    // When started as Electron app there is no login — bounce straight to chat.
+    if (this.auth.electron) {
+      void this.router.navigateByUrl('/chat');
+    }
+  }
 
   async submit(): Promise<void> {
     this.error.set(null);
