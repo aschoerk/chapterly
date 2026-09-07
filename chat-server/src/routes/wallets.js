@@ -36,6 +36,18 @@ const router = express.Router();
  *               type: array
  *               items:
  *                 $ref: '#/components/schemas/Wallet'
+ */
+router.get('/', (req, res) => {
+  if (enforceAudience(req, res, 'provider')) return;
+  const rows = req.auth
+    ? db.prepare(`SELECT * FROM wallets WHERE id IN (${placeholders(authClientIds(req, 'provider'))})`).all(...authClientIds(req, 'provider'))
+    : db.prepare('SELECT * FROM wallets ORDER BY created_at').all();
+  res.json(rows.map(mapProviderClient));
+});
+
+/**
+ * @openapi
+ * /api/wallets:
  *   post:
  *     summary: Create a wallet
  *     description: |
@@ -61,7 +73,33 @@ const router = express.Router();
  *               $ref: '#/components/schemas/Wallet'
  *       403:
  *         description: Non-admin Bearer
- *
+ */
+router.post('/', (req, res) => {
+  if (req.auth && !req.auth.isAdmin) {
+    return res.status(403).json({ error: 'token is scoped to an existing wallet' });
+  }
+  const name = (req.body.name || '').trim();
+  if (!name) return res.status(400).json({ error: 'name is required' });
+
+  const id = uuidv4();
+  const now = new Date().toISOString();
+  db.prepare(`
+    INSERT INTO wallets (id, name, redirect_uris, grant_types, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(
+    id,
+    name,
+    serializeJsonArray(req.body.redirectUris ?? req.body.redirect_uris, []),
+    serializeJsonArray(req.body.grantTypes ?? req.body.grant_types, ['authorization_code']),
+    now,
+    now
+  );
+
+  res.status(201).json(mapProviderClient(db.prepare('SELECT * FROM wallets WHERE id = ?').get(id)));
+});
+
+/**
+ * @openapi
  * /api/wallets/{id}:
  *   get:
  *     summary: Get a wallet
@@ -84,6 +122,17 @@ const router = express.Router();
  *               $ref: '#/components/schemas/Wallet'
  *       404:
  *         description: Wallet not found
+ */
+router.get('/:id', (req, res) => {
+  const row = db.prepare('SELECT * FROM wallets WHERE id = ?').get(req.params.id);
+  if (!row) return res.status(404).json({ error: 'Wallet not found' });
+  if (enforceGrant(req, res, { audience: 'provider', clientId: row.id })) return;
+  res.json(mapProviderClient(row));
+});
+
+/**
+ * @openapi
+ * /api/wallets/{id}:
  *   put:
  *     summary: Update a wallet
  *     description: Optional Bearer requires `manage` on this wallet.
@@ -110,6 +159,34 @@ const router = express.Router();
  *               $ref: '#/components/schemas/Wallet'
  *       404:
  *         description: Wallet not found
+ */
+router.put('/:id', (req, res) => {
+  const existing = db.prepare('SELECT * FROM wallets WHERE id = ?').get(req.params.id);
+  if (!existing) return res.status(404).json({ error: 'Wallet not found' });
+  if (enforceGrant(req, res, { audience: 'provider', clientId: existing.id })) return;
+
+  const name = req.body.name !== undefined ? String(req.body.name).trim() : existing.name;
+  if (!name) return res.status(400).json({ error: 'name is required' });
+
+  const redirectUris = req.body.redirectUris !== undefined || req.body.redirect_uris !== undefined
+    ? serializeJsonArray(req.body.redirectUris ?? req.body.redirect_uris, [])
+    : existing.redirect_uris;
+  const grantTypes = req.body.grantTypes !== undefined || req.body.grant_types !== undefined
+    ? serializeJsonArray(req.body.grantTypes ?? req.body.grant_types, ['authorization_code'])
+    : existing.grant_types;
+
+  db.prepare(`
+    UPDATE wallets
+    SET name = ?, redirect_uris = ?, grant_types = ?, updated_at = datetime('now')
+    WHERE id = ?
+  `).run(name, redirectUris, grantTypes, existing.id);
+
+  res.json(mapProviderClient(db.prepare('SELECT * FROM wallets WHERE id = ?').get(existing.id)));
+});
+
+/**
+ * @openapi
+ * /api/wallets/{id}:
  *   delete:
  *     summary: Delete a wallet
  *     description: Optional Bearer requires `manage`. Provider rows may remain until deleted separately.
@@ -127,7 +204,18 @@ const router = express.Router();
  *         description: Deleted
  *       404:
  *         description: Wallet not found
- *
+ */
+router.delete('/:id', (req, res) => {
+  const existing = db.prepare('SELECT id FROM wallets WHERE id = ?').get(req.params.id);
+  if (!existing) return res.status(404).json({ error: 'Wallet not found' });
+  if (enforceGrant(req, res, { audience: 'provider', clientId: existing.id })) return;
+  const result = db.prepare('DELETE FROM wallets WHERE id = ?').run(req.params.id);
+  if (result.changes === 0) return res.status(404).json({ error: 'Wallet not found' });
+  res.status(204).end();
+});
+
+/**
+ * @openapi
  * /api/wallets/{id}/authorizations:
  *   get:
  *     summary: List grant ceilings on this wallet
@@ -152,6 +240,17 @@ const router = express.Router();
  *               type: array
  *               items:
  *                 $ref: '#/components/schemas/ClientAuthorization'
+ */
+router.get('/:id/authorizations', (req, res) => {
+  const client = db.prepare('SELECT id FROM wallets WHERE id = ?').get(req.params.id);
+  if (!client) return res.status(404).json({ error: 'Wallet not found' });
+  if (enforceGrant(req, res, { audience: 'provider', clientId: req.params.id })) return;
+  res.json(listProviderAuthorizations({ clientId: req.params.id }));
+});
+
+/**
+ * @openapi
+ * /api/wallets/{id}/authorizations:
  *   post:
  *     summary: Grant a user access to this wallet
  *     description: |
@@ -186,7 +285,22 @@ const router = express.Router();
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/ClientAuthorization'
- *
+ */
+router.post('/:id/authorizations', (req, res) => {
+  if (enforceGrant(req, res, { audience: 'provider', clientId: req.params.id })) return;
+  const userId = req.body.userId ?? req.body.user_id;
+  const result = grantProviderAuthorization({
+    userId,
+    clientId: req.params.id,
+    scopes: req.body.scopes,
+    status: req.body.status
+  });
+  if (result.error) return res.status(400).json({ error: result.error });
+  res.status(201).json(result.authorization);
+});
+
+/**
+ * @openapi
  * /api/wallets/{id}/authorizations/{userId}:
  *   delete:
  *     summary: Revoke a user's wallet grant
@@ -209,7 +323,19 @@ const router = express.Router();
  *         description: Revoked
  *       404:
  *         description: Wallet or authorization not found
- *
+ */
+router.delete('/:id/authorizations/:userId', (req, res) => {
+  const client = db.prepare('SELECT id FROM wallets WHERE id = ?').get(req.params.id);
+  if (!client) return res.status(404).json({ error: 'Wallet not found' });
+  if (enforceGrant(req, res, { audience: 'provider', clientId: req.params.id })) return;
+  if (!revokeProviderAuthorization(req.params.userId, req.params.id)) {
+    return res.status(404).json({ error: 'Authorization not found' });
+  }
+  res.status(204).end();
+});
+
+/**
+ * @openapi
  * /api/wallets/{id}/providers:
  *   get:
  *     summary: List providers in this wallet
@@ -237,109 +363,6 @@ const router = express.Router();
  *       404:
  *         description: Wallet not found
  */
-
-router.get('/', (req, res) => {
-  if (enforceAudience(req, res, 'provider')) return;
-  const rows = req.auth
-    ? db.prepare(`SELECT * FROM wallets WHERE id IN (${placeholders(authClientIds(req, 'provider'))})`).all(...authClientIds(req, 'provider'))
-    : db.prepare('SELECT * FROM wallets ORDER BY created_at').all();
-  res.json(rows.map(mapProviderClient));
-});
-
-router.post('/', (req, res) => {
-  if (req.auth && !req.auth.isAdmin) {
-    return res.status(403).json({ error: 'token is scoped to an existing wallet' });
-  }
-  const name = (req.body.name || '').trim();
-  if (!name) return res.status(400).json({ error: 'name is required' });
-
-  const id = uuidv4();
-  const now = new Date().toISOString();
-  db.prepare(`
-    INSERT INTO wallets (id, name, redirect_uris, grant_types, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `).run(
-    id,
-    name,
-    serializeJsonArray(req.body.redirectUris ?? req.body.redirect_uris, []),
-    serializeJsonArray(req.body.grantTypes ?? req.body.grant_types, ['authorization_code']),
-    now,
-    now
-  );
-
-  res.status(201).json(mapProviderClient(db.prepare('SELECT * FROM wallets WHERE id = ?').get(id)));
-});
-
-router.get('/:id/authorizations', (req, res) => {
-  const client = db.prepare('SELECT id FROM wallets WHERE id = ?').get(req.params.id);
-  if (!client) return res.status(404).json({ error: 'Wallet not found' });
-  if (enforceGrant(req, res, { audience: 'provider', clientId: req.params.id })) return;
-  res.json(listProviderAuthorizations({ clientId: req.params.id }));
-});
-
-router.post('/:id/authorizations', (req, res) => {
-  if (enforceGrant(req, res, { audience: 'provider', clientId: req.params.id })) return;
-  const userId = req.body.userId ?? req.body.user_id;
-  const result = grantProviderAuthorization({
-    userId,
-    clientId: req.params.id,
-    scopes: req.body.scopes,
-    status: req.body.status
-  });
-  if (result.error) return res.status(400).json({ error: result.error });
-  res.status(201).json(result.authorization);
-});
-
-router.delete('/:id/authorizations/:userId', (req, res) => {
-  const client = db.prepare('SELECT id FROM wallets WHERE id = ?').get(req.params.id);
-  if (!client) return res.status(404).json({ error: 'Wallet not found' });
-  if (enforceGrant(req, res, { audience: 'provider', clientId: req.params.id })) return;
-  if (!revokeProviderAuthorization(req.params.userId, req.params.id)) {
-    return res.status(404).json({ error: 'Authorization not found' });
-  }
-  res.status(204).end();
-});
-
-router.get('/:id', (req, res) => {
-  const row = db.prepare('SELECT * FROM wallets WHERE id = ?').get(req.params.id);
-  if (!row) return res.status(404).json({ error: 'Wallet not found' });
-  if (enforceGrant(req, res, { audience: 'provider', clientId: row.id })) return;
-  res.json(mapProviderClient(row));
-});
-
-router.put('/:id', (req, res) => {
-  const existing = db.prepare('SELECT * FROM wallets WHERE id = ?').get(req.params.id);
-  if (!existing) return res.status(404).json({ error: 'Wallet not found' });
-  if (enforceGrant(req, res, { audience: 'provider', clientId: existing.id })) return;
-
-  const name = req.body.name !== undefined ? String(req.body.name).trim() : existing.name;
-  if (!name) return res.status(400).json({ error: 'name is required' });
-
-  const redirectUris = req.body.redirectUris !== undefined || req.body.redirect_uris !== undefined
-    ? serializeJsonArray(req.body.redirectUris ?? req.body.redirect_uris, [])
-    : existing.redirect_uris;
-  const grantTypes = req.body.grantTypes !== undefined || req.body.grant_types !== undefined
-    ? serializeJsonArray(req.body.grantTypes ?? req.body.grant_types, ['authorization_code'])
-    : existing.grant_types;
-
-  db.prepare(`
-    UPDATE wallets
-    SET name = ?, redirect_uris = ?, grant_types = ?, updated_at = datetime('now')
-    WHERE id = ?
-  `).run(name, redirectUris, grantTypes, existing.id);
-
-  res.json(mapProviderClient(db.prepare('SELECT * FROM wallets WHERE id = ?').get(existing.id)));
-});
-
-router.delete('/:id', (req, res) => {
-  const existing = db.prepare('SELECT id FROM wallets WHERE id = ?').get(req.params.id);
-  if (!existing) return res.status(404).json({ error: 'Wallet not found' });
-  if (enforceGrant(req, res, { audience: 'provider', clientId: existing.id })) return;
-  const result = db.prepare('DELETE FROM wallets WHERE id = ?').run(req.params.id);
-  if (result.changes === 0) return res.status(404).json({ error: 'Wallet not found' });
-  res.status(204).end();
-});
-
 router.get('/:id/providers', (req, res) => {
   const client = db.prepare('SELECT id FROM wallets WHERE id = ?').get(req.params.id);
   if (!client) return res.status(404).json({ error: 'Wallet not found' });

@@ -35,7 +35,19 @@ const router = express.Router();
  *             schema:
  *               type: array
  *               items:
- *                 $ref: '#/components/schemas/Workspace'
+ *                 $ref: '#/components/schemas/ContentClient'
+ */
+router.get('/', (req, res) => {
+  if (enforceAudience(req, res, 'content')) return;
+  const rows = req.auth
+    ? db.prepare(`SELECT * FROM workspaces WHERE id IN (${placeholders(authClientIds(req, 'content'))})`).all(...authClientIds(req, 'content'))
+    : db.prepare('SELECT * FROM workspaces ORDER BY created_at').all();
+  res.json(rows.map(mapContentClient));
+});
+
+/**
+ * @openapi
+ * /api/workspaces:
  *   post:
  *     summary: Create a workspace
  *     description: |
@@ -50,17 +62,45 @@ const router = express.Router();
  *       content:
  *         application/json:
  *           schema:
- *             $ref: '#/components/schemas/WorkspaceInput'
+ *             $ref: '#/components/schemas/ContentClientInput'
  *     responses:
  *       201:
  *         description: Created tenant
  *         content:
  *           application/json:
  *             schema:
- *               $ref: '#/components/schemas/Workspace'
+ *               $ref: '#/components/schemas/ContentClient'
+ *       400:
+ *         description: name is required
  *       403:
  *         description: Non-admin Bearer
- *
+ */
+router.post('/', (req, res) => {
+  if (req.auth && !req.auth.isAdmin) {
+    return res.status(403).json({ error: 'token is scoped to an existing workspace' });
+  }
+  const name = (req.body.name || '').trim();
+  if (!name) return res.status(400).json({ error: 'name is required' });
+
+  const id = uuidv4();
+  const now = new Date().toISOString();
+  db.prepare(`
+    INSERT INTO workspaces (id, name, redirect_uris, grant_types, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(
+    id,
+    name,
+    serializeJsonArray(req.body.redirectUris ?? req.body.redirect_uris, []),
+    serializeJsonArray(req.body.grantTypes ?? req.body.grant_types, ['authorization_code']),
+    now,
+    now
+  );
+
+  res.status(201).json(mapContentClient(db.prepare('SELECT * FROM workspaces WHERE id = ?').get(id)));
+});
+
+/**
+ * @openapi
  * /api/workspaces/{id}:
  *   get:
  *     summary: Get a workspace
@@ -80,9 +120,20 @@ const router = express.Router();
  *         content:
  *           application/json:
  *             schema:
- *               $ref: '#/components/schemas/Workspace'
+ *               $ref: '#/components/schemas/ContentClient'
  *       404:
  *         description: Workspace not found
+ */
+router.get('/:id', (req, res) => {
+  const row = db.prepare('SELECT * FROM workspaces WHERE id = ?').get(req.params.id);
+  if (!row) return res.status(404).json({ error: 'Workspace not found' });
+  if (enforceGrant(req, res, { audience: 'content', clientId: row.id })) return;
+  res.json(mapContentClient(row));
+});
+
+/**
+ * @openapi
+ * /api/workspaces/{id}:
  *   put:
  *     summary: Update a workspace
  *     description: Optional Bearer requires a topic `write` claim on this tenant.
@@ -99,19 +150,49 @@ const router = express.Router();
  *       content:
  *         application/json:
  *           schema:
- *             $ref: '#/components/schemas/WorkspaceInput'
+ *             $ref: '#/components/schemas/ContentClientInput'
  *     responses:
  *       200:
  *         description: Updated
  *         content:
  *           application/json:
  *             schema:
- *               $ref: '#/components/schemas/Workspace'
+ *               $ref: '#/components/schemas/ContentClient'
+ *       400:
+ *         description: name is required
  *       404:
  *         description: Workspace not found
+ */
+router.put('/:id', (req, res) => {
+  const existing = db.prepare('SELECT * FROM workspaces WHERE id = ?').get(req.params.id);
+  if (!existing) return res.status(404).json({ error: 'Workspace not found' });
+  if (enforceGrant(req, res, { audience: 'content', clientId: existing.id })) return;
+
+  const name = req.body.name !== undefined ? String(req.body.name).trim() : existing.name;
+  if (!name) return res.status(400).json({ error: 'name is required' });
+
+  const redirectUris = req.body.redirectUris !== undefined || req.body.redirect_uris !== undefined
+    ? serializeJsonArray(req.body.redirectUris ?? req.body.redirect_uris, [])
+    : existing.redirect_uris;
+  const grantTypes = req.body.grantTypes !== undefined || req.body.grant_types !== undefined
+    ? serializeJsonArray(req.body.grantTypes ?? req.body.grant_types, ['authorization_code'])
+    : existing.grant_types;
+
+  db.prepare(`
+    UPDATE workspaces
+    SET name = ?, redirect_uris = ?, grant_types = ?, updated_at = datetime('now')
+    WHERE id = ?
+  `).run(name, redirectUris, grantTypes, existing.id);
+
+  res.json(mapContentClient(db.prepare('SELECT * FROM workspaces WHERE id = ?').get(existing.id)));
+});
+
+/**
+ * @openapi
+ * /api/workspaces/{id}:
  *   delete:
  *     summary: Delete a workspace
- *     description: Optional Bearer requires a topic `write` claim. Topics in the tenant are not automatically deleted by FK.
+ *     description: Optional Bearer requires a topic `write` claim. Topics in the tenant are set to no workspace (FK SET NULL).
  *     tags: [Workspaces]
  *     security:
  *       - {}
@@ -126,7 +207,18 @@ const router = express.Router();
  *         description: Deleted
  *       404:
  *         description: Workspace not found
- *
+ */
+router.delete('/:id', (req, res) => {
+  const existing = db.prepare('SELECT id FROM workspaces WHERE id = ?').get(req.params.id);
+  if (!existing) return res.status(404).json({ error: 'Workspace not found' });
+  if (enforceGrant(req, res, { audience: 'content', clientId: existing.id })) return;
+  const result = db.prepare('DELETE FROM workspaces WHERE id = ?').run(req.params.id);
+  if (result.changes === 0) return res.status(404).json({ error: 'Workspace not found' });
+  res.status(204).end();
+});
+
+/**
+ * @openapi
  * /api/workspaces/{id}/authorizations:
  *   get:
  *     summary: List grant ceilings on this workspace
@@ -151,6 +243,19 @@ const router = express.Router();
  *               type: array
  *               items:
  *                 $ref: '#/components/schemas/ClientAuthorization'
+ *       404:
+ *         description: Workspace not found
+ */
+router.get('/:id/authorizations', (req, res) => {
+  const client = db.prepare('SELECT id FROM workspaces WHERE id = ?').get(req.params.id);
+  if (!client) return res.status(404).json({ error: 'Workspace not found' });
+  if (enforceGrant(req, res, { audience: 'content', clientId: req.params.id })) return;
+  res.json(listContentAuthorizations({ clientId: req.params.id }));
+});
+
+/**
+ * @openapi
+ * /api/workspaces/{id}/authorizations:
  *   post:
  *     summary: Grant a user access to this workspace
  *     description: |
@@ -185,7 +290,26 @@ const router = express.Router();
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/ClientAuthorization'
- *
+ *       400:
+ *         description: Unknown user or workspace
+ */
+router.post('/:id/authorizations', (req, res) => {
+  if (enforceGrant(req, res, { audience: 'content', clientId: req.params.id })) return;
+  const userId = req.body.userId ?? req.body.user_id;
+  const result = grantContentAuthorization({
+    userId,
+    clientId: req.params.id,
+    scopes: req.body.scopes,
+    status: req.body.status
+  });
+  if (result.error) {
+    return res.status(400).json({ error: result.error });
+  }
+  res.status(201).json(result.authorization);
+});
+
+/**
+ * @openapi
  * /api/workspaces/{id}/authorizations/{userId}:
  *   delete:
  *     summary: Revoke a user's workspace grant
@@ -208,7 +332,19 @@ const router = express.Router();
  *         description: Revoked
  *       404:
  *         description: Workspace or authorization not found
- *
+ */
+router.delete('/:id/authorizations/:userId', (req, res) => {
+  const client = db.prepare('SELECT id FROM workspaces WHERE id = ?').get(req.params.id);
+  if (!client) return res.status(404).json({ error: 'Workspace not found' });
+  if (enforceGrant(req, res, { audience: 'content', clientId: req.params.id })) return;
+  if (!revokeContentAuthorization(req.params.userId, req.params.id)) {
+    return res.status(404).json({ error: 'Authorization not found' });
+  }
+  res.status(204).end();
+});
+
+/**
+ * @openapi
  * /api/workspaces/{id}/topics:
  *   get:
  *     summary: List topics in this workspace
@@ -234,112 +370,6 @@ const router = express.Router();
  *       404:
  *         description: Workspace not found
  */
-
-router.get('/', (req, res) => {
-  if (enforceAudience(req, res, 'content')) return;
-  const rows = req.auth
-    ? db.prepare(`SELECT * FROM workspaces WHERE id IN (${placeholders(authClientIds(req, 'content'))})`).all(...authClientIds(req, 'content'))
-    : db.prepare('SELECT * FROM workspaces ORDER BY created_at').all();
-  res.json(rows.map(mapContentClient));
-});
-
-router.post('/', (req, res) => {
-  if (req.auth && !req.auth.isAdmin) {
-    return res.status(403).json({ error: 'token is scoped to an existing workspace' });
-  }
-  const name = (req.body.name || '').trim();
-  if (!name) return res.status(400).json({ error: 'name is required' });
-
-  const id = uuidv4();
-  const now = new Date().toISOString();
-  db.prepare(`
-    INSERT INTO workspaces (id, name, redirect_uris, grant_types, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `).run(
-    id,
-    name,
-    serializeJsonArray(req.body.redirectUris ?? req.body.redirect_uris, []),
-    serializeJsonArray(req.body.grantTypes ?? req.body.grant_types, ['authorization_code']),
-    now,
-    now
-  );
-
-  res.status(201).json(mapContentClient(db.prepare('SELECT * FROM workspaces WHERE id = ?').get(id)));
-});
-
-router.get('/:id/authorizations', (req, res) => {
-  const client = db.prepare('SELECT id FROM workspaces WHERE id = ?').get(req.params.id);
-  if (!client) return res.status(404).json({ error: 'Workspace not found' });
-  if (enforceGrant(req, res, { audience: 'content', clientId: req.params.id })) return;
-  res.json(listContentAuthorizations({ clientId: req.params.id }));
-});
-
-router.post('/:id/authorizations', (req, res) => {
-  if (enforceGrant(req, res, { audience: 'content', clientId: req.params.id })) return;
-  const userId = req.body.userId ?? req.body.user_id;
-  const result = grantContentAuthorization({
-    userId,
-    clientId: req.params.id,
-    scopes: req.body.scopes,
-    status: req.body.status
-  });
-  if (result.error) {
-    const code = result.error.includes('does not exist') ? 400 : 400;
-    return res.status(code).json({ error: result.error });
-  }
-  res.status(201).json(result.authorization);
-});
-
-router.delete('/:id/authorizations/:userId', (req, res) => {
-  const client = db.prepare('SELECT id FROM workspaces WHERE id = ?').get(req.params.id);
-  if (!client) return res.status(404).json({ error: 'Workspace not found' });
-  if (enforceGrant(req, res, { audience: 'content', clientId: req.params.id })) return;
-  if (!revokeContentAuthorization(req.params.userId, req.params.id)) {
-    return res.status(404).json({ error: 'Authorization not found' });
-  }
-  res.status(204).end();
-});
-
-router.get('/:id', (req, res) => {
-  const row = db.prepare('SELECT * FROM workspaces WHERE id = ?').get(req.params.id);
-  if (!row) return res.status(404).json({ error: 'Workspace not found' });
-  if (enforceGrant(req, res, { audience: 'content', clientId: row.id })) return;
-  res.json(mapContentClient(row));
-});
-
-router.put('/:id', (req, res) => {
-  const existing = db.prepare('SELECT * FROM workspaces WHERE id = ?').get(req.params.id);
-  if (!existing) return res.status(404).json({ error: 'Workspace not found' });
-  if (enforceGrant(req, res, { audience: 'content', clientId: existing.id })) return;
-
-  const name = req.body.name !== undefined ? String(req.body.name).trim() : existing.name;
-  if (!name) return res.status(400).json({ error: 'name is required' });
-
-  const redirectUris = req.body.redirectUris !== undefined || req.body.redirect_uris !== undefined
-    ? serializeJsonArray(req.body.redirectUris ?? req.body.redirect_uris, [])
-    : existing.redirect_uris;
-  const grantTypes = req.body.grantTypes !== undefined || req.body.grant_types !== undefined
-    ? serializeJsonArray(req.body.grantTypes ?? req.body.grant_types, ['authorization_code'])
-    : existing.grant_types;
-
-  db.prepare(`
-    UPDATE workspaces
-    SET name = ?, redirect_uris = ?, grant_types = ?, updated_at = datetime('now')
-    WHERE id = ?
-  `).run(name, redirectUris, grantTypes, existing.id);
-
-  res.json(mapContentClient(db.prepare('SELECT * FROM workspaces WHERE id = ?').get(existing.id)));
-});
-
-router.delete('/:id', (req, res) => {
-  const existing = db.prepare('SELECT id FROM workspaces WHERE id = ?').get(req.params.id);
-  if (!existing) return res.status(404).json({ error: 'Workspace not found' });
-  if (enforceGrant(req, res, { audience: 'content', clientId: existing.id })) return;
-  const result = db.prepare('DELETE FROM workspaces WHERE id = ?').run(req.params.id);
-  if (result.changes === 0) return res.status(404).json({ error: 'Workspace not found' });
-  res.status(204).end();
-});
-
 router.get('/:id/topics', (req, res) => {
   const client = db.prepare('SELECT id FROM workspaces WHERE id = ?').get(req.params.id);
   if (!client) return res.status(404).json({ error: 'Workspace not found' });
