@@ -46,7 +46,7 @@ export class ChatNodeComponent {
   readonly contentDraft = signal('');
   readonly branchModelId = signal('');
   readonly isLoading = signal(false);
-  readonly pendingAction = signal<'version' | 'branch' | 'send' | 'continue' | null>(null);
+  readonly pendingAction = signal<'version' | 'branch' | 'insert' | 'send' | 'continue' | null>(null);
   readonly showPreview = signal(false);
   /** Set by Cancel so auto-open does not immediately re-enter edit. */
   readonly editDismissed = signal(false);
@@ -360,7 +360,7 @@ export class ChatNodeComponent {
   }
 
   private async runSend(
-    pending: 'send' | 'branch' | 'continue',
+    pending: 'send' | 'branch' | 'insert' | 'continue',
     work: () => Promise<void>
   ): Promise<void> {
     if (pending !== 'continue' || this.pendingAction() !== 'continue') {
@@ -384,8 +384,8 @@ export class ChatNodeComponent {
     contextParentId: string | null,
     provider: { baseUrl: string; apiKey: string },
     model: ModelEntry,
-    extra?: { content?: string; attachments?: NodeAttachment[] }
-  ): Promise<void> {
+    extra?: { content?: string; attachments?: NodeAttachment[]; adoptNodeIds?: string[] }
+  ): Promise<ChatNode> {
     const contextMessages = this.buildContextMessagesUpTo(contextParentId);
     contextMessages.push({
       role: 'user',
@@ -394,7 +394,10 @@ export class ChatNodeComponent {
       )
     });
     this.closeEditor();
-    await this.llmService.streamAnswer(chatId, question.id, provider, model, contextMessages);
+    return this.llmService.streamAnswer(
+      chatId, question.id, provider, model, contextMessages, undefined,
+      extra?.adoptNodeIds?.length ? { adoptNodeIds: extra.adoptNodeIds } : undefined
+    );
   }
 
   /**
@@ -472,6 +475,54 @@ export class ChatNodeComponent {
         content,
         attachments
       });
+    });
+  }
+
+  /**
+   * Insert — like Branch (new sibling question + LLM answer with the same
+   * prior-message context), then hang the previous question and its siblings
+   * under that new assistant answer.
+   */
+  async saveAsInsertAndSend(): Promise<void> {
+    const target = await this.resolveSendTarget();
+    if (!target) return;
+    const { node, content, attachments, chatId, model, provider } = target;
+    if (node.role !== 'user') return;
+
+    await this.runSend('insert', async () => {
+      const parentId = node.parentId ?? null;
+      const newQuestion = await this.chatService.branchQuestion(
+        chatId,
+        node.id,
+        content,
+        model.modelId,
+        model.providerId,
+        attachments
+      );
+
+      this.activate.emit(newQuestion.id);
+
+      // Previous question + siblings (including retired versions at this level).
+      const adoptNodeIds = this.chatService.nodes()
+        .filter(n =>
+          n.chatId === chatId
+          && (n.parentId ?? null) === parentId
+          && n.id !== newQuestion.id
+        )
+        .map(n => n.id);
+
+      const answer = await this.streamForQuestion(
+        chatId, newQuestion, parentId, provider, model,
+        { content, attachments, adoptNodeIds }
+      );
+
+      this.chatService.setActiveChild(parentId, newQuestion.id);
+      this.chatService.setActiveChild(newQuestion.id, answer.id);
+      if (adoptNodeIds.includes(node.id)) {
+        this.chatService.setActiveChild(answer.id, node.id);
+      } else if (adoptNodeIds.length > 0) {
+        this.chatService.setActiveChild(answer.id, adoptNodeIds[0]);
+      }
     });
   }
 
