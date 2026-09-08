@@ -8,6 +8,7 @@ import { ConfigComponent } from './config.component';
 import { CHAT_API } from '../../api/chat-api.token';
 import { SettingsService } from '../../core/settings.service';
 import { ThemeService } from '../../core/theme.service';
+import { I18nService } from '../../core/i18n/i18n.service';
 import {InMemoryChatApi} from '../../../../test-helpers/in-memory-chat-api';
 
 
@@ -40,6 +41,7 @@ describe('ConfigComponent', () => {
     stubMatchMedia(false);
     api = new InMemoryChatApi();
     localStorage.removeItem('chat.theme');
+    localStorage.removeItem('chat.view.locale');
 
     vi.spyOn(window, 'alert').mockImplementation(() => {});
     vi.spyOn(window, 'confirm').mockReturnValue(true);
@@ -57,9 +59,11 @@ describe('ConfigComponent', () => {
 
     settings = TestBed.inject(SettingsService);
     http = TestBed.inject(HttpTestingController);
+    TestBed.inject(I18nService).setLocale('en');
 
     fixture = TestBed.createComponent(ConfigComponent);
     component = fixture.componentInstance;
+    component.i18n.setLocale('en');
     await settings.loadAll();
     await fixture.whenStable();
     fixture.detectChanges();
@@ -76,6 +80,15 @@ describe('ConfigComponent', () => {
   it('shows an empty providers hint when nothing is stored', () => {
     const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
     expect(text).toContain('No providers configured yet.');
+  });
+
+  it('switches settings chrome to German without touching story content', () => {
+    component.i18n.setLocale('de');
+    fixture.detectChanges();
+    const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+    expect(text).toContain('Darstellung');
+    expect(text).toContain('Noch keine Anbieter eingerichtet.');
+    expect(text).toContain('Geschichten, Eingaben und Modellantworten bleiben unverändert.');
   });
 
   it('refuses to save a provider without an API key', () => {
@@ -141,14 +154,13 @@ describe('ConfigComponent', () => {
     });
     await settings.addPreset('Claude', 'anthropic/claude', provider.id);
     const gpt = await settings.addPreset('GPT-4o', 'openai/gpt-4o', provider.id);
-    await settings.toggleModelEnabled(gpt.id); // gpt disabled
+    await settings.toggleModelEnabled(gpt.id);
     fixture.detectChanges();
 
     expect(component.filteredModels().map(m => m.displayName)).toEqual(['Claude', 'GPT-4o']);
 
     component.searchTerm.set('gpt');
     expect(component.filteredModels().map(m => m.displayName)).toEqual(['Claude', 'GPT-4o']);
-    // default view: enabled stay visible, search only applies to disabled
 
     component.searchTerm.set('');
     component.setEnabledOnly(true);
