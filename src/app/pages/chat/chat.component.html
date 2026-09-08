@@ -8,14 +8,14 @@
     [class.active]="isResizing()"
     (pointerdown)="startSidebarResize($event)"
     (dblclick)="resetSidebarWidth()"
-    title="Drag to resize sidebar">
+    [title]="i18n.t('chat.resizeSidebar')">
   </div>
 
 
   <main class="main">
     @if (!currentChatId()) {
       <div class="placeholder">
-        <p>Select a chat or create a new one</p>
+        <p>{{ i18n.t('chat.selectOrCreate') }}</p>
       </div>
     } @else {
       <div class="conversation">
@@ -30,35 +30,35 @@
                   <input type="checkbox"
                          [checked]="chatService.followStreaming()"
                          (change)="chatService.setFollowStreaming($any($event.target).checked)" />
-                  follow streaming
+                  {{ i18n.t('chat.followStreaming') }}
                 </label>
                 <label>
                   <input type="checkbox"
                          [checked]="chatService.followThinking()"
                          (change)="chatService.setFollowThinking($any($event.target).checked)" />
-                  follow thinking
+                  {{ i18n.t('chat.followThinking') }}
                 </label>
                 <label>
                   <input type="checkbox"
                          [checked]="chatService.alwaysOpenAtLeaf()"
                          (change)="chatService.setAlwaysOpenAtLeaf($any($event.target).checked)" />
-                  always open at leaf
+                  {{ i18n.t('chat.alwaysOpenAtLeaf') }}
                 </label>
                 <span class="gen-spinner"
                       [class.on]="!!chatService.generatingNodeId()"
-                      title="Generating…"
+                      [title]="i18n.t('chat.generating')"
                       aria-live="polite"
                       [attr.aria-hidden]="chatService.generatingNodeId() ? null : 'true'"></span>
               </div>
 
               <div class="view-prefs-row stream-speed-row">
                 <label class="stream-speed">
-                  reveal
+                  {{ i18n.t('chat.reveal') }}
                   <select
                     [ngModel]="chatService.streamSpeedUnit()"
                     (ngModelChange)="chatService.setStreamSpeedUnit($event)">
-                    <option value="char">chars/s</option>
-                    <option value="word">words/s</option>
+                    <option value="char">{{ i18n.t('chat.charsPerSec') }}</option>
+                    <option value="word">{{ i18n.t('chat.wordsPerSec') }}</option>
                   </select>
                   <input
                     type="range"
@@ -68,7 +68,7 @@
                     [ngModel]="chatService.streamSpeed()"
                     (ngModelChange)="chatService.setStreamSpeed(+$event)" />
                   <span class="speed-val">
-                    {{ chatService.streamSpeed() === 0 ? 'instant' : chatService.streamSpeed() }}
+                    {{ chatService.streamSpeed() === 0 ? i18n.t('chat.instant') : chatService.streamSpeed() }}
                   </span>
                 </label>
               </div>
@@ -76,7 +76,7 @@
           </div>
           <div class="params-bar">
             <button class="btn small" type="button" (click)="toggleChatParams()">
-              Params
+              {{ i18n.t('chat.params') }}
             </button>
             <span class="params-summary">{{ chatParamsSummary() }}</span>
           </div>
@@ -90,8 +90,8 @@
                 (changed)="onChatParamsChanged($event)"
               />
               <div class="modal-actions">
-                <button class="btn" type="button" (click)="showChatParams.set(false)">Close</button>
-                <button class="btn primary" type="button" (click)="saveChatParams()">Apply to chat</button>
+                <button class="btn" type="button" (click)="showChatParams.set(false)">{{ i18n.t('common.close') }}</button>
+                <button class="btn primary" type="button" (click)="saveChatParams()">{{ i18n.t('chat.applyToChat') }}</button>
               </div>
             </div>
           }
@@ -99,10 +99,10 @@
           @if (getActivePath().length > 0) {
             <div class="node-nav-bar">
               <div class="nav-path">
-                <button class="btn-icon" type="button" title="Book View"
+                <button class="btn-icon" type="button"
                         (click)="openReader()"
                         [disabled]="!currentChatId()"
-                        title="Open book view (Ctrl-B)">
+                        [title]="i18n.t('chat.bookViewTitle')">
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
                        stroke="currentColor" stroke-width="2"
                        stroke-linecap="round" stroke-linejoin="round"

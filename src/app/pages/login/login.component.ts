@@ -3,6 +3,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import { AuthService } from '../../core/auth.service';
+import { I18nService } from '../../core/i18n/i18n.service';
 
 @Component({
   selector: 'app-login',
@@ -14,6 +15,7 @@ import { AuthService } from '../../core/auth.service';
 export class LoginComponent implements OnInit {
   private readonly auth = inject(AuthService);
   private readonly router = inject(Router);
+  readonly i18n = inject(I18nService);
 
   username = '';
   password = '';
@@ -35,7 +37,7 @@ export class LoginComponent implements OnInit {
       await this.router.navigateByUrl('/chat');
     } catch (err: unknown) {
       const http = err as { error?: { error?: string }; status?: number };
-      this.error.set(http?.error?.error || (http?.status === 401 ? 'Invalid credentials' : 'Login failed'));
+      this.error.set(http?.error?.error || (http?.status === 401 ? this.i18n.t('login.invalid') : this.i18n.t('login.failed')));
     } finally {
       this.busy.set(false);
     }

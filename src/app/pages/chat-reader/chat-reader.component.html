@@ -1,40 +1,40 @@
 <div class="reader-shell">
   <header class="reader-bar">
     <h1 class="reader-title">{{ title() }}</h1>
-    <div class="pager cols-pager" role="group" aria-label="Columns">
+    <div class="pager cols-pager" role="group" [attr.aria-label]="i18n.t('reader.columns')">
       @for (n of columnChoices; track n) {
         <button class="btn-icon"
                 type="button"
                 [class.active]="columnCount() === n"
                 (click)="setColumnCount(n)"
                 [attr.aria-pressed]="columnCount() === n"
-                [title]="n + (n === 1 ? ' column' : ' columns')">{{ n }}</button>
+                [title]="n === 1 ? i18n.t('reader.columnOne') : i18n.t('reader.columnsN', { n })">{{ n }}</button>
       }
     </div>
     <div class="pager doc-pager">
       <button class="btn-icon" type="button"
               [disabled]="docIndex() === 0"
-              (click)="goFirstDoc()" title="Oldest document">«</button>
+              (click)="goFirstDoc()" [title]="i18n.t('reader.oldestDoc')">«</button>
       <button class="btn-icon" type="button"
               [disabled]="docIndex() === 0"
-              (click)="prevDoc()" title="Previous document">‹</button>
+              (click)="prevDoc()" [title]="i18n.t('reader.prevDoc')">‹</button>
       <span class="folio" [title]="docLabel()">
-    Doc {{ documents().length ? docIndex() + 1 : 0 }} / {{ documents().length }}
+    {{ i18n.t('reader.docFolio', { current: documents().length ? docIndex() + 1 : 0, total: documents().length }) }}
         <small>{{ docLabel() }}</small>
   </span>
       <button class="btn-icon" type="button"
               [disabled]="docIndex() >= documents().length - 1"
-              (click)="nextDoc()" title="Next document">›</button>
+              (click)="nextDoc()" [title]="i18n.t('reader.nextDoc')">›</button>
       <button class="btn-icon" type="button"
               [disabled]="docIndex() >= documents().length - 1"
-              (click)="goLastDoc()" title="Newest document">»</button>
+              (click)="goLastDoc()" [title]="i18n.t('reader.newestDoc')">»</button>
     </div>
     <button class="btn-icon"
             type="button"
             [class.active]="typeModalOpen()"
             (click)="typeModalOpen() ? closeTypeModal() : openTypeModal()"
             [attr.aria-pressed]="typeModalOpen()"
-            title="Typeface and size (f)">
+            [title]="i18n.t('reader.typefaceTitle')">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
            stroke="currentColor" stroke-width="2"
            stroke-linecap="round" stroke-linejoin="round"
@@ -49,7 +49,7 @@
             type="button"
             [class.active]="hideQuestions()"
             (click)="toggleQuestions()"
-            [title]="hideQuestions() ? 'Show directions (d)' : 'Hide directions (d)' ">
+            [title]="hideQuestions() ? i18n.t('reader.showDirections') : i18n.t('reader.hideDirections')">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
            stroke="currentColor" stroke-width="2"
            stroke-linecap="round" stroke-linejoin="round"
@@ -99,15 +99,15 @@
       aria-labelledby="type-title"
       (click)="$event.stopPropagation()">
       <header class="type-head">
-        <h2 id="type-title">Type</h2>
-        <p class="type-sub">Face and size for this reader. Preview uses the open document.</p>
-        <button class="btn-icon type-close" type="button" (click)="closeTypeModal()" title="Close">
+        <h2 id="type-title">{{ i18n.t('reader.type') }}</h2>
+        <p class="type-sub">{{ i18n.t('reader.typeSub') }}</p>
+        <button class="btn-icon type-close" type="button" (click)="closeTypeModal()" [title]="i18n.t('common.close')">
           ×
         </button>
       </header>
 
       <div class="type-grid">
-        <section class="type-faces" aria-label="Typefaces">
+        <section class="type-faces" [attr.aria-label]="i18n.t('reader.typefaces')">
           @for (face of fontChoices; track face.id) {
             <button
               type="button"
@@ -122,9 +122,9 @@
         </section>
 
         <section class="type-preview-col">
-          <div class="type-size" aria-label="Size">
+          <div class="type-size" [attr.aria-label]="i18n.t('reader.size')">
             <div class="type-size-row">
-              <span class="type-size-label">Size</span>
+              <span class="type-size-label">{{ i18n.t('reader.size') }}</span>
               <span class="type-size-value">{{ fontSize() }}px</span>
             </div>
             <input
@@ -138,8 +138,8 @@
               [attr.aria-valuemin]="minFontSize"
               [attr.aria-valuemax]="maxFontSize"
               [attr.aria-valuenow]="fontSize()"
-              aria-label="Font size in pixels">
-            <div class="pager size-pager" role="group" aria-label="Size presets">
+              [attr.aria-label]="i18n.t('reader.fontSizeAria')">
+            <div class="pager size-pager" role="group" [attr.aria-label]="i18n.t('reader.sizePresets')">
               @for (n of sizeChoices; track n) {
                 <button
                   class="btn-icon"
@@ -162,7 +162,7 @@
       </div>
 
       <footer class="type-actions">
-        <button class="btn" type="button" (click)="closeTypeModal()">Done</button>
+        <button class="btn" type="button" (click)="closeTypeModal()">{{ i18n.t('reader.done') }}</button>
       </footer>
     </div>
   </div>

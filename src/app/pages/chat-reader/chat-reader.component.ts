@@ -8,6 +8,7 @@ import { Router } from '@angular/router';
 import { ChatService } from '../../core/chat.service';
 import { MarkdownService } from '../../core/markdown.service';
 import { ChatNode } from '../../models/chat';
+import { I18nService } from '../../core/i18n/i18n.service';
 
 export interface ReaderFont {
   id: string;
@@ -25,6 +26,7 @@ export interface ReaderFont {
 })
 export class ChatReaderComponent implements OnInit, OnDestroy {
   private readonly chatService = inject(ChatService);
+  readonly i18n = inject(I18nService);
   private readonly markdown = inject(MarkdownService);
   private readonly router = inject(Router);
 
@@ -397,7 +399,8 @@ export class ChatReaderComponent implements OnInit, OnDestroy {
 
   readonly title = computed(() => {
     const id = this.currentChatId();
-    return this.chatService.chats().find(c => c.id === id)?.title || 'Untitled';
+    this.i18n.locale();
+    return this.chatService.chats().find(c => c.id === id)?.title || this.i18n.t('common.untitled');
   });
 
 
@@ -512,7 +515,7 @@ export class ChatReaderComponent implements OnInit, OnDestroy {
 
   private esc(s: string): string {
     return s.replace(/[&<>"']/g, c => (
-      { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!
+      { '&': '&', '<': '<', '>': '>', '"': '"', "'": '&#39;' }[c]!
     ));
   }
 
