@@ -138,6 +138,8 @@ export const DE = {
     ch: 'Kap',
     chars: '{{count}} Zeichen',
     version: 'v{{n}}',
+    priorVersions: '{{n}} frühere Version(en)',
+    priorVersionsWarn: 'Diese älteren Versionen bleiben zum Nachlesen sichtbar. Sie liegen nicht auf dem aktiven Pfad und werden dem LLM nicht als Kontext geschickt.',
     stop: 'Stopp',
     stopTitle: 'Erzeugung stoppen',
     prevBranch: 'Vorheriger Zweig',

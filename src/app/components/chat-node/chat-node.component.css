@@ -477,3 +477,50 @@
 .continue-closed {
   flex: 0 0 auto;
 }
+
+
+/* ===== Retired versions (not in LLM context) ===== */
+.prior-versions {
+  margin-top: 0.75rem;
+  padding-top: 0.55rem;
+  border-top: 1px dashed color-mix(in srgb, var(--text-muted, #64748b) 45%, transparent);
+}
+.prior-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted, #64748b);
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+  padding: 0;
+}
+.prior-warning {
+  margin: 0.45rem 0 0.6rem;
+  padding: 0.45rem 0.6rem;
+  border-radius: 6px;
+  background: color-mix(in srgb, #ca8a04 16%, transparent);
+  color: var(--text, inherit);
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+.prior-version {
+  margin: 0.45rem 0 0.7rem;
+  padding: 0.5rem 0.65rem;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--text-muted, #64748b) 8%, transparent);
+  opacity: 0.92;
+}
+.prior-head {
+  display: flex;
+  gap: 0.6rem;
+  align-items: baseline;
+  font-size: 0.78rem;
+  color: var(--text-muted, #64748b);
+  margin-bottom: 0.35rem;
+}
+.prior-body {
+  font-size: 0.92em;
+}

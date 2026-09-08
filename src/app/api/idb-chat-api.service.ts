@@ -552,10 +552,12 @@ export class IdbChatApiService implements ChatApiPort {
       if (!old) throw Object.assign(new Error('Node not found'), { status: 404 });
       if (old.role !== expectedRole) throw Object.assign(new Error(`Only ${expectedRole}s can be versioned this way`), { status: 400 });
       const children = await this.req<ChatNode[]>(store.index('by-parent').getAll(old.id));
-      const isEmptyNode = !String(old.content || '').trim();
       const nextThinking = data.thinking !== undefined ? data.thinking : old.thinking;
       const nextAttachments = data.attachments !== undefined ? data.attachments : (old.attachments ?? []);
-      if (isEmptyNode && children.length === 0) {
+      const isEmptyPlaceholder =
+        !String(old.content || '').trim()
+        && !(old.attachments && old.attachments.length);
+      if (isEmptyPlaceholder) {
         const updated: ChatNode = { ...old, content: data.content, thinking: nextThinking, attachments: nextAttachments, updatedAt: this.now() };
         await this.req(store.put(updated));
         await this.touchChat(tx, old.chatId, 0);

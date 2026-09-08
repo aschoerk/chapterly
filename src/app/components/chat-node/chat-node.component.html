@@ -294,6 +294,30 @@
 
     <div #streamEnd class="stream-end"></div>
 
+    @if (priorVersions().length) {
+      <div class="prior-versions">
+        <button type="button" class="prior-toggle"
+                (click)="showPriorVersions.set(!showPriorVersions())">
+          <span class="thinking-chevron">{{ showPriorVersions() ? '▾' : '▸' }}</span>
+          {{ i18n.t('node.priorVersions', { n: priorVersions().length }) }}
+        </button>
+        @if (showPriorVersions()) {
+          <p class="prior-warning">{{ i18n.t('node.priorVersionsWarn') }}</p>
+          @for (prev of priorVersions(); track prev.id) {
+            <article class="prior-version">
+              <header class="prior-head">
+                <span>{{ i18n.t('node.version', { n: prev.version }) }}</span>
+                @if (prev.updatedAt || prev.createdAt) {
+                  <span class="meta">{{ prev.updatedAt || prev.createdAt }}</span>
+                }
+              </header>
+              <div class="prior-body" [innerHTML]="priorVersionHtml(prev)"></div>
+            </article>
+          }
+        }
+      </div>
+    }
+
     @if (node().attachments?.length) {
       <div class="attachment-chips read-only">
         @for (a of node().attachments; track a.id) {

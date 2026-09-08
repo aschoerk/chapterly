@@ -519,6 +519,25 @@ export class ChatService {
     return this.getChildren(node.parentId ?? null);
   }
 
+  /**
+   * Retired versions of `node`, newest first, walking previousVersionId.
+   * These are not on getActivePath() and are not sent to the LLM.
+   */
+  getPriorVersions(node: ChatNode): ChatNode[] {
+    const byId = new Map(this._nodes().map(n => [n.id, n]));
+    const out: ChatNode[] = [];
+    const seen = new Set<string>([node.id]);
+    let id = node.previousVersionId ?? null;
+    while (id && !seen.has(id)) {
+      seen.add(id);
+      const prev = byId.get(id);
+      if (!prev) break;
+      out.push(prev);
+      id = prev.previousVersionId ?? null;
+    }
+    return out;
+  }
+
 
 // on startup (e.g. inside loadChats / init)
   restoreCurrentChat(): void {

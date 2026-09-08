@@ -54,6 +54,7 @@ export class ChatNodeComponent {
   readonly editDismissed = signal(false);
   readonly enabledModels = this.settings.enabledModels;
   private readonly editSession = inject(NodeEditSession);
+  readonly showPriorVersions = signal(false);
   readonly thinkingClosed = signal(true);
 
   private readonly editArea = viewChild<ElementRef<HTMLTextAreaElement>>('editArea');
@@ -70,6 +71,15 @@ export class ChatNodeComponent {
   isThinkingLive(): boolean {
     const n = this.node();
     return n.role === 'assistant' && this.chatService.isGenerating(n.id);
+  }
+
+
+  priorVersions(): ChatNode[] {
+    return this.chatService.getPriorVersions(this.node());
+  }
+
+  priorVersionHtml(n: ChatNode): string {
+    return this.markdownService.toHtml(n.content ?? '');
   }
 
   get siblings(): ChatNode[] {

@@ -70,8 +70,8 @@ router.get('/', (req, res) => {
     const clientIds = authClientIds(req, 'content');
     rows = db.prepare(`
       SELECT DISTINCT c.* FROM chats c
-      JOIN topic_projects tp ON tp.project_id = c.project_id
-      JOIN topics t ON t.id = tp.topic_id
+                                 JOIN topic_projects tp ON tp.project_id = c.project_id
+                                 JOIN topics t ON t.id = tp.topic_id
       WHERE t.workspace_id IN (${placeholders(clientIds)})
         AND (? IS NULL OR c.project_id = ?)
       ORDER BY c.updated_at DESC
@@ -435,12 +435,6 @@ function editNodeVersion(nodeId, expectedRole, { content, thinking, attachments 
     throw err;
   }
 
-  const childNode = db.prepare(
-    'SELECT * FROM chat_nodes WHERE parent_id = ?'
-  ).get(nodeId);
-
-  const isEmptyNode = !String(oldNode.content || '').trim();
-
   const attachmentsJson = attachments !== undefined
     ? JSON.stringify(Array.isArray(attachments) ? attachments : [])
     : (oldNode.attachments || '[]');
@@ -449,9 +443,20 @@ function editNodeVersion(nodeId, expectedRole, { content, thinking, attachments 
     ? thinking
     : oldNode.thinking;
 
-  // Empty leaf: mutate the current row. Anything else: insert a new version.
+  let oldAttachments = [];
+  try {
+    oldAttachments = JSON.parse(oldNode.attachments || '[]');
+  } catch {
+    oldAttachments = [];
+  }
+  const isEmptyPlaceholder =
+    !String(oldNode.content || '').trim()
+    && !(Array.isArray(oldAttachments) && oldAttachments.length);
+
+  // Empty placeholder (no content, no attachments): fill this row in place.
+  // Do not retire it as a previous version — even if a draft child already hangs off it.
   const executeEditTransaction = db.transaction(() => {
-    if (isEmptyNode && !childNode) {
+    if (isEmptyPlaceholder) {
       db.prepare(`
         UPDATE chat_nodes
         SET content = ?, thinking = ?, attachments = ?, updated_at = datetime('now')

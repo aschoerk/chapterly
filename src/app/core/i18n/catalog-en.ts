@@ -138,6 +138,8 @@ export const EN = {
     ch: 'Ch',
     chars: '{{count}} chars',
     version: 'v{{n}}',
+    priorVersions: '{{n}} previous version(s)',
+    priorVersionsWarn: 'These older versions are kept for you to read. They are not on the active path and will not be sent to the LLM as context.',
     stop: 'Stop',
     stopTitle: 'Stop generation',
     prevBranch: 'Previous branch',
