@@ -227,11 +227,33 @@ export class IdbChatApiService implements ChatApiPort {
     });
   }
 
-  async patchNode(chatId: string, nodeId: string, data: { content?: string; thinking?: string; attachments?: NodeAttachment[]; modelId?: string; providerId?: string }): Promise<ChatNode> {
+  async patchNode(chatId: string, nodeId: string, data: { content?: string; thinking?: string; attachments?: NodeAttachment[]; modelId?: string; providerId?: string; parentId?: string | null }): Promise<ChatNode> {
     return this.tx(['nodes', 'chats'], 'readwrite', async tx => {
       const store = tx.objectStore('nodes');
       const old = await this.req<ChatNode>(store.get(nodeId));
       if (!old) throw Object.assign(new Error('Node not found'), { status: 404 });
+      let parentId = old.parentId;
+      if (data.parentId !== undefined) {
+        if (data.parentId === nodeId) {
+          throw Object.assign(new Error('Cannot reparent a node under itself'), { status: 400 });
+        }
+        if (data.parentId) {
+          const parent = await this.req<ChatNode>(store.get(data.parentId));
+          if (!parent || parent.chatId !== old.chatId) {
+            throw Object.assign(new Error('Parent node not found'), { status: 400 });
+          }
+          let cursor: ChatNode | undefined = parent;
+          const seen = new Set<string>();
+          while (cursor?.parentId) {
+            if (cursor.parentId === nodeId || seen.has(cursor.parentId)) {
+              throw Object.assign(new Error('Cannot reparent a node under its descendant'), { status: 400 });
+            }
+            seen.add(cursor.parentId);
+            cursor = await this.req<ChatNode>(store.get(cursor.parentId));
+          }
+        }
+        parentId = data.parentId;
+      }
       const next: ChatNode = {
         ...old,
         content: data.content !== undefined ? data.content : old.content,
@@ -239,6 +261,7 @@ export class IdbChatApiService implements ChatApiPort {
         attachments: data.attachments !== undefined ? data.attachments : old.attachments,
         modelId: data.modelId !== undefined ? data.modelId : old.modelId,
         providerId: data.providerId !== undefined ? data.providerId : old.providerId,
+        parentId,
         updatedAt: this.now()
       };
       await this.req(store.put(next));
