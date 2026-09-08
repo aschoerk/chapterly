@@ -54,6 +54,8 @@ class InMemoryChatApi implements Pick<
     return `${prefix}-${this.n}`;
   }
 
+  // ---------- Chats ----------
+
   async getChats() {
     return [...this.chats];
   }
@@ -78,6 +80,8 @@ class InMemoryChatApi implements Pick<
     Object.assign(row, data, { updated_at: new Date().toISOString() });
     return { ...row };
   }
+
+  // ---------- Nodes ----------
 
   async getNodes(chatId: string) {
     return this.nodes.filter(n => n.chatId === chatId);
@@ -160,9 +164,13 @@ class InMemoryChatApi implements Pick<
     });
   }
 
+  // ---------- Personas ----------
+
   async getPersonas() {
     return [...this.personas];
   }
+
+  // ---------- Projects ----------
 
   async getProjects() {
     return [...this.projects];
@@ -194,6 +202,8 @@ class InMemoryChatApi implements Pick<
       this.chats = this.chats.filter(c => c.projectId !== id);
     }
   }
+
+  // ---------- Topics ----------
 
   async getTopics() {
     return [...this.topics];
@@ -232,6 +242,8 @@ class InMemoryChatApi implements Pick<
     row.projectIds = row.projectIds.filter(p => p !== projectId);
     return { ...row };
   }
+
+  // ---------- Providers & Models ----------
 
   async getProviders() {
     return [...this.providers];
@@ -280,6 +292,8 @@ class InMemoryChatApi implements Pick<
     row.enabled = !row.enabled;
     return { id, enabled: row.enabled };
   }
+
+  // ---------- Chat parameters ----------
 
   async getChatParameters() {
     return [...this.parameters];

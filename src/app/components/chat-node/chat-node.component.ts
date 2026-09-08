@@ -48,6 +48,7 @@ export class ChatNodeComponent {
   readonly isLoading = signal(false);
   readonly pendingAction = signal<'version' | 'branch' | 'send' | 'continue' | null>(null);
   readonly showPreview = signal(false);
+  /** Set by Cancel so auto-open does not immediately re-enter edit. */
   readonly editDismissed = signal(false);
   readonly enabledModels = this.settings.enabledModels;
   private readonly editSession = inject(NodeEditSession);
@@ -80,6 +81,7 @@ export class ChatNodeComponent {
   get siblingIndex(): { current: number; total: number } {
     const list = this.siblings;
     if (list.length === 0) return { current: 0, total: 0 };
+
     const activeId = this.activeChildId() ?? list[0]?.id;
     const index = list.findIndex(s => s.id === activeId);
     return {
@@ -92,6 +94,7 @@ export class ChatNodeComponent {
     return !this.contentDraft().trim() && this.editAttachments().length === 0;
   }
 
+  /** Question that has not produced an answer yet — the in-thread composer. */
   isUnsentQuestion(): boolean {
     const n = this.node();
     if (n.role !== 'user') return false;
@@ -102,10 +105,12 @@ export class ChatNodeComponent {
     return this.node().role === 'user';
   }
 
+  /** Last node on the active path (no current children). */
   isLeafNode(): boolean {
     return this.chatService.getChildren(this.node().id).length === 0;
   }
 
+  /** Empty unsent leaf question with the inline editor closed. */
   showClosedContinue(): boolean {
     const n = this.node();
     return this.isUnsentQuestion()
@@ -156,7 +161,9 @@ export class ChatNodeComponent {
       text: n.content || '',
       attachments: n.attachments || []
     }, source);
+
     if (!ok) return;
+
     this.editDismissed.set(false);
     this.contentDraft.set(n.content || '');
     this.editAttachments.set([...(n.attachments || [])]);
@@ -165,26 +172,39 @@ export class ChatNodeComponent {
     this.scheduleResize();
   }
 
+  /**
+   * Model shown in the question listbox:
+   * 1. already-queried question → the LLM that produced its answer
+   * 2. else project.defaultModelId, if the chat belongs to a project
+   * 3. else defaultModelId of a topic that contains that project
+   * 4. else first enabled model (last-resort fallback)
+   */
   resolvePreferredModelId(node: ChatNode): string {
     const models = this.enabledModels();
     const match = (ref?: string | null) =>
       models.find(m => !!ref && (m.id === ref || m.modelId === ref));
+
     const queried = node.role === 'user' &&
       this.chatService.getChildren(node.id).some(c => c.role === 'assistant');
+
     if (queried) {
       const fromUser = match(node.modelId);
       if (fromUser) return fromUser.modelId;
+
       const currentAssistant = this.chatService.getChildren(node.id)
           .find(c => c.role === 'assistant' && c.isCurrent)
         ?? this.chatService.getChildren(node.id).find(c => c.role === 'assistant');
       const fromAnswer = match(currentAssistant?.modelId);
       if (fromAnswer) return fromAnswer.modelId;
     }
+
     const chatId = node.chatId || this.chatService.currentChatId();
     const chat = this.chatService.chats().find(c => c.id === chatId);
     const project = this.projectService.getProject(chat?.projectId ?? null);
+
     const fromProject = match(project?.defaultModelId);
     if (fromProject) return fromProject.modelId;
+
     if (project) {
       const topics = this.projectService.topics().filter(t =>
         Array.isArray(t.projectIds) && t.projectIds.includes(project.id)
@@ -194,6 +214,7 @@ export class ChatNodeComponent {
         if (fromTopic) return fromTopic.modelId;
       }
     }
+
     return models[0]?.modelId || '';
   }
 
@@ -228,27 +249,46 @@ export class ChatNodeComponent {
     this.editSession.commit(id);
   }
 
+
+  /**
+   * OK — persist as a new version of this node. Does not call the LLM.
+   * Answers use /edit-assistant. Questions use /edit-question (see patches).
+   */
   async saveAsVersion(): Promise<void> {
     const node = this.node();
     const newContent = this.contentDraft().trim();
     const attachments = this.editAttachments();
+
     const attachmentsUnchanged =
       JSON.stringify(attachments) === JSON.stringify(node.attachments || []);
+
     if ((!newContent && attachments.length === 0) ||
       (newContent === node.content && attachmentsUnchanged)) {
       this.cancelEdit();
       return;
     }
+
     const chatId = this.chatService.currentChatId();
     if (!chatId) return;
+
     this.isLoading.set(true);
     this.pendingAction.set('version');
     try {
       let saved: ChatNode;
       if (node.role === 'assistant' || node.role === 'system') {
-        saved = await this.chatService.editAssistant(chatId, node.id, newContent, attachments);
+        saved = await this.chatService.editAssistant(
+          chatId,
+          node.id,
+          newContent,
+          attachments
+        );
       } else {
-        saved = await this.chatService.editUser(chatId, node.id, newContent, attachments);
+        saved = await this.chatService.editUser(
+          chatId,
+          node.id,
+          newContent,
+          attachments
+        );
       }
       this.activate.emit(saved.id);
       this.closeEditor();
@@ -261,6 +301,10 @@ export class ChatNodeComponent {
     }
   }
 
+  /**
+   * Empty leaf question: put “continue” in the draft, pin the default LLM,
+   * and send. Same path as Send, no extra branch.
+   */
   async continueDraft(): Promise<void> {
     if (!this.isUnsentQuestion() || this.isLoading()) return;
     this.contentDraft.set('continue');
@@ -280,6 +324,7 @@ export class ChatNodeComponent {
     this.editSession.patch(this.node().id, this.contentDraft(), this.editAttachments());
   }
 
+
   private async resolveSendTarget(): Promise<{
     node: ChatNode;
     content: string;
@@ -292,19 +337,25 @@ export class ChatNodeComponent {
     const content = this.contentDraft().trim();
     const attachments = this.editAttachments();
     if (!content && attachments.length === 0) return null;
+
     const chatId = this.chatService.currentChatId();
     if (!chatId) return null;
+
     const modelId = this.branchModelId() || this.resolvePreferredModelId(node);
-    const model = this.enabledModels().find(m => m.modelId === modelId || m.id === modelId);
+    const model = this.enabledModels().find(
+      m => m.modelId === modelId || m.id === modelId
+    );
     if (!model) {
       alert('Selected model not found');
       return null;
     }
+
     const provider = this.settings.providers().find(p => p.id === model.providerId);
     if (!provider) {
       alert('Provider not found');
       return null;
     }
+
     return { node, content, attachments, chatId, model, provider };
   }
 
@@ -346,15 +397,26 @@ export class ChatNodeComponent {
     await this.llmService.streamAnswer(chatId, question.id, provider, model, contextMessages);
   }
 
+  /**
+   * Send an unsent question (the in-thread composer).
+   * Writes the draft onto this same node, then streams the answer.
+   */
   async sendDraft(): Promise<void> {
     const target = await this.resolveSendTarget();
     if (!target) return;
     const { node, content, attachments, chatId, model, provider } = target;
+
     await this.runSend(this.pendingAction() === 'continue' ? 'continue' : 'send', async () => {
       const saved = await this.chatService.persistQuestion(
-        chatId, node.id, content, attachments, model.modelId, model.providerId
+        chatId,
+        node.id,
+        content,
+        attachments,
+        model.modelId,
+        model.providerId
       );
       this.activate.emit(saved.id);
+
       if (!node.parentId) {
         const firstLine = content
           ? content.split('\n')[0].trim().slice(0, 80)
@@ -363,18 +425,37 @@ export class ChatNodeComponent {
           await this.chatService.updateChatTitle(chatId, firstLine);
         }
       }
-      await this.streamForQuestion(chatId, saved, saved.parentId, provider, model, { content, attachments });
+
+      await this.streamForQuestion(chatId, saved, saved.parentId, provider, model, {
+        content,
+        attachments
+      });
     });
   }
 
+  /**
+   * Branch — create a new sibling question (a new leaf) and stream an answer.
+   *
+   * - From a question: sibling under the same parent.
+   * - From an answer: new question whose parent is this answer
+   *   (continues the thread from this point).
+   */
   async saveAsBranchAndSend(): Promise<void> {
     const target = await this.resolveSendTarget();
     if (!target) return;
     const { node, content, attachments, chatId, model, provider } = target;
+
     await this.runSend('branch', async () => {
       const newQuestion =
         node.role === 'user'
-          ? await this.chatService.branchQuestion(chatId, node.id, content, model.modelId, model.providerId, attachments)
+          ? await this.chatService.branchQuestion(
+            chatId,
+            node.id,
+            content,
+            model.modelId,
+            model.providerId,
+            attachments
+          )
           : await this.chatService.addNode(chatId, {
             parentId: node.id,
             role: 'user',
@@ -383,17 +464,27 @@ export class ChatNodeComponent {
             providerId: model.providerId,
             attachments
           });
+
       this.activate.emit(newQuestion.id);
+
       const contextParentId = node.role === 'user' ? node.parentId : node.id;
-      await this.streamForQuestion(chatId, newQuestion, contextParentId, provider, model, { content, attachments });
+      await this.streamForQuestion(chatId, newQuestion, contextParentId, provider, model, {
+        content,
+        attachments
+      });
     });
   }
 
+  /**
+   * Delete this assistant answer and its subtree, then resend the parent
+   * user request. Confirms first when the answer already has children.
+   */
   async regenerateAnswer(): Promise<void> {
     const node = this.node();
     if (node.role !== 'assistant' || this.isLoading() || this.chatService.isGenerating(node.id)) {
       return;
     }
+
     const children = this.chatService.getChildren(node.id);
     if (children.length > 0) {
       const extra = this.collectSubtree(node.id).length - 1;
@@ -408,8 +499,10 @@ export class ChatNodeComponent {
       });
       if (!ok) return;
     }
+
     const chatId = this.chatService.currentChatId();
     if (!chatId) return;
+
     const question = node.parentId
       ? this.chatService.nodes().find(n => n.id === node.parentId)
       : undefined;
@@ -417,17 +510,20 @@ export class ChatNodeComponent {
       alert('Cannot regenerate: parent question not found');
       return;
     }
+
     const modelId = node.modelId || question.modelId || this.resolvePreferredModelId(question);
     const model = this.enabledModels().find(m => m.modelId === modelId || m.id === modelId);
     if (!model) {
       alert('Selected model not found');
       return;
     }
+
     const provider = this.settings.providers().find(p => p.id === model.providerId);
     if (!provider) {
       alert('Provider not found');
       return;
     }
+
     this.isLoading.set(true);
     this.pendingAction.set('send');
     try {
@@ -482,6 +578,7 @@ export class ChatNodeComponent {
     const node = this.node();
     const subtree = this.collectSubtree(node.id);
     const nonTrivial = subtree.filter(n => !this.isTrivialNode(n));
+
     if (nonTrivial.length > 0) {
       const extra = subtree.length - 1;
       const msg = extra > 0
@@ -489,9 +586,12 @@ export class ChatNodeComponent {
         : `Delete this ${node.role}node? It has content.`;
       if (!confirm(msg)) return;
     }
+
     const chatId = this.chatService.currentChatId();
     if (!chatId) return;
+
     const parentId = node.parentId;
+
     try {
       await this.chatService.deleteNode(chatId, node.id);
       const remaining = parentId ? this.chatService.getChildren(parentId) : [];
@@ -501,6 +601,7 @@ export class ChatNodeComponent {
         );
         this.activate.emit(newest.id);
       }
+
       const ensure = (this.chatService as any).ensureDraftAtLeaf;
       if (typeof ensure === 'function') {
         await ensure.call(this.chatService, chatId);
@@ -538,6 +639,7 @@ export class ChatNodeComponent {
   prevSibling(): void {
     const list = this.chatService.getSiblingsOf(this.node());
     if (list.length < 2) return;
+
     const activeId = this.activeChildId() ?? list[0].id;
     const index = list.findIndex(s => s.id === activeId);
     const prev = list[(index - 1 + list.length) % list.length];
@@ -547,6 +649,7 @@ export class ChatNodeComponent {
   nextSibling(): void {
     const list = this.siblings;
     if (list.length < 2) return;
+
     const activeId = this.activeChildId() ?? list[0].id;
     const index = list.findIndex(s => s.id === activeId);
     const next = list[(index + 1) % list.length];
@@ -555,14 +658,17 @@ export class ChatNodeComponent {
 
   private buildContextMessagesUpTo(parentId: string | null): ChatMessage[] {
     if (!parentId) return [];
+
     if (typeof (this.chatService as any).getPathToNode === 'function') {
       const path: ChatNode[] = (this.chatService as any).getPathToNode(parentId);
       const messages: ChatMessage[] = [];
+
       for (const n of path) {
         messages.push({ role: n.role, content: nodeToMessageContent(n) });
       }
       return messages;
     }
+
     return [];
   }
 
@@ -573,6 +679,7 @@ export class ChatNodeComponent {
       const content = this.node().content;
       this.updateRendered(content);
     });
+
     effect(() => {
       const n = this.node();
       if (!this.chatService.isGenerating(n.id)) return;
@@ -609,6 +716,7 @@ export class ChatNodeComponent {
 
   async copyContent(): Promise<void> {
     const content = this.node().content ?? '';
+
     try {
       await navigator.clipboard.writeText(content);
       this.copied.set(true);
@@ -714,6 +822,7 @@ export class ChatNodeComponent {
       JSON.stringify(this.editAttachments()) === JSON.stringify(n.attachments || []);
     return this.contentDraft() !== (n.content || '') || !attachmentsUnchanged;
   }
+
 
   parametersFootnote(): string | null {
     if (this.node().role !== 'assistant') return null;
