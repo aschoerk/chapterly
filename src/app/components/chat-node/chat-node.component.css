@@ -262,8 +262,16 @@
   font-weight: 600;
 }
 
-.delete-btn {
+.delete-actions {
   margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+}
+
+.delete-btn,
+.remove-node-btn {
+  margin-left: 0;
 }
 
 .empty-answer {
