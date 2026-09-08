@@ -164,6 +164,13 @@ export class ChatService {
     return chat;
   }
 
+  /** Clone a story including the full node tree (parents, siblings, versions). */
+  async cloneChat(chatId: string): Promise<Chat> {
+    const chat = await this.api.cloneChat(chatId);
+    this._chats.update(list => [chat, ...list]);
+    return chat;
+  }
+
   async deleteChat(id: string): Promise<void> {
     await this.api.deleteChat(id);
     this._chats.update(list => list.filter(c => c.id !== id));
