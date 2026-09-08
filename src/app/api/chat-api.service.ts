@@ -139,6 +139,7 @@ export class ChatApiService {
       attachments?: NodeAttachment[];
       modelId?: string;
       providerId?: string;
+      parentId?: string | null;
     }
   ): Promise<ChatNode> {
     return firstValueFrom(
