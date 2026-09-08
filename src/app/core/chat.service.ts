@@ -234,30 +234,61 @@ export class ChatService {
     return node;
   }
 
-  async deleteNode(chatId: string, nodeId: string): Promise<void> {
+  async deleteNode(
+    chatId: string,
+    nodeId: string,
+    options?: { keepChildren?: boolean }
+  ): Promise<void> {
     const snapshot = this._nodes();
     const target = snapshot.find(n => n.id === nodeId);
     const parentId = target?.parentId ?? null;
+    const keepChildren = !!options?.keepChildren;
 
-    await this.api.deleteNode(chatId, nodeId);
+    await this.api.deleteNode(chatId, nodeId, options);
 
-    const toDelete = new Set<string>();
-    const collect = (id: string) => {
-      toDelete.add(id);
-      snapshot.filter(n => n.parentId === id).forEach(child => collect(child.id));
-    };
-    collect(nodeId);
+    if (keepChildren) {
+      this._nodes.update(list =>
+        list
+          .filter(n => n.id !== nodeId)
+          .map(n => (n.parentId === nodeId ? { ...n, parentId } : n))
+      );
 
-    this._nodes.update(list => list.filter(n => !toDelete.has(n.id)));
+      this._activeChildMap.update(m => {
+        const next: Record<string, string> = {};
+        const promoted = m[nodeId];
+        for (const [k, v] of Object.entries(m)) {
+          if (k === nodeId) continue;
+          if (v === nodeId) {
+            if (promoted) next[k] = promoted;
+            continue;
+          }
+          next[k] = v;
+        }
+        const parentKey = parentId ?? 'root';
+        if (promoted && !(parentKey in next)) {
+          next[parentKey] = promoted;
+        }
+        return next;
+      });
+    } else {
+      const toDelete = new Set<string>();
+      const collect = (id: string) => {
+        toDelete.add(id);
+        snapshot.filter(n => n.parentId === id).forEach(child => collect(child.id));
+      };
+      collect(nodeId);
 
-    this._activeChildMap.update(m => {
-      const next: Record<string, string> = {};
-      for (const [k, v] of Object.entries(m)) {
-        if (toDelete.has(k) || toDelete.has(v)) continue;
-        next[k] = v;
-      }
-      return next;
-    });
+      this._nodes.update(list => list.filter(n => !toDelete.has(n.id)));
+
+      this._activeChildMap.update(m => {
+        const next: Record<string, string> = {};
+        for (const [k, v] of Object.entries(m)) {
+          if (toDelete.has(k) || toDelete.has(v)) continue;
+          next[k] = v;
+        }
+        return next;
+      });
+    }
 
     const remaining = this.getChildren(parentId);
     if (remaining.length > 0) {
