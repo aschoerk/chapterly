@@ -16,10 +16,16 @@ export function getServerConfig(): ServerConfig {
 
   const base = `http://localhost:${port}`;
 
+  // IndexedDB content only after a Google / OAuth access token exists.
+  // Electron and skip/password stay on the local chat-server.
+  const hasToken = typeof sessionStorage !== 'undefined'
+    && !!sessionStorage.getItem('chapterly.access_token');
+  const electron = typeof window !== 'undefined' && !!window.electronAPI;
+
   return {
     apiBase: `${base}/api`,
     proxyBase: `${base}/proxy`,
-    mode: "cloud"  // indexdb: "cloud"
+    mode: !electron && hasToken ? 'cloud' : 'local'
   };
 }
 
