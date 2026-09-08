@@ -13,6 +13,7 @@ import { ChatNodeComponent } from '../../components/chat-node/chat-node.componen
 import {SideBarComponent} from '../../components/side-bar/side-bar.component';
 import {Router} from '@angular/router';
 import {ProjectService} from '../../core/project.service';
+import { I18nService } from '../../core/i18n/i18n.service';
 
 @Component({
   selector: 'app-chat',
@@ -23,6 +24,7 @@ import {ProjectService} from '../../core/project.service';
 })
 export class ChatComponent implements OnInit {
   readonly chatService = inject(ChatService);
+  readonly i18n = inject(I18nService);
   readonly projectService = inject(ProjectService);
   private readonly settings = inject(SettingsService);
   private readonly lastModelService = inject(LastModelService);
