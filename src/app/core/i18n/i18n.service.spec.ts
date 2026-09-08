@@ -15,8 +15,10 @@ describe('I18nService', () => {
 
   it('resolves nested keys and falls back to English', () => {
     expect(i18n.t('config.providers.empty')).toBe('No providers configured yet.');
+    expect(i18n.t('nav.stories')).toBe('Stories');
     i18n.setLocale('de');
     expect(i18n.t('config.providers.empty')).toBe('Noch keine Anbieter eingerichtet.');
+    expect(i18n.t('nav.stories')).toBe('Geschichten');
     expect(i18n.t('config.providers.missing.key')).toBe('config.providers.missing.key');
   });
 

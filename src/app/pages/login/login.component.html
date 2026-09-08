@@ -1,14 +1,14 @@
 <div class="login-page">
   <form class="card" (ngSubmit)="submit()">
     <h1>Chapterly</h1>
-    <p class="hint">Temporary local login. Uses chat-server authorize → code → access token.</p>
+    <p class="hint">{{ i18n.t('login.hint') }}</p>
 
     <label>
-      Username
+      {{ i18n.t('login.username') }}
       <input name="username" [(ngModel)]="username" autocomplete="username" required />
     </label>
     <label>
-      Password
+      {{ i18n.t('login.password') }}
       <input name="password" type="password" [(ngModel)]="password" autocomplete="current-password" required />
     </label>
 
@@ -17,8 +17,8 @@
     }
 
     <button class="btn primary" type="submit" [disabled]="busy() || !username || !password">
-      {{ busy() ? 'Signing in…' : 'Sign in' }}
+      {{ busy() ? i18n.t('login.signingIn') : i18n.t('login.signIn') }}
     </button>
-    <button class="btn" type="button" (click)="skip()">Continue without token</button>
+    <button class="btn" type="button" (click)="skip()">{{ i18n.t('login.skip') }}</button>
   </form>
 </div>
