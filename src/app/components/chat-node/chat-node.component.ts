@@ -632,10 +632,16 @@ export class ChatNodeComponent {
 
     if (nonTrivial.length > 0) {
       const extra = subtree.length - 1;
-      const msg = extra > 0
-        ? `Delete this ${node.role}node and its ${extra} descendant(s)? ${nonTrivial.length} node(s) have content.`
-        : `Delete this ${node.role}node? It has content.`;
-      if (!confirm(msg)) return;
+      const ok = await this.confirm.ask({
+        title: 'Delete node?',
+        message: extra > 0
+          ? `Delete this ${node.role} node and its ${extra} descendant(s)? ${nonTrivial.length} node(s) have content.`
+          : `Delete this ${node.role} node? It has content.`,
+        confirmLabel: 'Delete',
+        cancelLabel: 'Cancel',
+        danger: true
+      });
+      if (!ok) return;
     }
 
     const chatId = this.chatService.currentChatId();
