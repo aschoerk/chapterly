@@ -45,7 +45,7 @@ export interface ChatApiPort {
     content?: string; thinking?: string; attachments?: NodeAttachment[];
     modelId?: string; providerId?: string;
   }): Promise<ChatNode>;
-  deleteNode(chatId: string, nodeId: string): Promise<void>;
+  deleteNode(chatId: string, nodeId: string, options?: { keepChildren?: boolean }): Promise<void>;
 
   getPersonas(): Promise<Persona[]>;
   createPersona(data: CreatePersonaRequest): Promise<Persona>;

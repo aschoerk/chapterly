@@ -51,18 +51,30 @@
       </div>
     }
 
-    <button class="btn-icon danger delete-btn" type="button"
-            title="Delete this node and its subtree"
-            [disabled]="isLoading() || chatService.isGenerating(node().id)"
-            (click)="deleteNode(); $event.stopPropagation()">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <polyline points="3 6 5 6 21 6"/>
-        <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
-        <path d="M10 11v6M14 11v6"/>
-        <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
-      </svg>
-      <span>Delete</span>
-    </button>
+    <div class="delete-actions">
+      <button class="btn-icon danger delete-btn" type="button"
+              title="Delete this node and its subtree"
+              [disabled]="isLoading() || chatService.isGenerating(node().id)"
+              (click)="deleteNode(); $event.stopPropagation()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polyline points="3 6 5 6 21 6"/>
+          <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+          <path d="M10 11v6M14 11v6"/>
+          <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
+        </svg>
+        <span>Delete</span>
+      </button>
+      <button class="btn-icon danger remove-node-btn" type="button"
+              title="Delete this node only. Children stay and attach to its parent."
+              [disabled]="isLoading() || chatService.isGenerating(node().id)"
+              (click)="deleteNodeOnly(); $event.stopPropagation()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="9"/>
+          <line x1="8" y1="12" x2="16" y2="12"/>
+        </svg>
+        <span>Remove</span>
+      </button>
+    </div>
   </div>
 
   @if (parametersFootnote(); as footnote) {
