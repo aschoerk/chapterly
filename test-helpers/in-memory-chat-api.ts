@@ -150,22 +150,28 @@ class InMemoryChatApi implements Pick<
   }
   async patchNode(chatId: string, nodeId: string, data: {
     content?: string; thinking?: string; attachments?: NodeAttachment[];
-    modelId?: string; providerId?: string;
+    modelId?: string; providerId?: string; parentId?: string | null;
   }) {
     const row = this.must(this.nodes, nodeId, 'Node');
     Object.assign(row, data, { updatedAt: new Date().toISOString() });
     return { ...row };
   }
   async deleteNode(chatId: string, nodeId: string, options?: { keepChildren?: boolean }) {
+    const target = this.must(this.nodes, nodeId, 'Node');
     if (options?.keepChildren) {
-      const target = this.nodes.find(n => n.id === nodeId);
-      const parentId = target?.parentId ?? null;
+      const parentId = target.parentId ?? null;
       this.nodes = this.nodes
         .filter(n => n.id !== nodeId)
         .map(n => n.parentId === nodeId ? { ...n, parentId } : n);
       return;
     }
-    this.nodes = this.nodes.filter(n => n.id !== nodeId);
+    const drop = new Set<string>();
+    const walk = (id: string) => {
+      drop.add(id);
+      this.nodes.filter(n => n.parentId === id).forEach(child => walk(child.id));
+    };
+    walk(nodeId);
+    this.nodes = this.nodes.filter(n => !drop.has(n.id));
   }
   async editAssistant(
     chatId: string, nodeId: string, content: string,
@@ -195,9 +201,9 @@ class InMemoryChatApi implements Pick<
   async branchUser(chatId: string, nodeId: string, data: {
     content: string; modelId?: string; providerId?: string; attachments?: NodeAttachment[];
   }) {
-    this.must(this.nodes, nodeId, 'Node');
+    const old = this.must(this.nodes, nodeId, 'Node');
     return this.createNode(chatId, {
-      parentId: nodeId,
+      parentId: old.parentId,
       role: 'user',
       content: data.content,
       modelId: data.modelId,
