@@ -374,6 +374,26 @@ export class ChatService {
     return node;
   }
 
+  /** Move existing nodes under a new parent and keep local state in sync. */
+  async reparentNodes(chatId: string, nodeIds: string[], newParentId: string | null): Promise<void> {
+    const ids = [...new Set(nodeIds)].filter(id => id && id !== newParentId);
+    if (ids.length === 0) return;
+
+    for (const id of ids) {
+      const saved = await this.api.patchNode(chatId, id, { parentId: newParentId });
+      this._nodes.update(list => list.map(n => n.id === id ? { ...n, ...saved } : n));
+    }
+
+    this._activeChildMap.update(m => {
+      const next: Record<string, string> = { ...m };
+      const parentKey = newParentId ?? 'root';
+      if (!(parentKey in next) && ids.length > 0) {
+        next[parentKey] = ids[0];
+      }
+      return next;
+    });
+  }
+
 
   async updateChatTitle(id: string, title: string): Promise<void> {
     const updated = await this.api.patchChat(id, {title});
