@@ -282,6 +282,22 @@ export class SideBarComponent implements OnInit {
     }, 50);
   }
 
+  async cloneChat(chat: Chat, event: Event) {
+    event.stopPropagation();
+    try {
+      const copy = await this.chatService.cloneChat(chat.id);
+      const projectKey = copy.projectId ?? '__unassigned__';
+      if (!this.isExpanded(projectKey)) {
+        this.expanded.update(m => ({ ...m, [projectKey]: true }));
+        this.persistExpanded();
+      }
+      await this.selectChat(copy);
+    } catch (err: any) {
+      console.error(err);
+      alert('Clone failed: ' + (err?.message || err));
+    }
+  }
+
   async deleteChat(chat: Chat, event: Event) {
     event.stopPropagation();
     const ok = await this.confirm.ask({
