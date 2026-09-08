@@ -153,7 +153,7 @@ export class LlmService {
       ...this.toLlmExtras(resolved)
     };
 
-
+    const payloadMessages = this.withTopicSystemPrompt(chatId, messages);
 
     const answerNode = await this.chatService.addNode(chatId, {
       parentId: questionNodeId,
@@ -263,7 +263,7 @@ export class LlmService {
         provider.baseUrl,
         provider.apiKey,
         model.modelId,
-        messages,
+        payloadMessages,
         resolved.stream,
         chunk => {
           if (chunk.content) accContent += chunk.content;
@@ -303,6 +303,30 @@ export class LlmService {
         this.chatService.scrollToNode?.(current.id);
       }
     }
+  }
+
+  /**
+   * When the thread has no leading system node, inject the topic
+   * `defaultSystemPrompt` of the chat's project so ad-hoc chats still
+   * inherit the topic voice. Does not persist a system node.
+   */
+  withTopicSystemPrompt(chatId: string, messages: ChatMessage[]): ChatMessage[] {
+    if (messages.some(m => m.role === 'system')) {
+      return messages;
+    }
+    const prompt = this.topicSystemPromptForChat(chatId);
+    if (!prompt) return messages;
+    return [{ role: 'system', content: prompt }, ...messages];
+  }
+
+  private topicSystemPromptForChat(chatId: string): string | null {
+    const chat = this.chatService.chats().find(c => c.id === chatId);
+    const projectId = chat?.projectId;
+    if (!projectId) return null;
+    const parts = this.projectService.topics()
+      .filter(t => t.projectIds?.includes(projectId) && t.defaultSystemPrompt?.trim())
+      .map(t => t.defaultSystemPrompt.trim());
+    return parts.length ? parts.join('\n\n') : null;
   }
 
   private reasoningExtras(
