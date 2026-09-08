@@ -30,7 +30,7 @@ export const EN = {
     stories: 'Stories',
     storiesTitle: 'Stories',
     read: 'Read',
-    readTitle: 'Book view',
+    readTitle: 'Reader view',
     environments: 'Environments',
     environmentsTitle: 'Environments & topics',
     personas: 'Personas',
@@ -68,8 +68,8 @@ export const EN = {
     instant: 'instant',
     params: 'Params',
     applyToChat: 'Apply to chat',
-    bookView: 'Book View',
-    bookViewTitle: 'Open book view (Ctrl-B)'
+    bookView: 'Reader view',
+    bookViewTitle: 'Open reader view (Ctrl-B)'
   },
   reader: {
     columns: 'Columns',
@@ -89,7 +89,9 @@ export const EN = {
     size: 'Size',
     sizePresets: 'Size presets',
     fontSizeAria: 'Font size in pixels',
-    done: 'Done'
+    done: 'Done',
+    roleUser: 'direction',
+    roleAssistant: 'chapter'
   },
   sidebar: {
     stories: 'Stories',

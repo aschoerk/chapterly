@@ -498,7 +498,7 @@ export class ChatReaderComponent implements OnInit, OnDestroy {
   }
 
   private nodeToHtml(node: ChatNode): string {
-    const kind = node.role === 'user' ? 'Direction' : 'Chapter';
+    const kind = node.role === 'user' ? this.i18n.t('reader.roleUser') : this.i18n.t('reader.roleAssistant');
     const meta = [kind, node.modelId, `v${node.version}`].filter(Boolean).join(' · ');
     const body = this.markdown.toHtml(node.content || '');
     const files = (node.attachments || [])
