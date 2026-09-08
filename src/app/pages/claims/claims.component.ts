@@ -5,6 +5,7 @@ import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import { AuthService, TokenClaims } from '../../core/auth.service';
 import { getServerConfig } from '../../core/common/server-config';
+import { I18nService } from '../../core/i18n/i18n.service';
 
 interface UserRow {
   id: string;
@@ -37,6 +38,7 @@ interface GrantRow {
 export class ClaimsComponent {
   private readonly http = inject(HttpClient);
   readonly auth = inject(AuthService);
+  readonly i18n = inject(I18nService);
 
   readonly users = signal<UserRow[]>([]);
   readonly workspaces = signal<NamedRow[]>([]);
@@ -75,7 +77,7 @@ export class ClaimsComponent {
       await this.reloadGrants();
     } catch (err: unknown) {
       const http = err as { error?: { error?: string } };
-      this.error.set(http?.error?.error || 'Could not load users, workspaces or wallets');
+      this.error.set(http?.error?.error || this.i18n.t('claims.loadFailed'));
     }
   }
 
@@ -127,11 +129,11 @@ export class ClaimsComponent {
         const scopes = access === 'write' ? ['topics.read', 'topics.write'] : ['topics.read'];
         await firstValueFrom(this.http.post(this.api(`/workspaces/${workspaceId}/authorizations`), { userId, scopes }));
       }
-      this.notice.set('Workspace grant saved. User must log in again to refresh their token.');
+      this.notice.set(this.i18n.t('claims.wsSaved'));
       await this.reloadGrants();
     } catch (err: unknown) {
       const http = err as { error?: { error?: string } };
-      this.error.set(http?.error?.error || 'Could not update workspace grant');
+      this.error.set(http?.error?.error || this.i18n.t('claims.wsFailed'));
     }
   }
 
@@ -146,11 +148,11 @@ export class ClaimsComponent {
         const scopes = access === 'manage' ? ['providers.read', 'providers.write'] : ['providers.read'];
         await firstValueFrom(this.http.post(this.api(`/wallets/${walletId}/authorizations`), { userId, scopes }));
       }
-      this.notice.set('Wallet grant saved. User must log in again to refresh their token.');
+      this.notice.set(this.i18n.t('claims.wlSaved'));
       await this.reloadGrants();
     } catch (err: unknown) {
       const http = err as { error?: { error?: string } };
-      this.error.set(http?.error?.error || 'Could not update wallet grant');
+      this.error.set(http?.error?.error || this.i18n.t('claims.wlFailed'));
     }
   }
 }
