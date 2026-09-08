@@ -24,9 +24,11 @@ export class ConfigComponent {
   readonly theme = inject(ThemeService);
   readonly i18n = inject(I18nService);
 
+  // Signals from service
   readonly providers = this.settings.providers;
   readonly models = this.settings.models;
 
+  // UI state
   readonly showAddProvider = signal(false);
   readonly showAddPreset = signal(false);
   readonly editingPresetId = signal<string | null>(null);
@@ -39,6 +41,7 @@ export class ConfigComponent {
   readonly testResult = signal<{ id: string; ok: boolean; message: string } | null>(null);
   readonly fetchingId = signal<string | null>(null);
 
+  // Form models
   newProvider = {
     name: 'OpenRouter',
     type: 'openrouter' as const,
@@ -61,11 +64,13 @@ export class ConfigComponent {
   readonly fetchedParamsDraft = signal<ChatParametersDraft>(emptyParametersDraft());
   readonly fetchedParamsInherited = signal<ResolvedChatParameters | null>(null);
 
+  // Architecture form fields for new presets
   presetArchitecture = {
     input_modalities: [] as string[],
     output_modalities: [] as string[]
   };
 
+  // Available modality options
   readonly modalityOptions = [
     { value: 'text', labelKey: 'config.modality.text' },
     { value: 'image', labelKey: 'config.modality.image' },
@@ -92,14 +97,29 @@ export class ConfigComponent {
     const sortFn = (a: ModelEntry, b: ModelEntry) =>
       a.displayName.localeCompare(b.displayName, locale, { sensitivity: 'base' });
 
+    // Enabled only → search applies to enabled models
     if (enabledOnly) {
-      return allModels.filter(m => m.enabled && matchesSearch(m)).sort(sortFn);
+      return allModels
+        .filter(m => m.enabled && matchesSearch(m))
+        .sort(sortFn);
     }
+
+    // Not enabled only → search applies to disabled models
     if (disabledOnly) {
-      return allModels.filter(m => !m.enabled && matchesSearch(m)).sort(sortFn);
+      return allModels
+        .filter(m => !m.enabled && matchesSearch(m))
+        .sort(sortFn);
     }
-    const enabledModels = allModels.filter(m => m.enabled).sort(sortFn);
-    const disabledModels = allModels.filter(m => !m.enabled && matchesSearch(m)).sort(sortFn);
+
+    // Default: enabled always on top (ignore search), disabled filtered by search
+    const enabledModels = allModels
+      .filter(m => m.enabled)
+      .sort(sortFn);
+
+    const disabledModels = allModels
+      .filter(m => !m.enabled && matchesSearch(m))
+      .sort(sortFn);
+
     return [...enabledModels, ...disabledModels];
   });
 
@@ -113,6 +133,8 @@ export class ConfigComponent {
     if (value) this.showEnabledOnly.set(false);
   }
 
+
+  // ---------- Provider actions ----------
   openAddProvider() {
     this.newProvider = {
       name: 'OpenRouter',
@@ -136,6 +158,7 @@ export class ConfigComponent {
   async testProvider(provider: ProviderConfig) {
     this.testingId.set(provider.id);
     this.testResult.set(null);
+
     const result = await this.settings.testProvider(provider);
     this.testResult.set({
       id: provider.id,
@@ -162,6 +185,7 @@ export class ConfigComponent {
     }
   }
 
+  // ---------- Preset actions ----------
   openAddPreset() {
     const firstProvider = this.providers()[0];
     this.editingPresetId.set(null);
@@ -174,22 +198,32 @@ export class ConfigComponent {
     this.presetParamsOverride.set(false);
     this.presetParamsDraft.set(emptyParametersDraft());
     this.presetParamsInherited.set(this.parameters.resolveForChat({}));
-    this.presetArchitecture = { input_modalities: [], output_modalities: [] };
+    // Reset architecture form
+    this.presetArchitecture = {
+      input_modalities: [],
+      output_modalities: []
+    };
     this.showAddPreset.set(true);
   }
 
   async testPreset() {
     if (!this.newPreset.modelId.trim() || !this.newPreset.providerId) {
-      this.presetTestResult.set({ ok: false, message: this.i18n.t('config.models.needModelAndProvider') });
+      this.presetTestResult.set({
+        ok: false,
+        message: this.i18n.t('config.models.needModelAndProvider')
+      });
       return;
     }
+
     const provider = this.providers().find(p => p.id === this.newPreset.providerId);
     if (!provider) {
       this.presetTestResult.set({ ok: false, message: this.i18n.t('config.models.providerMissing') });
       return;
     }
+
     this.testingPreset.set(true);
     this.presetTestResult.set(null);
+
     const result = await this.settings.testModel(provider, this.newPreset.modelId.trim());
     this.presetTestResult.set({
       ok: result.ok,
@@ -209,6 +243,7 @@ export class ConfigComponent {
       alert(this.i18n.t('config.models.needProvider'));
       return;
     }
+
     const architecture: ModelArchitecture = {
       modality: this.createModalityString(
         this.presetArchitecture.input_modalities,
@@ -217,11 +252,13 @@ export class ConfigComponent {
       input_modalities: [...this.presetArchitecture.input_modalities],
       output_modalities: [...this.presetArchitecture.output_modalities]
     };
+
     const chatParametersId = await this.parameters.persistDraft(
       this.newPreset.chatParametersId,
       this.presetParamsOverride(),
       this.presetParamsDraft()
     );
+
     const editingId = this.editingPresetId();
     if (editingId) {
       await this.settings.updateModel(editingId, {
@@ -311,34 +348,46 @@ export class ConfigComponent {
     await this.router.navigate(['/chat']);
   }
 
+  // ---------- Architecture helper methods ----------
+
+  // Check if a modality is selected for input
   isInputModalitySelected(modality: string): boolean {
     return this.presetArchitecture.input_modalities.includes(modality);
   }
 
+  // Check if a modality is selected for output
   isOutputModalitySelected(modality: string): boolean {
     return this.presetArchitecture.output_modalities.includes(modality);
   }
 
+  // Toggle input modality selection
   toggleInputModality(modality: string): void {
     const current = this.presetArchitecture.input_modalities;
-    this.presetArchitecture.input_modalities = current.includes(modality)
-      ? current.filter(m => m !== modality)
-      : [...current, modality];
+    if (current.includes(modality)) {
+      this.presetArchitecture.input_modalities = current.filter(m => m !== modality);
+    } else {
+      this.presetArchitecture.input_modalities = [...current, modality];
+    }
   }
 
+  // Toggle output modality selection
   toggleOutputModality(modality: string): void {
     const current = this.presetArchitecture.output_modalities;
-    this.presetArchitecture.output_modalities = current.includes(modality)
-      ? current.filter(m => m !== modality)
-      : [...current, modality];
+    if (current.includes(modality)) {
+      this.presetArchitecture.output_modalities = current.filter(m => m !== modality);
+    } else {
+      this.presetArchitecture.output_modalities = [...current, modality];
+    }
   }
 
+  // Create modality string like "text+image->text"
   createModalityString(inputs: string[], outputs: string[]): string {
     const inputStr = inputs.length > 0 ? inputs.join('+') : 'none';
     const outputStr = outputs.length > 0 ? outputs.join('+') : 'none';
     return `${inputStr}->${outputStr}`;
   }
 
+  // Format architecture for display
   formatArchitecture(architecture?: ModelArchitecture): string {
     if (!architecture) return this.i18n.t('config.models.architectureUnset');
     return architecture.modality ||
