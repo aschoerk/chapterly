@@ -188,7 +188,7 @@ export class LlmService {
       const rate = this.chatService.streamSpeed();
       if (rate <= 0 || committed >= n) return n;
       if (this.chatService.streamSpeedUnit() === 'char') return committed;
-      const tail = accContent.slice(committed).match(/^\\s*\\S*/);
+      const tail = accContent.slice(committed).match(/^[ \t\r\n]*[^ \t\r\n]*/);
       return committed + (tail ? tail[0].length : 0);
     };
 
@@ -203,11 +203,15 @@ export class LlmService {
       );
     };
 
+    let llmFinished = false;
+
     const endOfNextUnit = (from: number): number => {
       if (from >= accContent.length) return from;
       if (this.chatService.streamSpeedUnit() === 'char') return from + 1;
-      const m = accContent.slice(from).match(/^\\s*\\S+\\s+/);
-      return m ? from + m[0].length : from;
+      const m = accContent.slice(from).match(/^[ \t\r\n]*[^ \t\r\n]+[ \t\r\n]+/);
+      if (m) return from + m[0].length;
+      // Last token has no trailing whitespace until the model is done.
+      return llmFinished ? accContent.length : from;
     };
 
     const flushReveal = () => {
@@ -264,6 +268,37 @@ export class LlmService {
       raf = requestAnimationFrame(tick);
     };
 
+    const drainReveal = (): Promise<void> => new Promise(resolve => {
+      const finish = () => {
+        flushReveal();
+        resolve();
+      };
+      if (
+        !this.chatService.paceAfterComplete()
+        || this.chatService.streamSpeed() <= 0
+        || committed >= accContent.length
+        || signal.aborted
+      ) {
+        finish();
+        return;
+      }
+      const watch = () => {
+        if (
+          committed >= accContent.length
+          || this.chatService.streamSpeed() <= 0
+          || !this.chatService.paceAfterComplete()
+          || signal.aborted
+        ) {
+          finish();
+          return;
+        }
+        if (!pumpRunning) kickPump();
+        requestAnimationFrame(watch);
+      };
+      kickPump();
+      requestAnimationFrame(watch);
+    });
+
     try {
       const result = await this.askLlm(
         provider.baseUrl,
@@ -283,7 +318,8 @@ export class LlmService {
 
       accContent = result.content;
       accThinking = result.thinking;
-      flushReveal();
+      llmFinished = true;
+      await drainReveal();
 
       if (accContent.trim() || accThinking.trim()) {
         const versioned = await this.chatService.editAssistant(

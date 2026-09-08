@@ -60,6 +60,7 @@ export const EN = {
     followStreaming: 'follow streaming',
     followThinking: 'follow thinking',
     alwaysOpenAtLeaf: 'always open at leaf',
+    paceAfterComplete: 'keep pacing after LLM',
     generating: 'Generating…',
     reveal: 'reveal',
     charsPerSec: 'chars/s',

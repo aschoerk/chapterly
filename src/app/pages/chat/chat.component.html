@@ -44,6 +44,12 @@
                          (change)="chatService.setAlwaysOpenAtLeaf($any($event.target).checked)" />
                   {{ i18n.t('chat.alwaysOpenAtLeaf') }}
                 </label>
+                <label>
+                  <input type="checkbox"
+                         [checked]="chatService.paceAfterComplete()"
+                         (change)="chatService.setPaceAfterComplete($any($event.target).checked)" />
+                  {{ i18n.t('chat.paceAfterComplete') }}
+                </label>
                 <span class="gen-spinner"
                       [class.on]="!!chatService.generatingNodeId()"
                       [title]="i18n.t('chat.generating')"

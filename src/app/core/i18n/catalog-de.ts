@@ -60,6 +60,7 @@ export const DE = {
     followStreaming: 'Streaming folgen',
     followThinking: 'Denkspur folgen',
     alwaysOpenAtLeaf: 'immer am Blatt öffnen',
+    paceAfterComplete: 'nach LLM weiter im Tempo',
     generating: 'Wird erzeugt…',
     reveal: 'anzeigen',
     charsPerSec: 'Zeichen/s',

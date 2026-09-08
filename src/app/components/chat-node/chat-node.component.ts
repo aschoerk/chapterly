@@ -1,5 +1,5 @@
 import {
-  Component, inject, input, output, signal, effect,
+  Component, inject, input, output, signal, effect, afterRenderEffect,
   viewChild, ElementRef, Provider, computed
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
@@ -739,14 +739,17 @@ export class ChatNodeComponent {
       this.updateRendered(content);
     });
 
-    effect(() => {
+    afterRenderEffect(() => {
       const n = this.node();
-      if (!this.chatService.isGenerating(n.id)) return;
+      this.renderedHtml();
+      const generating = this.chatService.isGenerating(n.id)
+        || this.chatService.generatingNodeId() === n.id;
+      if (!generating) return;
       if (this.chatService.followThinking() && n.thinking?.trim()) {
         this.thinkingClosed.set(false);
       }
       if (this.chatService.followStreaming() || (this.chatService.followThinking() && !n.content?.trim())) {
-        queueMicrotask(() => this.followLive());
+        this.followLive();
       }
     });
   }
@@ -754,16 +757,30 @@ export class ChatNodeComponent {
   private followLive(): void {
     const anchor = this.streamEnd()?.nativeElement;
     if (!anchor) return;
-    const tree = anchor.closest('.tree') as HTMLElement | null;
-    if (!tree) {
-      anchor.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    const scroller = this.nearestScrollParent(anchor);
+    if (!scroller) {
+      anchor.scrollIntoView({ block: 'end', inline: 'nearest' });
       return;
     }
     const a = anchor.getBoundingClientRect();
-    const t = tree.getBoundingClientRect();
-    if (a.bottom > t.bottom - 12 || a.top < t.top + 12) {
-      anchor.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    const s = scroller.getBoundingClientRect();
+    if (a.bottom > s.bottom - 12 || a.top < s.top + 12) {
+      const nextTop = scroller.scrollTop + (a.bottom - s.bottom) + 16;
+      scroller.scrollTop = Math.max(0, nextTop);
     }
+  }
+
+  private nearestScrollParent(el: HTMLElement): HTMLElement | null {
+    let cur: HTMLElement | null = el.parentElement;
+    while (cur) {
+      const style = getComputedStyle(cur);
+      const oy = style.overflowY;
+      if ((oy === 'auto' || oy === 'scroll') && cur.scrollHeight > cur.clientHeight + 1) {
+        return cur;
+      }
+      cur = cur.parentElement;
+    }
+    return document.scrollingElement as HTMLElement | null;
   }
 
   updateRendered(content: string): void {

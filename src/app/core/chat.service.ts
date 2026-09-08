@@ -66,6 +66,14 @@ export class ChatService {
     localStorage.setItem('chat.view.alwaysOpenAtLeaf', on ? '1' : '0');
   }
 
+  /** After the LLM finishes, keep revealing leftover text at streamSpeed. */
+  readonly paceAfterComplete = signal(this.loadViewPref('chat.view.paceAfterComplete', true));
+
+  setPaceAfterComplete(on: boolean) {
+    this.paceAfterComplete.set(on);
+    localStorage.setItem('chat.view.paceAfterComplete', on ? '1' : '0');
+  }
+
   readonly streamSpeedUnit = signal<'char' | 'word'>(
     this.loadViewPrefStr('chat.view.streamSpeedUnit', 'char') as 'char' | 'word'
   );
