@@ -40,6 +40,7 @@
     </div>
   </section>
 
+  <!-- ==================== PROVIDERS ==================== -->
   <section class="section">
     <div class="section-header">
       <h2>{{ i18n.t('config.providers.title') }}</h2>
@@ -55,10 +56,16 @@
         <div class="card-header">
           <strong>{{ provider.name }}</strong>
           <div class="actions">
-            <button class="btn small" [disabled]="testingId() === provider.id" (click)="testProvider(provider)">
+            <button
+              class="btn small"
+              [disabled]="testingId() === provider.id"
+              (click)="testProvider(provider)">
               {{ testingId() === provider.id ? i18n.t('config.providers.testing') : i18n.t('config.providers.test') }}
             </button>
-            <button class="btn small" [disabled]="fetchingId() === provider.id" (click)="fetchModels(provider)">
+            <button
+              class="btn small"
+              [disabled]="fetchingId() === provider.id"
+              (click)="fetchModels(provider)">
               {{ fetchingId() === provider.id ? i18n.t('config.providers.fetching') : i18n.t('config.providers.fetchModels') }}
             </button>
             <button class="btn small danger" (click)="deleteProvider(provider.id)">
@@ -66,12 +73,14 @@
             </button>
           </div>
         </div>
+
         <div class="card-body">
           <div><span class="label">{{ i18n.t('config.providers.baseUrl') }}</span> {{ provider.baseUrl }}</div>
           <div>
             <span class="label">{{ i18n.t('config.providers.apiKey') }}</span>
             {{ provider.apiKey ? '••••••••••••' + provider.apiKey.slice(-6) : i18n.t('config.providers.apiKeyMissing') }}
           </div>
+
           @if (testResult()?.id === provider.id) {
             <div class="test-result" [class.ok]="testResult()?.ok" [class.fail]="!testResult()?.ok">
               {{ testResult()?.message }}
@@ -82,22 +91,27 @@
     }
   </section>
 
+  <!-- Add Provider Form -->
   @if (showAddProvider()) {
     <div class="modal-backdrop">
       <div class="modal">
         <h3>{{ i18n.t('config.providers.addTitle') }}</h3>
+
         <label>
           {{ i18n.t('config.providers.name') }}
           <input [(ngModel)]="newProvider.name" />
         </label>
+
         <label>
           {{ i18n.t('config.providers.baseUrlField') }}
           <input [(ngModel)]="newProvider.baseUrl" />
         </label>
+
         <label>
           {{ i18n.t('config.providers.apiKeyField') }}
           <input type="password" [(ngModel)]="newProvider.apiKey" />
         </label>
+
         <div class="modal-actions">
           <button class="btn" (click)="showAddProvider.set(false)">{{ i18n.t('config.providers.cancel') }}</button>
           <button class="btn primary" (click)="saveProvider()">{{ i18n.t('config.providers.save') }}</button>
@@ -106,6 +120,7 @@
     </div>
   }
 
+  <!-- ==================== MODELS / PRESETS ==================== -->
   <section class="section">
     <div class="section-header">
       <h2>{{ i18n.t('config.models.title') }}</h2>
@@ -113,12 +128,24 @@
         {{ i18n.t('config.models.addPreset') }}
       </button>
     </div>
+
     <div class="toolbar">
-      <input type="search" [placeholder]="i18n.t('config.models.search')" [ngModel]="searchTerm()" (ngModelChange)="searchTerm.set($event)" />
-      <button class="btn" [class.active]="showEnabledOnly()" (click)="setEnabledOnly(!showEnabledOnly())">
+      <input
+        type="search"
+        [placeholder]="i18n.t('config.models.search')"
+        [ngModel]="searchTerm()"
+        (ngModelChange)="searchTerm.set($event)"
+      />
+      <button
+        class="btn"
+        [class.active]="showEnabledOnly()"
+        (click)="setEnabledOnly(!showEnabledOnly())">
         {{ i18n.t('config.models.enabledOnly') }}
       </button>
-      <button class="btn" [class.active]="showDisabledOnly()" (click)="setDisabledOnly(!showDisabledOnly())">
+      <button
+        class="btn"
+        [class.active]="showDisabledOnly()"
+        (click)="setDisabledOnly(!showDisabledOnly())">
         {{ i18n.t('config.models.disabledOnly') }}
       </button>
     </div>
@@ -140,9 +167,15 @@
           @for (model of filteredModels(); track model.id) {
             <tr>
               <td>
-                <input type="checkbox" [checked]="model.enabled" (change)="toggleEnabled(model.id)" />
+                <input
+                  type="checkbox"
+                  [checked]="model.enabled"
+                  (change)="toggleEnabled(model.id)"
+                />
               </td>
-              <td><span class="provider-name">{{ getProviderName(model.providerId) }}</span></td>
+              <td>
+                <span class="provider-name">{{ getProviderName(model.providerId) }}</span>
+              </td>
               <td>
                 <div class="model-name">{{ model.displayName }}</div>
                 <div class="model-id">{{ model.modelId }}</div>
@@ -154,8 +187,11 @@
                 <span class="badge" [class.preset]="model.type === 'preset'">
                   {{ model.type === 'preset' ? i18n.t('config.models.typePreset') : i18n.t('config.models.typeFetched') }}
                 </span>
+                <!-- Show architecture info -->
                 @if (model.architecture) {
-                  <div class="architecture-info"><small>{{ formatArchitecture(model.architecture) }}</small></div>
+                  <div class="architecture-info">
+                    <small>{{ formatArchitecture(model.architecture) }}</small>
+                  </div>
                 }
                 @if (model.pricing_prompt || model.pricing?.prompt) {
                   <div class="price">
@@ -167,7 +203,9 @@
               <td>
                 @if (model.type === 'preset') {
                   <button class="btn small" (click)="openEditPreset(model)">{{ i18n.t('config.models.edit') }}</button>
-                  <button class="btn small danger" (click)="deleteModel(model.id)">{{ i18n.t('config.models.delete') }}</button>
+                  <button class="btn small danger" (click)="deleteModel(model.id)">
+                    {{ i18n.t('config.models.delete') }}
+                  </button>
                 } @else {
                   <button class="btn small" (click)="openFetchedParams(model)">{{ i18n.t('config.models.params') }}</button>
                 }
@@ -179,18 +217,22 @@
     }
   </section>
 
+  <!-- Add Preset Form -->
   @if (showAddPreset()) {
     <div class="modal-backdrop">
       <div class="modal">
         <h3>{{ editingPresetId() ? i18n.t('config.models.editTitle') : i18n.t('config.models.addTitle') }}</h3>
+
         <label>
           {{ i18n.t('config.models.displayName') }}
           <input [(ngModel)]="newPreset.displayName" [placeholder]="i18n.t('config.models.displayNamePh')" />
         </label>
+
         <label>
           {{ i18n.t('config.models.modelId') }}
           <input [(ngModel)]="newPreset.modelId" [placeholder]="i18n.t('config.models.modelIdPh')" />
         </label>
+
         <label>
           {{ i18n.t('config.models.provider') }}
           <select [(ngModel)]="newPreset.providerId">
@@ -199,12 +241,17 @@
             }
           </select>
         </label>
+
         <div class="modalities-compact">
           <div class="modality-row">
             <span class="modality-heading">{{ i18n.t('config.models.modalityIn') }}</span>
             <div class="modality-chips">
               @for (modality of modalityOptions; track modality.value) {
-                <button type="button" class="chip" [class.on]="isInputModalitySelected(modality.value)" (click)="toggleInputModality(modality.value)">
+                <button
+                  type="button"
+                  class="chip"
+                  [class.on]="isInputModalitySelected(modality.value)"
+                  (click)="toggleInputModality(modality.value)">
                   {{ i18n.t(modality.labelKey) }}
                 </button>
               }
@@ -214,26 +261,40 @@
             <span class="modality-heading">{{ i18n.t('config.models.modalityOut') }}</span>
             <div class="modality-chips">
               @for (modality of modalityOptions; track modality.value) {
-                <button type="button" class="chip" [class.on]="isOutputModalitySelected(modality.value)" (click)="toggleOutputModality(modality.value)">
+                <button
+                  type="button"
+                  class="chip"
+                  [class.on]="isOutputModalitySelected(modality.value)"
+                  (click)="toggleOutputModality(modality.value)">
                   {{ i18n.t(modality.labelKey) }}
                 </button>
               }
             </div>
           </div>
         </div>
+
+        <!-- Test result -->
         @if (presetTestResult()) {
-          <div class="test-result" [class.ok]="presetTestResult()?.ok" [class.fail]="!presetTestResult()?.ok">
+          <div
+            class="test-result"
+            [class.ok]="presetTestResult()?.ok"
+            [class.fail]="!presetTestResult()?.ok">
             {{ presetTestResult()?.message }}
           </div>
         }
+
         <app-chat-parameters-editor
           [initial]="presetParamsDraft()"
           [initialOverride]="presetParamsOverride()"
           [inherited]="presetParamsInherited()"
           (changed)="onPresetParamsChanged($event)"
         />
+
         <div class="modal-actions">
-          <button class="btn" [disabled]="testingPreset()" (click)="testPreset()">
+          <button
+            class="btn"
+            [disabled]="testingPreset()"
+            (click)="testPreset()">
             {{ testingPreset() ? i18n.t('config.models.testing') : i18n.t('config.models.test') }}
           </button>
           <button class="btn" (click)="showAddPreset.set(false)">{{ i18n.t('config.models.cancel') }}</button>
