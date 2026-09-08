@@ -3,6 +3,8 @@ const cors = require('cors');
 const proxyRoutes = require('./routes/proxy');
 const apiRoutes = require('./routes/api');
 const chatsRoutes = require('./routes/chats');
+const registerCloneChat = require('./routes/clone-chat');
+registerCloneChat(chatsRoutes);
 const projectsRoutes = require('./routes/projects');
 const personasRoutes = require('./routes/personas');
 const topicsRoutes = require('./routes/topics');
