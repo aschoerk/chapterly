@@ -146,9 +146,10 @@ export class ChatApiService {
     );
   }
 
-  deleteNode(chatId: string, nodeId: string): Promise<void> {
+  deleteNode(chatId: string, nodeId: string, options?: { keepChildren?: boolean }): Promise<void> {
+    const q = options?.keepChildren ? '?keepChildren=true' : '';
     return firstValueFrom(
-      this.http.delete<void>(this.api(`/chats/${chatId}/nodes/${nodeId}`))
+      this.http.delete<void>(this.api(`/chats/${chatId}/nodes/${nodeId}${q}`))
     );
   }
 
