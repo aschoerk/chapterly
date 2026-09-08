@@ -43,7 +43,7 @@ export interface ChatApiPort {
   branchUser(chatId: string, nodeId: string, data: BranchQuestionRequest): Promise<ChatNode>;
   patchNode(chatId: string, nodeId: string, data: {
     content?: string; thinking?: string; attachments?: NodeAttachment[];
-    modelId?: string; providerId?: string;
+    modelId?: string; providerId?: string; parentId?: string | null;
   }): Promise<ChatNode>;
   deleteNode(chatId: string, nodeId: string, options?: { keepChildren?: boolean }): Promise<void>;
 
