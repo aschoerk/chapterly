@@ -51,6 +51,7 @@ export const EN_SHELL = {
     signIn: 'Sign in',
     signingIn: 'Signing in…',
     skip: 'Continue without token',
+    google: 'Sign in with Google',
     invalid: 'Invalid credentials',
     failed: 'Login failed'
   },

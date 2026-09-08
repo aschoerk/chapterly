@@ -53,6 +53,20 @@ function initializeSchema(db) {
   }
 
   db.exec(`
+    CREATE TABLE IF NOT EXISTS user_identities (
+      id          TEXT PRIMARY KEY,
+      user_id     TEXT NOT NULL,
+      provider    TEXT NOT NULL,
+      subject     TEXT NOT NULL,
+      email       TEXT,
+      created_at  TEXT DEFAULT (datetime('now')),
+      UNIQUE (provider, subject),
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_user_identities_user ON user_identities(user_id);
+  `);
+
+  db.exec(`
     CREATE TABLE IF NOT EXISTS workspaces (
       id            TEXT PRIMARY KEY,
       name          TEXT NOT NULL,

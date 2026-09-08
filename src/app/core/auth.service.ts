@@ -53,6 +53,24 @@ export class AuthService {
     return `${getServerConfig().apiBase}${path}`;
   }
 
+  /**
+   * Headers for /proxy. A Chapterly access token wins over a provider API key
+   * so the server can resolve the wallet. fetch() bypasses the HTTP interceptor.
+   */
+  proxyAuthHeaders(opts: {
+    apiKey?: string | null;
+    providerBaseUrl?: string | null;
+    providerId?: string | null;
+  } = {}): Record<string, string> {
+    const token = this.electron ? null : this.accessToken();
+    const bearer = token || opts.apiKey || '';
+    const headers: Record<string, string> = {};
+    if (bearer) headers['Authorization'] = `Bearer ${bearer}`;
+    if (opts.providerBaseUrl) headers['x-target-base'] = opts.providerBaseUrl;
+    if (token && opts.providerId) headers['x-provider-id'] = opts.providerId;
+    return headers;
+  }
+
   async login(username: string, password: string): Promise<TokenResponse> {
     const authorize = await firstValueFrom(
       this.http.post<{ code: string; claims: TokenClaims; user_id: string }>(
@@ -60,16 +78,34 @@ export class AuthService {
         { username, password }
       )
     );
+    return this.exchangeCode(authorize.code);
+  }
+
+  async exchangeCode(code: string): Promise<TokenResponse> {
     const token = await firstValueFrom(
       this.http.post<TokenResponse>(this.api('/oauth/token'), {
         grant_type: 'authorization_code',
-        code: authorize.code
+        code
       })
     );
     this.store(token);
     this.skipAuth.set(false);
     sessionStorage.removeItem(SKIP_KEY);
     return token;
+  }
+
+  async googleEnabled(): Promise<boolean> {
+    try {
+      const info = await firstValueFrom(this.http.get<{ enabled: boolean }>(this.api('/oauth/google')));
+      return !!info.enabled;
+    } catch {
+      return false;
+    }
+  }
+
+  startGoogleLogin(): void {
+    const returnTo = `${window.location.origin}${window.location.pathname || '/'}#/login`;
+    window.location.href = `${this.api('/oauth/google/start')}?return_to=${encodeURIComponent(returnTo)}`;
   }
 
   continueWithoutToken(): void {

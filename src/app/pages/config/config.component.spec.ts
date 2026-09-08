@@ -88,7 +88,7 @@ describe('ConfigComponent', () => {
     const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
     expect(text).toContain('Darstellung');
     expect(text).toContain('Noch keine Anbieter eingerichtet.');
-    expect(text).toContain('Geschichten, Eingaben und Modellantworten bleiben unverändert.');
+    expect(text).toContain('Stories, Eingaben und Modellantworten bleiben unverändert.');
   });
 
   it('refuses to save a provider without an API key', () => {

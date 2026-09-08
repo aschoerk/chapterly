@@ -51,6 +51,7 @@ export const DE = {
     signIn: 'Anmelden',
     signingIn: 'Anmeldung läuft…',
     skip: 'Ohne Token fortfahren',
+    google: 'Mit Google anmelden',
     invalid: 'Ungültige Anmeldedaten',
     failed: 'Anmeldung fehlgeschlagen'
   },

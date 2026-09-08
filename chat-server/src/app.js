@@ -36,6 +36,7 @@ function createApp() {
       'Content-Type',
       'Authorization',
       'x-target-base',
+      'x-provider-id',
       'HTTP-Referer',
       'X-Title'
     ]

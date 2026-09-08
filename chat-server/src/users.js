@@ -73,6 +73,26 @@ function findUserByLogin({ username, email, phoneNumber }) {
   return null;
 }
 
+function findIdentity(provider, subject) {
+  if (!provider || !subject) return null;
+  return db.prepare(
+    'SELECT * FROM user_identities WHERE provider = ? AND subject = ?'
+  ).get(provider, subject);
+}
+
+function linkIdentity({ userId, provider, subject, email }) {
+  const existing = findIdentity(provider, subject);
+  if (existing) return existing;
+  const { v4: uuidv4 } = require('uuid');
+  const id = uuidv4();
+  const now = new Date().toISOString();
+  db.prepare(`
+    INSERT INTO user_identities (id, user_id, provider, subject, email, created_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(id, userId, provider, subject, email || null, now);
+  return db.prepare('SELECT * FROM user_identities WHERE id = ?').get(id);
+}
+
 function findConflictingUser({ username, email, phoneNumber, excludeId }) {
   const uname = normalizeOptional(username);
   const mail = normalizeOptional(email);
@@ -101,5 +121,7 @@ module.exports = {
   verifyPassword,
   assertUserExists,
   findUserByLogin,
-  findConflictingUser
+  findConflictingUser,
+  findIdentity,
+  linkIdentity
 };

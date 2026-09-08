@@ -19,7 +19,7 @@ export function getServerConfig(): ServerConfig {
   return {
     apiBase: `${base}/api`,
     proxyBase: `${base}/proxy`,
-    mode: "local"  // indexdb: "cloud"
+    mode: "cloud"  // indexdb: "cloud"
   };
 }
 

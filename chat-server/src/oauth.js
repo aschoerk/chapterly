@@ -523,7 +523,7 @@ function persistToken({ tokenType, userId, audience, clientId, scopes, claims, t
   const expiresAt = new Date(Date.now() + ttlSeconds * 1000).toISOString();
   db.prepare(`
     INSERT INTO oauth_tokens
-      (id, token_hash, token_type, user_id, audience, client_id, scopes, grants_json, expires_at, revoked)
+    (id, token_hash, token_type, user_id, audience, client_id, scopes, grants_json, expires_at, revoked)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
   `).run(
     id,
@@ -822,7 +822,7 @@ function enforceModelUse(req, res, { modelId, providerId }) {
   const row = db.prepare(`
     SELECT p.wallet_id AS wallet_id
     FROM models m
-    JOIN providers p ON p.id = m.provider_id
+           JOIN providers p ON p.id = m.provider_id
     WHERE m.model_id = ? AND m.provider_id = ?
   `).get(modelId, providerId);
   if (!row || !row.wallet_id) {
@@ -860,7 +860,7 @@ function workspaceIdOfProject(projectId) {
   const row = db.prepare(`
     SELECT t.workspace_id AS workspace_id
     FROM topic_projects tp
-    JOIN topics t ON t.id = tp.topic_id
+           JOIN topics t ON t.id = tp.topic_id
     WHERE tp.project_id = ?
     LIMIT 1
   `).get(projectId);
@@ -872,8 +872,8 @@ function workspaceIdOfChat(chatId) {
   const row = db.prepare(`
     SELECT t.workspace_id AS workspace_id
     FROM chats c
-    JOIN topic_projects tp ON tp.project_id = c.project_id
-    JOIN topics t ON t.id = tp.topic_id
+           JOIN topic_projects tp ON tp.project_id = c.project_id
+           JOIN topics t ON t.id = tp.topic_id
     WHERE c.id = ?
     LIMIT 1
   `).get(chatId);
@@ -899,7 +899,7 @@ function walletIdOfModelRow(modelId) {
   const row = db.prepare(`
     SELECT p.wallet_id AS wallet_id
     FROM models m
-    JOIN providers p ON p.id = m.provider_id
+           JOIN providers p ON p.id = m.provider_id
     WHERE m.id = ?
   `).get(modelId);
   return row ? row.wallet_id || null : null;
@@ -939,5 +939,9 @@ module.exports = {
   workspaceIdOfProject,
   workspaceIdOfChat,
   walletIdOfProvider,
-  walletIdOfModelRow
+  walletIdOfModelRow,
+  extractBearer,
+  authClaims,
+  claimAllowsProvider,
+  contingentBlocked
 };

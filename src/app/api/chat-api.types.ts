@@ -91,6 +91,7 @@ export interface AskLlmOptions {
   onChunk?: (chunk: string) => void;
   signal?: AbortSignal;
   temperature?: number;
+  providerId?: string | null;
 }
 
 export type CreateProviderRequest = Omit<ProviderConfig, 'id'>;
