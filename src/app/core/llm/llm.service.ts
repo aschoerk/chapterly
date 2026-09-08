@@ -145,7 +145,8 @@ export class LlmService {
     provider: { baseUrl: string; apiKey: string },
     model: ModelEntry,
     messages: ChatMessage[],
-    onChunk?: (chunk: LlmChunk) => void
+    onChunk?: (chunk: LlmChunk) => void,
+    opts?: { adoptNodeIds?: string[] }
   ): Promise<ChatNode> {
     const resolved = await this.resolveForCurrentChat(model);
     const extras = {
@@ -169,6 +170,11 @@ export class LlmService {
 
     this.chatService.setActiveChild(questionNodeId, answerNode.id);
 
+    if (opts?.adoptNodeIds?.length) {
+      await this.chatService.reparentNodes(chatId, opts.adoptNodeIds, answerNode.id);
+      this.chatService.setActiveChild(answerNode.id, opts.adoptNodeIds[0]);
+    }
+
     const signal = this.chatService.startGeneration(answerNode.id);
     let accContent = '';
     let accThinking = '';
@@ -182,7 +188,7 @@ export class LlmService {
       const rate = this.chatService.streamSpeed();
       if (rate <= 0 || committed >= n) return n;
       if (this.chatService.streamSpeedUnit() === 'char') return committed;
-      const tail = accContent.slice(committed).match(/^\s*\S*/);
+      const tail = accContent.slice(committed).match(/^\\s*\\S*/);
       return committed + (tail ? tail[0].length : 0);
     };
 
@@ -200,7 +206,7 @@ export class LlmService {
     const endOfNextUnit = (from: number): number => {
       if (from >= accContent.length) return from;
       if (this.chatService.streamSpeedUnit() === 'char') return from + 1;
-      const m = accContent.slice(from).match(/^\s*\S+\s+/);
+      const m = accContent.slice(from).match(/^\\s*\\S+\\s+/);
       return m ? from + m[0].length : from;
     };
 
