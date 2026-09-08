@@ -1,0 +1,103 @@
+@startuml stream-reveal
+!theme plain
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+skinparam maxMessageSize 220
+skinparam wrapWidth 200
+title How an answer appears in chat-node\n(char/s or word/s, optional pacing after the LLM finishes)
+
+actor User
+participant "Chat page\n(sends the prompt)" as UI
+participant "LlmService\nstreamAnswer()" as LLM
+participant "Hidden buffers\naccContent / committed" as BUF
+participant "rAF pump\ntick() / kickPump()" as PUMP
+participant "ChatService\nnodes() signal" as SVC
+participant "ChatNodeComponent\n(the bubble you see)" as NODE
+participant "LLM / proxy\nSSE stream" as NET
+
+== 1. Create an empty assistant bubble ==
+User -> UI : type question, hit send
+UI -> LLM : streamAnswer(chatId, question, model)
+LLM -> SVC : addNode(role=assistant, content="")
+SVC --> NODE : Angular binds node()\nempty bubble appears
+LLM -> SVC : startGeneration(answerNode.id)\n(generatingNodeId is set)
+note over NODE
+  Angular rookie note:
+  The bubble is just a component
+  whose input is node().
+  When ChatService updates that node,
+  Angular re-renders this component.
+end note
+
+== 2. Tokens arrive faster than we show them ==
+LLM -> NET : askLlm(... stream: true)
+loop each SSE chunk while the model is still writing
+  NET --> LLM : chunk.content  (a few letters, not a full answer)
+  LLM -> BUF : accContent += chunk\n(full text so far, not yet all visible)
+  LLM -> PUMP : kickPump()
+  note over BUF
+    accContent  = everything received
+    committed   = how far we are allowed
+                  to show, paced by speed
+    visible text = accContent[0 .. visibleEnd]
+  end note
+end
+
+== 3. The pump reveals one unit at a time ==
+loop requestAnimationFrame (~every screen refresh)
+  PUMP -> PUMP : carry += dt * streamSpeed\n(seconds * chars/s or words/s)
+  alt unit = chars/s
+    PUMP -> BUF : committed += 1\n(endOfNextUnit = from + 1)
+  else unit = words/s
+    PUMP -> BUF : find next "word + space"\nin accContent after committed
+    alt a complete word is already in the buffer
+      PUMP -> BUF : committed jumps to end of that word
+    else word is still incomplete\n(model has not sent the space yet)
+      PUMP -> BUF : do nothing this frame\n(keep carry, wait for more SSE)
+    end
+  else streamSpeed = 0 (instant)
+    PUMP -> BUF : committed = accContent.length\nshow everything received so far
+  end
+
+  PUMP -> SVC : paint()\nnode.content = accContent.slice(0, visibleEnd())
+  SVC -> NODE : nodes() signal changes
+  NODE -> NODE : effect() sees node().content
+  NODE -> NODE : renderedHtml = markdown(content)
+  NODE -> NODE : afterRenderEffect()\nfollowLive() if follow-streaming is on
+  note over NODE
+    afterRenderEffect waits until Angular
+    has painted the new HTML.
+    Then we scroll the nearest overflow
+    parent so #streamEnd stays in view.
+    That is "follow the stream".
+  end note
+end
+
+== 4. Model finished — optional extra pacing ==
+NET --> LLM : stream complete\n(result.content = full answer)
+LLM -> BUF : accContent = result.content\nllmFinished = true
+
+alt paceAfterComplete ON\nand streamSpeed > 0\nand committed still behind
+  note over PUMP
+    The HTTP stream is done,
+    but the user still wants the
+    same chars/s or words/s.
+    drainReveal() keeps the pump
+    running on the leftover buffer.
+  end note
+  loop until committed catches accContent
+    PUMP -> BUF : reveal next char / word\n(last word is allowed now,\neven without a trailing space)
+    PUMP -> SVC : paint() again
+    SVC -> NODE : bubble grows, followLive()
+  end
+else paceAfterComplete OFF\nor instant speed\nor user aborted
+  PUMP -> BUF : flushReveal()\ncommitted = full length\nshow the rest in one jump
+  PUMP -> SVC : paint()
+end
+
+== 5. Persist and stop the spinner ==
+LLM -> SVC : editAssistant(full text)\n(may create a new version id)
+LLM -> SVC : stopGeneration()\ngeneratingNodeId = null
+NODE -> NODE : isGenerating becomes false\nfollow effect stops
+
+@enduml
