@@ -348,7 +348,7 @@ router.get('/:chatId/nodes', (req, res) => {
  *               attachments:
  *                 type: array
  *                 items:
- *                   $ref: '#/components/schemas/NodeAttachment'
+ *                   $ref: '#/components/schemas/ChatNode'
  *                 description: Optional list of file attachments
  *     responses:
  *       201:
@@ -449,7 +449,6 @@ function editNodeVersion(nodeId, expectedRole, { content, thinking, attachments 
     ? thinking
     : oldNode.thinking;
 
-  // Empty leaf: mutate the current row. Anything else: insert a new version.
   const executeEditTransaction = db.transaction(() => {
     if (isEmptyNode && !childNode) {
       db.prepare(`
@@ -492,63 +491,6 @@ function editNodeVersion(nodeId, expectedRole, { content, thinking, attachments 
   return executeEditTransaction();
 }
 
-
-
-/**
- * @openapi
- * /api/chats/{chatId}/nodes/{nodeId}/edit-assistant:
- *   post:
- *     summary: Create a new version of an answer
- *     description: |
- *       Marks the existing answer as not current and inserts a new version
- *       with an incremented version number. Attachments can be supplied or updated.
- *     tags:
- *       - Nodes
- *     parameters:
- *       - in: path
- *         name: chatId
- *         required: true
- *         schema:
- *           type: string
- *           format: uuid
- *       - in: path
- *         name: nodeId
- *         required: true
- *         schema:
- *           type: string
- *           format: uuid
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required: [content]
- *             properties:
- *               content:
- *                 type: string
- *               thinking:
- *                 type: string
- *                 nullable: true
- *               attachments:
- *                 type: array
- *                 items:
- *                   $ref: '#/components/schemas/NodeAttachment'
- *                 description: |
- *                   Optional. If omitted, the previous version's attachments are kept.
- *                   Pass an empty array to clear attachments.
- *     responses:
- *       201:
- *         description: New answer version created
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ChatNode'
- *       400:
- *         description: Invalid request
- *       404:
- *         description: Node not found
- */
 router.post('/:chatId/nodes/:nodeId/edit-assistant', (req, res) => {
   try {
     const node = editNodeVersion(req.params.nodeId, 'assistant', req.body);
@@ -567,82 +509,6 @@ router.post('/:chatId/nodes/:nodeId/edit-user', (req, res) => {
   }
 });
 
-/**
- * @openapi
- * /api/chats/{chatId}/nodes/{nodeId}/branch-question:
- *   post:
- *     summary: Branch a new question from an existing one
- *     description: |
- *       Creates a sibling question that shares the same parent as the original.
- *       Used when the user edits a previous question and wants to explore a different path.
- *     tags:
- *       - Nodes
- *     parameters:
- *       - in: path
- *         name: chatId
- *         required: true
- *         schema:
- *           type: string
- *           format: uuid
- *         description: Parent chat UUID
- *       - in: path
- *         name: nodeId
- *         required: true
- *         schema:
- *           type: string
- *           format: uuid
- *         description: ID of the question node to branch from
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required:
- *               - content
- *             properties:
- *               content:
- *                 type: string
- *                 description: Content of the new branched question
- *               thinking:
- *                  type: string
- *                  nullable: true
- *                  description: LLM thinking process if requested
- *               modelId:
- *                 type: string
- *                 nullable: true
- *                 description: Optional override for model
- *               providerId:
- *                 type: string
- *                 nullable: true
- *                 description: Optional override for provider
- *     responses:
- *       201:
- *         description: Branched question created
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ChatNode'
- *       400:
- *         description: Validation error or node is not a question
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 error:
- *                   type: string
- *       404:
- *         description: Node not found
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 error:
- *                   type: string
- *                   example: "Node not found"
- */
 router.post('/:chatId/nodes/:nodeId/branch-user', (req, res) => {
   const { nodeId } = req.params;
   const { content, thinking, modelId, providerId, attachments } = req.body;
@@ -667,8 +533,6 @@ router.post('/:chatId/nodes/:nodeId/branch-user', (req, res) => {
   }
 
   const newId = uuidv4();
-
-  // If attachments supplied use them, otherwise copy from the original question
   const attachmentsJson = attachments !== undefined
     ? JSON.stringify(Array.isArray(attachments) ? attachments : [])
     : (oldNode.attachments || '[]');
@@ -696,9 +560,6 @@ router.post('/:chatId/nodes/:nodeId/branch-user', (req, res) => {
   res.status(201).json(mapNode(node));
 });
 
-// DELETE /api/chats/:chatId/nodes/:nodeId
-// Query: keepChildren=true reparents direct children to this node's parent
-// (or NULL) before deleting, so the subtree is not lost. Default is cascade.
 router.delete('/:chatId/nodes/:nodeId', (req, res) => {
   const { chatId, nodeId } = req.params;
   const keepChildren = ['1', 'true', 'yes'].includes(
@@ -753,7 +614,6 @@ router.delete('/:chatId/nodes/:nodeId', (req, res) => {
   res.status(204).end();
 });
 
-// PATCH /api/chats/:id
 router.patch('/:id', (req, res) => {
   const { title, projectId } = req.body;
   const id = req.params.id;
@@ -771,15 +631,11 @@ router.patch('/:id', (req, res) => {
     return res.status(400).json({ error: paramKind.error });
   }
 
-  // only update title when a non-empty string is provided
   const newTitle =
     typeof title === 'string' && title.trim() !== ''
       ? title.trim()
       : chat.title;
 
-  // projectId is updated only when the key is present in the body.
-  // null / '' unassigns from the current project and places the chat
-  // on the default project of the same topic.
   let newProjectId = chat.project_id;
   if (projectId !== undefined) {
     const requested = (projectId === null || projectId === '') ? null : projectId;
@@ -806,7 +662,7 @@ router.patch('/:id', (req, res) => {
 
 router.patch('/:chatId/nodes/:nodeId', (req, res) => {
   const { nodeId } = req.params;
-  const { content, thinking, attachments, modelId, providerId } = req.body || {};
+  const { content, thinking, attachments, modelId, providerId, parentId } = req.body || {};
 
   const oldNode = db.prepare('SELECT * FROM chat_nodes WHERE id = ?').get(nodeId);
   if (!oldNode) return res.status(404).json({ error: 'Node not found' });
@@ -823,6 +679,29 @@ router.patch('/:chatId/nodes/:nodeId', (req, res) => {
     providerId: providerId !== undefined ? providerId : oldNode.provider_id
   })) return;
 
+  let nextParent = oldNode.parent_id;
+  if (parentId !== undefined) {
+    if (parentId === nodeId) {
+      return res.status(400).json({ error: 'Cannot reparent a node under itself' });
+    }
+    if (parentId) {
+      const parent = db.prepare('SELECT * FROM chat_nodes WHERE id = ?').get(parentId);
+      if (!parent || parent.chat_id !== oldNode.chat_id) {
+        return res.status(400).json({ error: 'Parent node not found' });
+      }
+      let cursor = parent;
+      const seen = new Set();
+      while (cursor?.parent_id) {
+        if (cursor.parent_id === nodeId || seen.has(cursor.parent_id)) {
+          return res.status(400).json({ error: 'Cannot reparent a node under its descendant' });
+        }
+        seen.add(cursor.parent_id);
+        cursor = db.prepare('SELECT * FROM chat_nodes WHERE id = ?').get(cursor.parent_id);
+      }
+    }
+    nextParent = parentId || null;
+  }
+
   const nextContent = content !== undefined ? content : oldNode.content;
   const nextThinking = thinking !== undefined ? thinking : oldNode.thinking;
   const nextAttachments = attachments !== undefined
@@ -834,20 +713,16 @@ router.patch('/:chatId/nodes/:nodeId', (req, res) => {
   db.prepare(`
     UPDATE chat_nodes
     SET content = ?, thinking = ?, attachments = ?, model_id = ?, provider_id = ?,
-        chat_parameters_id = ?,
+        chat_parameters_id = ?, parent_id = ?,
         updated_at = datetime('now')
     WHERE id = ?
-  `).run(nextContent, nextThinking, nextAttachments, nextModel, nextProvider, chatParametersId, nodeId);
+  `).run(nextContent, nextThinking, nextAttachments, nextModel, nextProvider, chatParametersId, nextParent, nodeId);
 
   db.prepare(`UPDATE chats SET updated_at = datetime('now') WHERE id = ?`).run(oldNode.chat_id);
 
   const node = db.prepare('SELECT * FROM chat_nodes WHERE id = ?').get(nodeId);
   res.json(mapNode(node));
 });
-
-
-
-// Helper
 
 function mapChat(row) {
   return {
