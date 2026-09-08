@@ -25,9 +25,18 @@ import { ChatParameters, ChatParametersDraft } from '../src/app/models/chat-para
  * providers/models loaded by SettingsService, chat-parameters).
  * Everything else throws so a test cannot silently talk to the real server.
  */
+
+function cloneChatTitle(title: string | null | undefined): string {
+  const base = (title || '').trim() || 'Untitled story';
+  const m = base.match(/^(.*) \(copy(?: (\d+))?\)$/);
+  if (!m) return `${base} (copy)`;
+  const n = m[2] ? Number(m[2]) + 1 : 2;
+  return `${m[1]} (copy ${n})`;
+}
+
 class InMemoryChatApi implements Pick<
   ChatApiPort,
-  | 'getChats' | 'createChat' | 'deleteChat' | 'patchChat'
+  | 'getChats' | 'createChat' | 'cloneChat' | 'deleteChat' | 'patchChat'
   | 'getNodes' | 'createNode' | 'editAssistant' | 'editUser' | 'branchUser'
   | 'patchNode' | 'deleteNode'
   | 'getPersonas'
@@ -71,6 +80,39 @@ class InMemoryChatApi implements Pick<
     this.chats.push(row);
     return row;
   }
+
+  async cloneChat(chatId: string) {
+    const src = this.must(this.chats, chatId, 'Chat');
+    const srcNodes = this.nodes.filter(n => n.chatId === chatId);
+    const idMap = new Map<string, string>();
+    for (const n of srcNodes) idMap.set(n.id, this.id('node'));
+    const remap = (oldId: string | null | undefined) => {
+      if (!oldId) return null;
+      return idMap.get(oldId) ?? null;
+    };
+    const row: Chat = {
+      id: this.id('chat'),
+      title: cloneChatTitle(src.title),
+      projectId: src.projectId ?? null,
+      chatParametersId: src.chatParametersId ?? null,
+      node_number: srcNodes.length,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    };
+    this.chats.push(row);
+    for (const n of srcNodes) {
+      this.nodes.push({
+        ...n,
+        id: idMap.get(n.id)!,
+        chatId: row.id,
+        parentId: remap(n.parentId),
+        previousVersionId: remap(n.previousVersionId),
+        attachments: Array.isArray(n.attachments) ? n.attachments.map(a => ({ ...a })) : []
+      });
+    }
+    return row;
+  }
+
   async deleteChat(id: string) {
     this.chats = this.chats.filter(c => c.id !== id);
     this.nodes = this.nodes.filter(n => n.chatId !== id);
