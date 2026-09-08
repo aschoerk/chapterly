@@ -2,41 +2,52 @@
 
   <section class="section">
     <div class="section-header">
-      <h2>Appearance</h2>
+      <h2>{{ i18n.t('config.appearance.title') }}</h2>
     </div>
-    <p class="hint">Theme is stored in this browser. System follows the OS light/dark setting.</p>
+    <p class="hint">{{ i18n.t('config.appearance.hint') }}</p>
     <div class="theme-picker">
       <label class="theme-option" [class.on]="theme.preference() === 'light'">
         <input type="radio" name="theme" value="light"
                [checked]="theme.preference() === 'light'"
                (change)="theme.setPreference('light')" />
-        White
+        {{ i18n.t('config.appearance.themeLight') }}
       </label>
       <label class="theme-option" [class.on]="theme.preference() === 'dark'">
         <input type="radio" name="theme" value="dark"
                [checked]="theme.preference() === 'dark'"
                (change)="theme.setPreference('dark')" />
-        Dark
+        {{ i18n.t('config.appearance.themeDark') }}
       </label>
       <label class="theme-option" [class.on]="theme.preference() === 'system'">
         <input type="radio" name="theme" value="system"
                [checked]="theme.preference() === 'system'"
                (change)="theme.setPreference('system')" />
-        System
+        {{ i18n.t('config.appearance.themeSystem') }}
       </label>
-      <span class="theme-resolved">Active: {{ theme.resolved() }}</span>
+      <span class="theme-resolved">{{ i18n.t('config.appearance.themeActive', { theme: i18n.t('config.theme.' + theme.resolved()) }) }}</span>
+    </div>
+
+    <p class="hint lang-hint">{{ i18n.t('config.appearance.languageHint') }}</p>
+    <div class="theme-picker">
+      @for (opt of i18n.locales; track opt.id) {
+        <label class="theme-option" [class.on]="i18n.locale() === opt.id">
+          <input type="radio" name="locale" [value]="opt.id"
+                 [checked]="i18n.locale() === opt.id"
+                 (change)="i18n.setLocale(opt.id)" />
+          {{ opt.label }}
+        </label>
+      }
     </div>
   </section>
 
-  <!-- ==================== PROVIDERS ==================== -->
   <section class="section">
     <div class="section-header">
-      <h2>Providers</h2>
-      <button class="btn primary" (click)="openAddProvider()">+ Add Provider</button>
+      <h2>{{ i18n.t('config.providers.title') }}</h2>
+      <button class="btn primary" (click)="openAddProvider()">{{ i18n.t('config.providers.add') }}</button>
     </div>
 
     @if (providers().length === 0) {
-      <p class="empty">No providers configured yet.</p>
+      <p class="empty">{{ i18n.t('config.providers.empty') }}</p>
     }
 
     @for (provider of providers(); track provider.id) {
@@ -44,31 +55,23 @@
         <div class="card-header">
           <strong>{{ provider.name }}</strong>
           <div class="actions">
-            <button
-              class="btn small"
-              [disabled]="testingId() === provider.id"
-              (click)="testProvider(provider)">
-              {{ testingId() === provider.id ? 'Testing…' : 'Test' }}
+            <button class="btn small" [disabled]="testingId() === provider.id" (click)="testProvider(provider)">
+              {{ testingId() === provider.id ? i18n.t('config.providers.testing') : i18n.t('config.providers.test') }}
             </button>
-            <button
-              class="btn small"
-              [disabled]="fetchingId() === provider.id"
-              (click)="fetchModels(provider)">
-              {{ fetchingId() === provider.id ? 'Fetching…' : 'Fetch Models' }}
+            <button class="btn small" [disabled]="fetchingId() === provider.id" (click)="fetchModels(provider)">
+              {{ fetchingId() === provider.id ? i18n.t('config.providers.fetching') : i18n.t('config.providers.fetchModels') }}
             </button>
             <button class="btn small danger" (click)="deleteProvider(provider.id)">
-              Delete
+              {{ i18n.t('config.providers.delete') }}
             </button>
           </div>
         </div>
-
         <div class="card-body">
-          <div><span class="label">Base URL:</span> {{ provider.baseUrl }}</div>
+          <div><span class="label">{{ i18n.t('config.providers.baseUrl') }}</span> {{ provider.baseUrl }}</div>
           <div>
-            <span class="label">API Key:</span>
-            {{ provider.apiKey ? '••••••••••••' + provider.apiKey.slice(-6) : '— not set —' }}
+            <span class="label">{{ i18n.t('config.providers.apiKey') }}</span>
+            {{ provider.apiKey ? '••••••••••••' + provider.apiKey.slice(-6) : i18n.t('config.providers.apiKeyMissing') }}
           </div>
-
           @if (testResult()?.id === provider.id) {
             <div class="test-result" [class.ok]="testResult()?.ok" [class.fail]="!testResult()?.ok">
               {{ testResult()?.message }}
@@ -79,123 +82,94 @@
     }
   </section>
 
-  <!-- Add Provider Form -->
   @if (showAddProvider()) {
     <div class="modal-backdrop">
       <div class="modal">
-        <h3>Add Provider</h3>
-
+        <h3>{{ i18n.t('config.providers.addTitle') }}</h3>
         <label>
-          Name
+          {{ i18n.t('config.providers.name') }}
           <input [(ngModel)]="newProvider.name" />
         </label>
-
         <label>
-          Base URL
+          {{ i18n.t('config.providers.baseUrlField') }}
           <input [(ngModel)]="newProvider.baseUrl" />
         </label>
-
         <label>
-          API Key *
+          {{ i18n.t('config.providers.apiKeyField') }}
           <input type="password" [(ngModel)]="newProvider.apiKey" />
         </label>
-
         <div class="modal-actions">
-          <button class="btn" (click)="showAddProvider.set(false)">Cancel</button>
-          <button class="btn primary" (click)="saveProvider()">Save Provider</button>
+          <button class="btn" (click)="showAddProvider.set(false)">{{ i18n.t('config.providers.cancel') }}</button>
+          <button class="btn primary" (click)="saveProvider()">{{ i18n.t('config.providers.save') }}</button>
         </div>
       </div>
     </div>
   }
 
-  <!-- ==================== MODELS / PRESETS ==================== -->
   <section class="section">
     <div class="section-header">
-      <h2>Available Models / Presets</h2>
+      <h2>{{ i18n.t('config.models.title') }}</h2>
       <button class="btn primary" (click)="openAddPreset()" [disabled]="providers().length === 0">
-        + Add Preset
+        {{ i18n.t('config.models.addPreset') }}
       </button>
     </div>
-
     <div class="toolbar">
-      <input
-        type="search"
-        placeholder="Search models…"
-        [ngModel]="searchTerm()"
-        (ngModelChange)="searchTerm.set($event)"
-      />
-      <button
-        class="btn"
-        [class.active]="showEnabledOnly()"
-        (click)="setEnabledOnly(!showEnabledOnly())">
-        Enabled only
+      <input type="search" [placeholder]="i18n.t('config.models.search')" [ngModel]="searchTerm()" (ngModelChange)="searchTerm.set($event)" />
+      <button class="btn" [class.active]="showEnabledOnly()" (click)="setEnabledOnly(!showEnabledOnly())">
+        {{ i18n.t('config.models.enabledOnly') }}
       </button>
-      <button
-        class="btn"
-        [class.active]="showDisabledOnly()"
-        (click)="setDisabledOnly(!showDisabledOnly())">
-        Not enabled only
+      <button class="btn" [class.active]="showDisabledOnly()" (click)="setDisabledOnly(!showDisabledOnly())">
+        {{ i18n.t('config.models.disabledOnly') }}
       </button>
     </div>
 
     @if (filteredModels().length === 0) {
-      <p class="empty">No models yet. Fetch models from a provider or add a preset.</p>
+      <p class="empty">{{ i18n.t('config.models.empty') }}</p>
     } @else {
       <table class="models-table">
         <thead>
         <tr>
           <th style="width: 40px"></th>
-          <th>Provider</th>
-          <th>Display Name / Model ID</th>
-          <th>Type</th>
-          <th style="width: 90px">Actions</th>
+          <th>{{ i18n.t('config.models.colProvider') }}</th>
+          <th>{{ i18n.t('config.models.colName') }}</th>
+          <th>{{ i18n.t('config.models.colType') }}</th>
+          <th style="width: 90px">{{ i18n.t('config.models.colActions') }}</th>
         </tr>
         </thead>
         <tbody>
           @for (model of filteredModels(); track model.id) {
             <tr>
               <td>
-                <input
-                  type="checkbox"
-                  [checked]="model.enabled"
-                  (change)="toggleEnabled(model.id)"
-                />
+                <input type="checkbox" [checked]="model.enabled" (change)="toggleEnabled(model.id)" />
               </td>
-              <td>
-                <span class="provider-name">{{ getProviderName(model.providerId) }}</span>
-              </td>
+              <td><span class="provider-name">{{ getProviderName(model.providerId) }}</span></td>
               <td>
                 <div class="model-name">{{ model.displayName }}</div>
                 <div class="model-id">{{ model.modelId }}</div>
                 @if (model.contextLength) {
-                  <div class="model-meta">{{ model.contextLength | number }} ctx</div>
+                  <div class="model-meta">{{ i18n.t('config.models.ctx', { count: formatCount(model.contextLength) }) }}</div>
                 }
               </td>
               <td>
                 <span class="badge" [class.preset]="model.type === 'preset'">
-                  {{ model.type === 'preset' ? 'Preset' : 'Fetched' }}
+                  {{ model.type === 'preset' ? i18n.t('config.models.typePreset') : i18n.t('config.models.typeFetched') }}
                 </span>
-                <!-- Show architecture info -->
                 @if (model.architecture) {
-                  <div class="architecture-info">
-                    <small>{{ formatArchitecture(model.architecture) }}</small>
-                  </div>
+                  <div class="architecture-info"><small>{{ formatArchitecture(model.architecture) }}</small></div>
                 }
                 @if (model.pricing_prompt || model.pricing?.prompt) {
                   <div class="price">
-                    in {{ formatPerMillion(model.pricing_prompt || model.pricing?.prompt) }}
-                    / out {{ formatPerMillion(model.pricing_completion || model.pricing?.completion) }}
+                    {{ i18n.t('config.models.priceIn', { price: formatPerMillion(model.pricing_prompt || model.pricing?.prompt) }) }}
+                    {{ i18n.t('config.models.priceOut', { price: formatPerMillion(model.pricing_completion || model.pricing?.completion) }) }}
                   </div>
                 }
               </td>
               <td>
                 @if (model.type === 'preset') {
-                  <button class="btn small" (click)="openEditPreset(model)">Edit</button>
-                  <button class="btn small danger" (click)="deleteModel(model.id)">
-                    Delete
-                  </button>
+                  <button class="btn small" (click)="openEditPreset(model)">{{ i18n.t('config.models.edit') }}</button>
+                  <button class="btn small danger" (click)="deleteModel(model.id)">{{ i18n.t('config.models.delete') }}</button>
                 } @else {
-                  <button class="btn small" (click)="openFetchedParams(model)">Params</button>
+                  <button class="btn small" (click)="openFetchedParams(model)">{{ i18n.t('config.models.params') }}</button>
                 }
               </td>
             </tr>
@@ -205,89 +179,66 @@
     }
   </section>
 
-  <!-- Add Preset Form -->
   @if (showAddPreset()) {
     <div class="modal-backdrop">
       <div class="modal">
-        <h3>{{ editingPresetId() ? 'Edit Preset' : 'Add Preset' }}</h3>
-
+        <h3>{{ editingPresetId() ? i18n.t('config.models.editTitle') : i18n.t('config.models.addTitle') }}</h3>
         <label>
-          Display Name *
-          <input [(ngModel)]="newPreset.displayName" placeholder="My Coding Assistant" />
+          {{ i18n.t('config.models.displayName') }}
+          <input [(ngModel)]="newPreset.displayName" [placeholder]="i18n.t('config.models.displayNamePh')" />
         </label>
-
         <label>
-          Model ID *
-          <input [(ngModel)]="newPreset.modelId" placeholder="anthropic/claude-3.5-sonnet" />
+          {{ i18n.t('config.models.modelId') }}
+          <input [(ngModel)]="newPreset.modelId" [placeholder]="i18n.t('config.models.modelIdPh')" />
         </label>
-
         <label>
-          Provider
+          {{ i18n.t('config.models.provider') }}
           <select [(ngModel)]="newPreset.providerId">
             @for (p of providers(); track p.id) {
               <option [value]="p.id">{{ p.name }}</option>
             }
           </select>
         </label>
-
         <div class="modalities-compact">
           <div class="modality-row">
-            <span class="modality-heading">In</span>
+            <span class="modality-heading">{{ i18n.t('config.models.modalityIn') }}</span>
             <div class="modality-chips">
               @for (modality of modalityOptions; track modality.value) {
-                <button
-                  type="button"
-                  class="chip"
-                  [class.on]="isInputModalitySelected(modality.value)"
-                  (click)="toggleInputModality(modality.value)">
-                  {{ modality.label }}
+                <button type="button" class="chip" [class.on]="isInputModalitySelected(modality.value)" (click)="toggleInputModality(modality.value)">
+                  {{ i18n.t(modality.labelKey) }}
                 </button>
               }
             </div>
           </div>
           <div class="modality-row">
-            <span class="modality-heading">Out</span>
+            <span class="modality-heading">{{ i18n.t('config.models.modalityOut') }}</span>
             <div class="modality-chips">
               @for (modality of modalityOptions; track modality.value) {
-                <button
-                  type="button"
-                  class="chip"
-                  [class.on]="isOutputModalitySelected(modality.value)"
-                  (click)="toggleOutputModality(modality.value)">
-                  {{ modality.label }}
+                <button type="button" class="chip" [class.on]="isOutputModalitySelected(modality.value)" (click)="toggleOutputModality(modality.value)">
+                  {{ i18n.t(modality.labelKey) }}
                 </button>
               }
             </div>
           </div>
         </div>
-
-        <!-- Test result -->
         @if (presetTestResult()) {
-          <div
-            class="test-result"
-            [class.ok]="presetTestResult()?.ok"
-            [class.fail]="!presetTestResult()?.ok">
+          <div class="test-result" [class.ok]="presetTestResult()?.ok" [class.fail]="!presetTestResult()?.ok">
             {{ presetTestResult()?.message }}
           </div>
         }
-
         <app-chat-parameters-editor
           [initial]="presetParamsDraft()"
           [initialOverride]="presetParamsOverride()"
           [inherited]="presetParamsInherited()"
           (changed)="onPresetParamsChanged($event)"
         />
-
         <div class="modal-actions">
-          <button
-            class="btn"
-            [disabled]="testingPreset()"
-            (click)="testPreset()">
-            {{ testingPreset() ? 'Testing…' : 'Test' }}
+          <button class="btn" [disabled]="testingPreset()" (click)="testPreset()">
+            {{ testingPreset() ? i18n.t('config.models.testing') : i18n.t('config.models.test') }}
           </button>
-          <button class="btn" (click)="showAddPreset.set(false)">Cancel</button>
+          <button class="btn" (click)="showAddPreset.set(false)">{{ i18n.t('config.models.cancel') }}</button>
           <button class="btn primary" (click)="savePreset()">
-            {{ editingPresetId() ? 'Save changes' : 'Add Preset' }}
+            {{ editingPresetId() ? i18n.t('config.models.saveEdit') : i18n.t('config.models.saveAdd') }}
           </button>
         </div>
       </div>
@@ -297,7 +248,7 @@
   @if (showFetchedParams()) {
     <div class="modal-backdrop" (click)="showFetchedParams.set(false)">
       <div class="modal" (click)="$event.stopPropagation()">
-        <h3>Generation settings</h3>
+        <h3>{{ i18n.t('config.models.generationTitle') }}</h3>
         @if (fetchedModel(); as model) {
           <p class="hint">{{ model.displayName }} · {{ model.modelId }}</p>
         }
@@ -308,8 +259,8 @@
           (changed)="onFetchedParamsChanged($event)"
         />
         <div class="modal-actions">
-          <button class="btn" (click)="showFetchedParams.set(false)">Cancel</button>
-          <button class="btn primary" (click)="saveFetchedParams()">Save</button>
+          <button class="btn" (click)="showFetchedParams.set(false)">{{ i18n.t('config.models.cancel') }}</button>
+          <button class="btn primary" (click)="saveFetchedParams()">{{ i18n.t('config.models.save') }}</button>
         </div>
       </div>
     </div>
