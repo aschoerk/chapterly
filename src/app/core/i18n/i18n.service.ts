@@ -1,11 +1,20 @@
 import { Injectable, computed, signal } from '@angular/core';
 import { EN } from './catalog-en';
 import { DE } from './catalog-de';
+import { EN_SHELL } from './catalog-shell-en';
+import { DE_SHELL } from './catalog-shell-de';
+import { EN_WORK } from './catalog-work-en';
+import { DE_WORK } from './catalog-work-de';
+import { EN_PAGES } from './catalog-pages-en';
+import { DE_PAGES } from './catalog-pages-de';
 
 export type AppLocale = 'en' | 'de';
 
 const LS_LOCALE = 'chat.view.locale';
-const CATALOGS: Record<AppLocale, Record<string, unknown>> = { en: EN, de: DE };
+const CATALOGS: Record<AppLocale, Record<string, unknown>> = {
+  en: { ...EN_SHELL, ...EN_WORK, ...EN_PAGES, ...EN },
+  de: { ...DE_SHELL, ...DE_WORK, ...DE_PAGES, ...DE }
+};
 
 function detectLocale(): AppLocale {
   const stored = localStorage.getItem(LS_LOCALE);
