@@ -69,6 +69,12 @@ export class ChatApiService {
     );
   }
 
+  cloneChat(chatId: string): Promise<Chat> {
+    return firstValueFrom(
+      this.http.post<Chat>(this.api(`/chats/${chatId}/clone`), {})
+    );
+  }
+
   deleteChat(id: string): Promise<void> {
     return firstValueFrom(this.http.delete<void>(this.api(`/chats/${id}`)));
   }

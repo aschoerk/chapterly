@@ -26,6 +26,15 @@ const DB_VERSION = 3;
 
 type StoreName = 'projects' | 'topics' | 'personas' | 'chats' | 'nodes' | 'providers' | 'models' | 'chatParameters';
 
+/** "Story" → "Story (copy)", "Story (copy)" → "Story (copy 2)". */
+function cloneChatTitle(title: string | null | undefined): string {
+  const base = (title || '').trim() || 'Untitled story';
+  const m = base.match(/^(.*) \(copy(?: (\d+))?\)$/);
+  if (!m) return `${base} (copy)`;
+  const n = m[2] ? Number(m[2]) + 1 : 2;
+  return `${m[1]} (copy ${n})`;
+}
+
 @Injectable({ providedIn: 'root' })
 export class IdbChatApiService implements ChatApiPort {
   private dbPromise = this.open();
@@ -152,6 +161,69 @@ export class IdbChatApiService implements ChatApiPort {
     const row: Chat = { id: this.id(), title, projectId, chatParametersId: null, node_number: 0, created_at: this.now(), updated_at: this.now() };
     await this.tx(['chats'], 'readwrite', tx => this.req(tx.objectStore('chats').put(row)));
     return row;
+  }
+
+  /**
+   * Deep-copy a chat and every node.
+   * parentId / previousVersionId are remapped so the tree and version
+   * chains stay identical; node ids are new.
+   */
+  async cloneChat(chatId: string): Promise<Chat> {
+    return this.tx(['chats', 'nodes'], 'readwrite', async tx => {
+      const chats = tx.objectStore('chats');
+      const nodesStore = tx.objectStore('nodes');
+      const src = await this.req<Chat>(chats.get(chatId));
+      if (!src) throw Object.assign(new Error('Chat not found'), { status: 404 });
+
+      const srcNodes = await this.req<ChatNode[]>(nodesStore.index('by-chat').getAll(chatId));
+      const idMap = new Map<string, string>();
+      for (const n of srcNodes) idMap.set(n.id, this.id());
+
+      const remap = (oldId: string | null | undefined): string | null => {
+        if (!oldId) return null;
+        return idMap.get(oldId) ?? null;
+      };
+
+      const remaining = [...srcNodes];
+      const inserted = new Set<string>();
+      const copies: ChatNode[] = [];
+      while (remaining.length) {
+        const idx = remaining.findIndex(n => {
+          const parentOk = !n.parentId || inserted.has(n.parentId) || !idMap.has(n.parentId);
+          const prevOk = !n.previousVersionId || inserted.has(n.previousVersionId) || !idMap.has(n.previousVersionId);
+          return parentOk && prevOk;
+        });
+        if (idx < 0) {
+          throw Object.assign(new Error('Cannot clone chat: cyclic node references'), { status: 400 });
+        }
+        const n = remaining.splice(idx, 1)[0];
+        const copy: ChatNode = {
+          ...n,
+          id: idMap.get(n.id)!,
+          chatId: '',
+          parentId: remap(n.parentId),
+          previousVersionId: remap(n.previousVersionId),
+          attachments: Array.isArray(n.attachments) ? n.attachments.map(a => ({ ...a })) : (n.attachments ?? [])
+        };
+        copies.push(copy);
+        inserted.add(n.id);
+      }
+
+      const row: Chat = {
+        id: this.id(),
+        title: cloneChatTitle(src.title),
+        projectId: src.projectId ?? null,
+        chatParametersId: src.chatParametersId ?? null,
+        node_number: copies.length,
+        created_at: this.now(),
+        updated_at: this.now()
+      };
+      await this.req(chats.put(row));
+      for (const copy of copies) {
+        await this.req(nodesStore.put({ ...copy, chatId: row.id }));
+      }
+      return row;
+    });
   }
 
   async deleteChat(id: string): Promise<void> {
