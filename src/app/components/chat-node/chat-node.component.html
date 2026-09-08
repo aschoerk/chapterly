@@ -207,6 +207,17 @@
                 Branch
               }
             </button>
+
+            <button class="btn small" type="button"
+                    [disabled]="isLoading() || isDraftEmpty()"
+                    (click)="saveAsInsertAndSend()"
+                    title="Insert this question above the current one. The previous version and its siblings hang under the new answer.">
+              @if (isLoading() && pendingAction() === 'insert') {
+                Inserting…
+              } @else {
+                Insert
+              }
+            </button>
           }
         }
 
