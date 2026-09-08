@@ -109,7 +109,7 @@ describe('ChatService edit ops (insert / remove / delete)', () => {
 
       const left = chat.nodes();
       expect(ids(left).sort()).toEqual(ids([t.u0, t.a0, t.u1]).sort());
-      expect(left.some(n => n.id === t.u2 || n.id === t.a2)).toBe(false);
+      expect(left.some(n => n.id === t.u2.id || n.id === t.a2.id)).toBe(false);
       expect(api.nodes.filter(n => n.chatId === chatId).map(n => n.id).sort())
         .toEqual(ids(left).sort());
     });
