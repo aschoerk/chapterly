@@ -97,6 +97,8 @@ export const EN = {
     allTopics: 'All topics',
     editTopic: 'Edit current topic',
     filterPh: 'Filter environments & stories…',
+    searchInContent: 'in text',
+    searchInContentHint: 'Also match current node content (SQL LIKE on the server)',
     collapseAll: 'Collapse all environments',
     sortNewest: 'Sorted by newest – click for A-Z',
     sortAlpha: 'Sorted A-Z – click for newest first',

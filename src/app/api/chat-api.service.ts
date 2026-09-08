@@ -63,6 +63,14 @@ export class ChatApiService {
     return firstValueFrom(this.http.get<Chat[]>(this.api('/chats')));
   }
 
+  searchChatIds(q: string): Promise<string[]> {
+    const query = q.trim();
+    if (!query) return Promise.resolve([]);
+    return firstValueFrom(
+      this.http.get<string[]>(this.api('/chats/search-ids'), { params: { q: query } })
+    );
+  }
+
   createChat(title: string, projectId: string | null = null): Promise<Chat> {
     return firstValueFrom(
       this.http.post<Chat>(this.api('/chats'), { title, projectId })

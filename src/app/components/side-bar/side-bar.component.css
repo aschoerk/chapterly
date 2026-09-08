@@ -389,3 +389,20 @@
   font-style: normal;
   font-weight: 600;
 }
+
+.search-in-content {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex-shrink: 0;
+  font-size: 0.75rem;
+  color: var(--text-muted, #64748b);
+  white-space: nowrap;
+  user-select: none;
+}
+.search-in-content input {
+  margin: 0;
+}
+.sidebar-search {
+  flex-wrap: wrap;
+}

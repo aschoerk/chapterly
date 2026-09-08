@@ -41,6 +41,11 @@ export class SideBarComponent implements OnInit {
   readonly chatsByProject = this.chatService.chatsByProject;
   readonly enabledModels = this.settings.enabledModels;
   readonly searchQuery = signal('');
+  readonly searchInContent = signal(
+    localStorage.getItem('chat.sidebar.searchInContent') === '1'
+  );
+  readonly contentHitIds = signal<Set<string>>(new Set());
+  private contentSearchTimer: ReturnType<typeof setTimeout> | null = null;
   readonly currentPersona = this.personaService.currentPersona;
   readonly topics = this.projectService.topics;
 
@@ -63,6 +68,42 @@ export class SideBarComponent implements OnInit {
     localStorage.setItem(LS_TOPIC, value);
   }
 
+  setSearchQuery(q: string) {
+    this.searchQuery.set(q);
+    this.scheduleContentSearch();
+  }
+
+  setSearchInContent(on: boolean) {
+    this.searchInContent.set(on);
+    localStorage.setItem('chat.sidebar.searchInContent', on ? '1' : '0');
+    this.scheduleContentSearch(true);
+  }
+
+  private scheduleContentSearch(immediate = false) {
+    if (this.contentSearchTimer) clearTimeout(this.contentSearchTimer);
+    const run = async () => {
+      const q = this.searchQuery().trim();
+      if (!this.searchInContent() || !q) {
+        this.contentHitIds.set(new Set());
+        return;
+      }
+      try {
+        const ids = await this.api.searchChatIds(q);
+        this.contentHitIds.set(new Set(ids));
+      } catch {
+        this.contentHitIds.set(new Set());
+      }
+    };
+    if (immediate) void run();
+    else this.contentSearchTimer = setTimeout(() => void run(), 280);
+  }
+
+  private chatMatchesQuery(chat: Chat, q: string): boolean {
+    if (!q) return true;
+    if ((chat.title || '').toLowerCase().includes(q)) return true;
+    return this.searchInContent() && this.contentHitIds().has(chat.id);
+  }
+
   filteredProjects = computed(() => {
     const q = this.searchQuery().trim().toLowerCase();
     const topicId = this.selectedTopicId();
@@ -79,7 +120,7 @@ export class SideBarComponent implements OnInit {
     if (q) {
       list = list.filter(p =>
         p.name.toLowerCase().includes(q) ||
-        this.getChatsForProject(p.id).some(c => c.title.toLowerCase().includes(q))
+        this.getChatsForProject(p.id).length > 0
       );
     }
 
@@ -186,10 +227,10 @@ export class SideBarComponent implements OnInit {
     const message = chatCount === 0
       ? this.i18n.t('sidebar.deleteEnvEmpty', { name: project.name })
       : this.i18n.t('sidebar.deleteEnvWithStories', {
-          name: project.name,
-          count: chatCount,
-          stories: this.i18n.t(chatCount === 1 ? 'sidebar.storyWord' : 'sidebar.storiesWord')
-        });
+        name: project.name,
+        count: chatCount,
+        stories: this.i18n.t(chatCount === 1 ? 'sidebar.storyWord' : 'sidebar.storiesWord')
+      });
 
     const ok = await this.confirm.ask({
       title: this.i18n.t('sidebar.deleteEnvTitle'),
@@ -328,7 +369,9 @@ export class SideBarComponent implements OnInit {
   }
 
   getChatsForProject(projectId: string | null): Chat[] {
-    const chats = this.chatsByProject().get(projectId) || [];
+    const q = this.searchQuery().trim().toLowerCase();
+    let chats = this.chatsByProject().get(projectId) || [];
+    if (q) chats = chats.filter(c => this.chatMatchesQuery(c, q));
     if (!this.sortByNewest()) return chats;
     return [...chats].sort((a, b) => {
       const ta = new Date(a.updated_at || a.created_at).getTime();

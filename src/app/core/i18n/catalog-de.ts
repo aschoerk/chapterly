@@ -97,6 +97,8 @@ export const DE = {
     allTopics: 'Alle Themen',
     editTopic: 'Aktuelles Thema bearbeiten',
     filterPh: 'Umgebungen & Geschichten filtern…',
+    searchInContent: 'im Text',
+    searchInContentHint: 'Auch aktuellen Knoteninhalt durchsuchen (SQL LIKE auf dem Server)',
     collapseAll: 'Alle Umgebungen einklappen',
     sortNewest: 'Nach Neueste sortiert – klicken für A–Z',
     sortAlpha: 'A–Z sortiert – klicken für neueste zuerst',

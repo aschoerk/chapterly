@@ -26,6 +26,8 @@ export interface ChatApiPort {
   deleteProject(id: string, deleteChats?: boolean): Promise<void>;
 
   getChats(): Promise<Chat[]>;
+  /** Chat ids whose title or current-node content matches q (server LIKE). */
+  searchChatIds(q: string): Promise<string[]>;
   createChat(title: string, projectId?: string | null): Promise<Chat>;
   /** Deep-copy a chat and every node, remapping parent/version ids. */
   cloneChat(chatId: string): Promise<Chat>;

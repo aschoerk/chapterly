@@ -157,6 +157,24 @@ export class IdbChatApiService implements ChatApiPort {
     return list.sort((a, b) => b.updated_at.localeCompare(a.updated_at));
   }
 
+  async searchChatIds(q: string): Promise<string[]> {
+    const needle = q.trim().toLowerCase();
+    if (!needle) return [];
+    return this.tx(['chats', 'nodes'], 'readonly', async tx => {
+      const chats = await this.all<Chat>(tx.objectStore('chats'));
+      const nodes = await this.all<ChatNode>(tx.objectStore('nodes'));
+      const hits = new Set<string>();
+      for (const c of chats) {
+        if ((c.title || '').toLowerCase().includes(needle)) hits.add(c.id);
+      }
+      for (const n of nodes) {
+        if (!n.isCurrent) continue;
+        if ((n.content || '').toLowerCase().includes(needle)) hits.add(n.chatId);
+      }
+      return [...hits];
+    });
+  }
+
   async createChat(title = 'New Chat', projectId: string | null = null): Promise<Chat> {
     const row: Chat = { id: this.id(), title, projectId, chatParametersId: null, node_number: 0, created_at: this.now(), updated_at: this.now() };
     await this.tx(['chats'], 'readwrite', tx => this.req(tx.objectStore('chats').put(row)));

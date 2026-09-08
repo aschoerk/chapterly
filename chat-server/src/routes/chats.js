@@ -61,6 +61,45 @@ router.param('chatId', paramChatGrant);
  *                     type: string
  *                     format: date-time
  */
+function likePattern(raw) {
+  return '%' + String(raw || '')
+    .replace(/\\/g, '\\\\')
+    .replace(/%/g, '\\%')
+    .replace(/_/g, '\\_') + '%';
+}
+
+/**
+ * @openapi
+ * /api/chats/search-ids:
+ *   get:
+ *     summary: Chat ids whose title or current node content matches q (SQL LIKE)
+ */
+router.get('/search-ids', (req, res) => {
+  if (enforceAudience(req, res, 'content')) return;
+  const q = String(req.query.q || '').trim();
+  if (!q) return res.json([]);
+  const pat = likePattern(q);
+  let rows;
+  if (req.auth) {
+    const clientIds = authClientIds(req, 'content');
+    rows = db.prepare(`
+      SELECT DISTINCT c.id FROM chats c
+                                  JOIN topic_projects tp ON tp.project_id = c.project_id
+                                  JOIN topics t ON t.id = tp.topic_id
+                                  LEFT JOIN chat_nodes n ON n.chat_id = c.id AND n.is_current = 1
+      WHERE t.workspace_id IN (${placeholders(clientIds)})
+        AND (c.title LIKE ? ESCAPE '\\' OR n.content LIKE ? ESCAPE '\\')
+    `).all(...clientIds, pat, pat);
+  } else {
+    rows = db.prepare(`
+      SELECT DISTINCT c.id FROM chats c
+      LEFT JOIN chat_nodes n ON n.chat_id = c.id AND n.is_current = 1
+      WHERE c.title LIKE ? ESCAPE '\\' OR n.content LIKE ? ESCAPE '\\'
+    `).all(pat, pat);
+  }
+  res.json(rows.map(r => r.id));
+});
+
 router.get('/', (req, res) => {
   if (enforceAudience(req, res, 'content')) return;
   const { projectId } = req.query;
@@ -70,8 +109,8 @@ router.get('/', (req, res) => {
     const clientIds = authClientIds(req, 'content');
     rows = db.prepare(`
       SELECT DISTINCT c.* FROM chats c
-                                 JOIN topic_projects tp ON tp.project_id = c.project_id
-                                 JOIN topics t ON t.id = tp.topic_id
+      JOIN topic_projects tp ON tp.project_id = c.project_id
+      JOIN topics t ON t.id = tp.topic_id
       WHERE t.workspace_id IN (${placeholders(clientIds)})
         AND (? IS NULL OR c.project_id = ?)
       ORDER BY c.updated_at DESC
