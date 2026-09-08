@@ -12,6 +12,7 @@ import { ConfirmService } from '../../core/confirm.service';
 import { buildSeedNodeDrafts } from '../../core/llm/llm-context';
 import {ProjectService} from '../../core/project.service';
 import {PersonaService} from '../../core/persona.service';
+import { I18nService } from '../../core/i18n/i18n.service';
 
 const LS_EXPANDED_KEY = 'chat-client.projects.expanded';
 const LS_TOPIC = 'chat.selectedTopicId';
@@ -32,6 +33,7 @@ export class SideBarComponent implements OnInit {
   private readonly lastModelService = inject(LastModelService);
   private readonly router = inject(Router);
   private readonly confirm = inject(ConfirmService);
+  readonly i18n = inject(I18nService);
   private readonly api = inject(CHAT_API);
 
   readonly projects = this.projectService.projects;
@@ -88,7 +90,8 @@ export class SideBarComponent implements OnInit {
         return tb - ta;
       });
     } else {
-      list = [...list].sort((a, b) => a.name.localeCompare(b.name));
+      const loc = this.i18n.localeId();
+      list = [...list].sort((a, b) => a.name.localeCompare(b.name, loc));
     }
 
     return list;
@@ -181,15 +184,18 @@ export class SideBarComponent implements OnInit {
 
     const chatCount = this.getChatsForProject(project.id).length;
     const message = chatCount === 0
-      ? `Delete environment “${project.name}”?`
-      : `Environment “${project.name}” contains ${chatCount} stor${chatCount === 1 ? 'y' : 'ies'}.\n\n` +
-      `Delete will remove the environment AND all of its stories.`;
+      ? this.i18n.t('sidebar.deleteEnvEmpty', { name: project.name })
+      : this.i18n.t('sidebar.deleteEnvWithStories', {
+          name: project.name,
+          count: chatCount,
+          stories: this.i18n.t(chatCount === 1 ? 'sidebar.storyWord' : 'sidebar.storiesWord')
+        });
 
     const ok = await this.confirm.ask({
-      title: 'Delete environment',
+      title: this.i18n.t('sidebar.deleteEnvTitle'),
       message,
-      confirmLabel: 'Delete',
-      cancelLabel: 'Cancel',
+      confirmLabel: this.i18n.t('common.delete'),
+      cancelLabel: this.i18n.t('common.cancel'),
       danger: true
     });
     if (!ok) return;
@@ -228,7 +234,7 @@ export class SideBarComponent implements OnInit {
   async createChatForProject(project: Project, event?: Event) {
     event?.stopPropagation();
 
-    const title = `${project.name} – New Chat`;
+    const title = this.i18n.t('sidebar.newChatTitle', { name: project.name });
     const chat = await this.chatService.createChat(title, project.id);
 
     const drafts = buildSeedNodeDrafts({
@@ -294,17 +300,17 @@ export class SideBarComponent implements OnInit {
       await this.selectChat(copy);
     } catch (err: any) {
       console.error(err);
-      alert('Clone failed: ' + (err?.message || err));
+      alert(this.i18n.t('sidebar.cloneFailed', { error: err?.message || err }));
     }
   }
 
   async deleteChat(chat: Chat, event: Event) {
     event.stopPropagation();
     const ok = await this.confirm.ask({
-      title: 'Delete story',
-      message: `Delete story “${chat.title}”?\nThis cannot be undone.`,
-      confirmLabel: 'Delete',
-      cancelLabel: 'Cancel',
+      title: this.i18n.t('sidebar.deleteStoryTitle'),
+      message: this.i18n.t('sidebar.deleteStoryMsg', { title: chat.title }),
+      confirmLabel: this.i18n.t('common.delete'),
+      cancelLabel: this.i18n.t('common.cancel'),
       danger: true
     });
     if (!ok) return;
@@ -339,11 +345,11 @@ export class SideBarComponent implements OnInit {
     if (!value) return '—';
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return value;
-    return date.toLocaleString();
+    return this.i18n.formatDate(date, { dateStyle: 'short', timeStyle: 'short' });
   }
 
   modelLabel(id: string | null | undefined): string {
-    if (!id) return 'none';
+    if (!id) return this.i18n.t('common.none');
     const model = this.enabledModels().find(m => m.id === id || m.modelId === id);
     return model?.displayName || id;
   }
@@ -352,19 +358,20 @@ export class SideBarComponent implements OnInit {
     const chats = this.getChatCount(project.id);
     return [
       project.name,
-      `${chats} stor${chats === 1 ? 'y' : 'ies'}`,
-      `Created: ${this.formatWhen(project.createdAt)}`,
-      `Updated: ${this.formatWhen(project.updatedAt)}`,
-      `Default model: ${this.modelLabel(project.defaultModelId)}`
+      this.i18n.t(chats === 1 ? 'sidebar.storiesCountOne' : 'sidebar.storiesCountMany', { count: chats }),
+      this.i18n.t('sidebar.created', { when: this.formatWhen(project.createdAt) }),
+      this.i18n.t('sidebar.updated', { when: this.formatWhen(project.updatedAt) }),
+      this.i18n.t('sidebar.defaultModel', { model: this.modelLabel(project.defaultModelId) })
     ].join('\n');
   }
 
   chatTooltip(chat: Chat): string {
+    const beats = chat.node_number ?? 0;
     return [
-      chat.title || 'Untitled story',
-      `${chat.node_number ?? 0} beat${chat.node_number === 1 ? '' : 's'}`,
-      `Created: ${this.formatWhen(chat.created_at)}`,
-      `Updated: ${this.formatWhen(chat.updated_at)}`
+      chat.title || this.i18n.t('sidebar.untitledStory'),
+      this.i18n.t(beats === 1 ? 'sidebar.beatsOne' : 'sidebar.beatsMany', { count: beats }),
+      this.i18n.t('sidebar.created', { when: this.formatWhen(chat.created_at) }),
+      this.i18n.t('sidebar.updated', { when: this.formatWhen(chat.updated_at) })
     ].join('\n');
   }
 

@@ -515,7 +515,7 @@ export class ChatReaderComponent implements OnInit, OnDestroy {
 
   private esc(s: string): string {
     return s.replace(/[&<>"']/g, c => (
-      { '&': '&', '<': '<', '>': '>', '"': '"', "'": '&#39;' }[c]!
+      { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!
     ));
   }
 

@@ -28,6 +28,7 @@ import {
   emptyParametersDraft
 } from '../../models/chat-parameters';
 import {PersonaService} from '../../core/persona.service';
+import { I18nService } from '../../core/i18n/i18n.service';
 
 @Component({
   selector: 'app-projects',
@@ -38,6 +39,7 @@ import {PersonaService} from '../../core/persona.service';
 })
 export class ProjectsComponent implements OnInit {
   private readonly chatService = inject(ChatService);
+  readonly i18n = inject(I18nService);
   private readonly projectService = inject(ProjectService);
   private readonly personaService = inject(PersonaService);
   private readonly settings = inject(SettingsService);
@@ -140,7 +142,7 @@ export class ProjectsComponent implements OnInit {
       ]);
     } catch (e) {
       console.error('Failed to load projects', e);
-      this.error.set('Failed to load books from server.');
+      this.error.set(this.i18n.t('projects.loadFailed'));
     }
     this.openFromQuery();
   }
@@ -169,7 +171,7 @@ export class ProjectsComponent implements OnInit {
   }
 
   modelLabel(id: string | null | undefined): string {
-    if (!id) return 'No default model';
+    if (!id) return this.i18n.t('projects.noDefaultModel');
     const m = this.enabledModels().find(x => x.id === id);
     return m?.displayName || id;
   }
@@ -199,7 +201,7 @@ export class ProjectsComponent implements OnInit {
       const aOn = selected.has(a.id) ? 0 : 1;
       const bOn = selected.has(b.id) ? 0 : 1;
       if (aOn !== bOn) return aOn - bOn;
-      return a.name.localeCompare(b.name);
+      return a.name.localeCompare(b.name, this.i18n.localeId());
     });
   }
 
@@ -249,10 +251,10 @@ export class ProjectsComponent implements OnInit {
     if (this.isProjectDirty()) {
       this.closeInFlight = true;
       const discard = await this.confirm.ask({
-        title: 'Unsaved changes',
-        message: 'This environment has edits that are not saved yet.\nDiscard them?',
-        confirmLabel: 'Discard',
-        cancelLabel: 'Keep editing',
+        title: this.i18n.t('personas.unsavedTitle'),
+        message: this.i18n.t('projects.unsavedEnvMsg'),
+        confirmLabel: this.i18n.t('common.discard'),
+        cancelLabel: this.i18n.t('common.keepEditing'),
         danger: true
       });
       this.closeInFlight = false;
@@ -273,7 +275,7 @@ export class ProjectsComponent implements OnInit {
   async save() {
     const name = this.form.name.trim();
     if (!name) {
-      this.error.set('Name is required');
+      this.error.set(this.i18n.t('common.nameRequired'));
       return;
     }
 
@@ -308,7 +310,7 @@ export class ProjectsComponent implements OnInit {
       this.closeForm();
     } catch (e: any) {
       console.error(e);
-      this.error.set(e?.error?.error || e?.message || 'Save failed');
+      this.error.set(e?.error?.error || e?.message || this.i18n.t('common.saveFailed'));
     } finally {
       this.saving.set(false);
     }
@@ -319,14 +321,17 @@ export class ProjectsComponent implements OnInit {
     const chatsForProject = this.chatService.chatsByProject().get(project.id);
     const chatCount = chatsForProject ? chatsForProject.length : 0;
     const message = chatCount === 0
-      ? `Delete environment “${project.name}”?`
-      : `Environment “${project.name}” contains ${chatCount} stor${chatCount === 1 ? 'y' : 'ies'}.\n\n` +
-      `Delete will remove the environment AND all of its stories.`;
+      ? this.i18n.t('sidebar.deleteEnvEmpty', { name: project.name })
+      : this.i18n.t('sidebar.deleteEnvWithStories', {
+          name: project.name,
+          count: chatCount,
+          stories: this.i18n.t(chatCount === 1 ? 'sidebar.storyWord' : 'sidebar.storiesWord')
+        });
     const ok = await this.confirm.ask({
-      title: 'Delete environment',
+      title: this.i18n.t('sidebar.deleteEnvTitle'),
       message,
-      confirmLabel: 'Delete',
-      cancelLabel: 'Cancel',
+      confirmLabel: this.i18n.t('common.delete'),
+      cancelLabel: this.i18n.t('common.cancel'),
       danger: true
     });
     if (!ok)
@@ -335,7 +340,7 @@ export class ProjectsComponent implements OnInit {
       await this.projectService.deleteProject(project.id);
     } catch (e) {
       console.error(e);
-      alert('Failed to delete environment');
+      alert(this.i18n.t('projects.deleteEnvFailed'));
     }
   }
 
@@ -345,12 +350,12 @@ export class ProjectsComponent implements OnInit {
     if (!file) return;
 
     if (!file.type.startsWith('image/')) {
-      this.error.set('Please select an image file');
+      this.error.set(this.i18n.t('common.imageFileRequired'));
       return;
     }
 
     if (file.size > 800_000) {
-      this.error.set('Image is too large (max ~800 KB). Please choose a smaller one.');
+      this.error.set(this.i18n.t('common.imageTooLarge'));
       return;
     }
 
@@ -360,7 +365,7 @@ export class ProjectsComponent implements OnInit {
       this.error.set(null);
     };
     reader.onerror = () => {
-      this.error.set('Failed to read image');
+      this.error.set(this.i18n.t('common.imageReadFailed'));
     };
     reader.readAsDataURL(file);
   }
@@ -389,7 +394,7 @@ export class ProjectsComponent implements OnInit {
 
   /** Topics sorted alphabetically */
   readonly sortedTopics = computed(() =>
-    [...this.topics()].sort((a, b) => a.name.localeCompare(b.name))
+    [...this.topics()].sort((a, b) => a.name.localeCompare(b.name, this.i18n.localeId()))
   );
 
 
@@ -454,10 +459,10 @@ export class ProjectsComponent implements OnInit {
     if (this.isTopicDirty()) {
       this.closeInFlight = true;
       const discard = await this.confirm.ask({
-        title: 'Unsaved changes',
-        message: 'This topic has edits that are not saved yet.\nDiscard them?',
-        confirmLabel: 'Discard',
-        cancelLabel: 'Keep editing',
+        title: this.i18n.t('personas.unsavedTitle'),
+        message: this.i18n.t('projects.unsavedTopicMsg'),
+        confirmLabel: this.i18n.t('common.discard'),
+        cancelLabel: this.i18n.t('common.keepEditing'),
         danger: true
       });
       this.closeInFlight = false;
@@ -481,7 +486,7 @@ export class ProjectsComponent implements OnInit {
   async saveTopic() {
     const name = this.topicName().trim();
     if (!name) {
-      this.topicError.set('Name is required');
+      this.topicError.set(this.i18n.t('common.nameRequired'));
       return;
     }
 
@@ -517,7 +522,7 @@ export class ProjectsComponent implements OnInit {
       this.closeTopicForm();
     } catch (err: any) {
       console.error(err);
-      this.topicError.set(err?.error?.error || err?.message || 'Save failed');
+      this.topicError.set(err?.error?.error || err?.message || this.i18n.t('common.saveFailed'));
     } finally {
       this.topicSaving.set(false);
     }
@@ -532,14 +537,14 @@ export class ProjectsComponent implements OnInit {
 
     const projectCount = topic.projectIds?.length ?? 0;
     const message = projectCount > 0
-      ? `Delete topic “${topic.name}”?\nIt currently contains ${projectCount} environment(s).\nEnvironments themselves will NOT be deleted.`
-      : `Delete topic “${topic.name}”?`;
+      ? this.i18n.t('projects.deleteTopicWithEnv', { name: topic.name, count: projectCount })
+      : this.i18n.t('projects.deleteTopicEmpty', { name: topic.name });
 
     const ok = await this.confirm.ask({
-      title: 'Delete topic',
+      title: this.i18n.t('projects.deleteTopicAsk'),
       message,
-      confirmLabel: 'Delete',
-      cancelLabel: 'Cancel',
+      confirmLabel: this.i18n.t('common.delete'),
+      cancelLabel: this.i18n.t('common.cancel'),
       danger: true
     });
     if (!ok) return;
@@ -551,7 +556,7 @@ export class ProjectsComponent implements OnInit {
       }
     } catch (err: any) {
       console.error(err);
-      alert('Could not delete topic: ' + (err?.message || err));
+      alert(this.i18n.t('projects.deleteTopicFailed', { error: err?.message || err }));
     }
   }
 
@@ -567,7 +572,7 @@ export class ProjectsComponent implements OnInit {
       await this.projectService.addProjectToTopic(topicId, projectId);
     } catch (err: any) {
       console.error(err);
-      alert('Could not add environment to topic');
+      alert(this.i18n.t('projects.addFailed'));
     }
   }
 
@@ -579,7 +584,7 @@ export class ProjectsComponent implements OnInit {
       await this.projectService.removeProjectFromTopic(topicId, projectId);
     } catch (err: any) {
       console.error(err);
-      alert('Could not remove environment from topic');
+      alert(this.i18n.t('projects.removeFailed'));
     }
   }
 
@@ -607,12 +612,12 @@ export class ProjectsComponent implements OnInit {
     if (!file) return;
 
     if (!file.type.startsWith('image/')) {
-      this.topicError.set('Please select an image file');
+      this.topicError.set(this.i18n.t('common.imageFileRequired'));
       return;
     }
 
     if (file.size > 800_000) {
-      this.topicError.set('Image is too large (max ~800 KB). Please choose a smaller one.');
+      this.topicError.set(this.i18n.t('common.imageTooLarge'));
       return;
     }
 
@@ -622,7 +627,7 @@ export class ProjectsComponent implements OnInit {
       this.topicError.set(null);
     };
     reader.onerror = () => {
-      this.topicError.set('Failed to read image');
+      this.topicError.set(this.i18n.t('common.imageReadFailed'));
     };
     reader.readAsDataURL(file);
 

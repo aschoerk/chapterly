@@ -20,7 +20,7 @@ export const EN_PAGES = {
     deleteConfirm: 'Delete persona "{{name}}"? This cannot be undone.',
     deleteFailed: 'Failed to delete persona',
     unsavedTitle: 'Unsaved changes',
-    unsavedMsg: 'This persona has edits that are not saved yet.\nDiscard them?'
+    unsavedMsg: 'This persona has edits that are not saved yet.\\nDiscard them?'
   },
   projects: {
     topics: 'Topics',
@@ -63,12 +63,12 @@ export const EN_PAGES = {
     defaultSystem: 'Default system prompt',
     defaultSystemPh: 'Optional system prompt that can be used by environments in this topic',
     loadFailed: 'Failed to load books from server.',
-    unsavedEnvMsg: 'This environment has edits that are not saved yet.\nDiscard them?',
-    unsavedTopicMsg: 'This topic has edits that are not saved yet.\nDiscard them?',
+    unsavedEnvMsg: 'This environment has edits that are not saved yet.\\nDiscard them?',
+    unsavedTopicMsg: 'This topic has edits that are not saved yet.\\nDiscard them?',
     deleteEnvFailed: 'Failed to delete environment',
     deleteTopicAsk: 'Delete topic',
     deleteTopicEmpty: 'Delete topic “{{name}}”?',
-    deleteTopicWithEnv: 'Delete topic “{{name}}”?\nIt currently contains {{count}} environment(s).\nEnvironments themselves will NOT be deleted.',
+    deleteTopicWithEnv: 'Delete topic “{{name}}”?\\nIt currently contains {{count}} environment(s).\\nEnvironments themselves will NOT be deleted.',
     deleteTopicFailed: 'Could not delete topic: {{error}}',
     addFailed: 'Could not add environment to topic',
     removeFailed: 'Could not remove environment from topic'

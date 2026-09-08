@@ -6,9 +6,9 @@
         [checked]="overrideEnabled()"
         (change)="setOverride($any($event.target).checked)"
       />
-      Override generation settings
+      {{ i18n.t('params.override') }}
     </label>
-    <button type="button" class="info-btn" title="About overrides" (click)="toggleHint('override', $event)">i</button>
+    <button type="button" class="info-btn" [title]="i18n.t('params.aboutOverrides')" (click)="toggleHint('override', $event)">i</button>
     @if (openHint() === 'override') {
       <div class="info-pop" (click)="$event.stopPropagation()">
         <strong>{{ hint('override').title }}</strong>
@@ -18,9 +18,9 @@
   </div>
 
   <p class="inherit-hint">
-    Effective from {{ sourceLabel() }}:
+    {{ i18n.t('params.effectiveFrom', { source: sourceLabel() }) }}
     <strong>{{ summary() }}</strong>
-    <button type="button" class="info-btn" title="About effective values" (click)="toggleHint('effective', $event)">i</button>
+    <button type="button" class="info-btn" [title]="i18n.t('params.aboutEffective')" (click)="toggleHint('effective', $event)">i</button>
     @if (openHint() === 'effective') {
       <span class="info-pop inline" (click)="$event.stopPropagation()">
         <strong>{{ hint('effective').title }}</strong>
@@ -33,7 +33,7 @@
     <div class="params-grid">
       <label>
         <span class="field-label">
-          Temperature
+          {{ i18n.t('params.temperature') }}
           <button type="button" class="info-btn" (click)="toggleHint('temperature', $event)">i</button>
         </span>
         @if (openHint() === 'temperature') {
@@ -49,13 +49,13 @@
           step="0.1"
           [ngModel]="draft().temperature"
           (ngModelChange)="setNumber('temperature', $event == null ? '' : '' + $event)"
-          placeholder="inherit"
+          [placeholder]="i18n.t('params.inheritPh')"
         />
       </label>
 
       <label>
         <span class="field-label">
-          top_k
+          {{ i18n.t('params.topK') }}
           <button type="button" class="info-btn" (click)="toggleHint('topK', $event)">i</button>
         </span>
         @if (openHint() === 'topK') {
@@ -70,13 +70,13 @@
           step="1"
           [ngModel]="draft().topK"
           (ngModelChange)="setNumber('topK', $event == null ? '' : '' + $event)"
-          placeholder="inherit"
+          [placeholder]="i18n.t('params.inheritPh')"
         />
       </label>
 
       <label>
         <span class="field-label">
-          top_m / top_p
+          {{ i18n.t('params.topM') }}
           <button type="button" class="info-btn" (click)="toggleHint('topM', $event)">i</button>
         </span>
         @if (openHint() === 'topM') {
@@ -92,13 +92,13 @@
           step="0.05"
           [ngModel]="draft().topM"
           (ngModelChange)="setNumber('topM', $event == null ? '' : '' + $event)"
-          placeholder="inherit"
+          [placeholder]="i18n.t('params.inheritPh')"
         />
       </label>
 
       <label>
         <span class="field-label">
-          Stream
+          {{ i18n.t('params.stream') }}
           <button type="button" class="info-btn" (click)="toggleHint('stream', $event)">i</button>
         </span>
         @if (openHint() === 'stream') {
@@ -108,15 +108,15 @@
           </div>
         }
         <select [ngModel]="triValue(draft().stream)" (ngModelChange)="setTriState('stream', $event)">
-          <option value="inherit">Inherit</option>
-          <option value="yes">Yes</option>
-          <option value="no">No</option>
+          <option value="inherit">{{ i18n.t('params.inherit') }}</option>
+          <option value="yes">{{ i18n.t('params.yes') }}</option>
+          <option value="no">{{ i18n.t('params.no') }}</option>
         </select>
       </label>
 
       <label>
         <span class="field-label">
-          Thinking
+          {{ i18n.t('params.thinking') }}
           <button type="button" class="info-btn" (click)="toggleHint('thinking', $event)">i</button>
         </span>
         @if (openHint() === 'thinking') {
@@ -126,15 +126,15 @@
           </div>
         }
         <select [ngModel]="triValue(draft().thinking)" (ngModelChange)="setTriState('thinking', $event)">
-          <option value="inherit">Inherit</option>
-          <option value="yes">Yes</option>
-          <option value="no">No</option>
+          <option value="inherit">{{ i18n.t('params.inherit') }}</option>
+          <option value="yes">{{ i18n.t('params.yes') }}</option>
+          <option value="no">{{ i18n.t('params.no') }}</option>
         </select>
       </label>
 
       <label>
         <span class="field-label">
-          Thinking level
+          {{ i18n.t('params.thinkingLevel') }}
           <button type="button" class="info-btn" (click)="toggleHint('thinkingLevel', $event)">i</button>
         </span>
         @if (openHint() === 'thinkingLevel') {
@@ -144,13 +144,13 @@
           </div>
         }
         <select [ngModel]="draft().thinkingLevel || ''" (ngModelChange)="setLevel($event)">
-          <option value="">Inherit</option>
+          <option value="">{{ i18n.t('params.inherit') }}</option>
           @for (level of levels; track level) {
             <option [value]="level">{{ level }}</option>
           }
         </select>
       </label>
     </div>
-    <p class="hint">Empty fields keep the parent value. Thinking level maps to OpenAI reasoning_effort.</p>
+    <p class="hint">{{ i18n.t('params.hintFooter') }}</p>
   }
 </div>

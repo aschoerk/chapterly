@@ -17,6 +17,7 @@ import { ConfirmService } from '../../core/confirm.service';
 import { Persona } from '../../models/chat';
 import { AvatarPickerComponent } from '../../components/avatar-picker/avatar-picker.component';
 import { AvatarViewComponent } from '../../components/avatar-view/avatar-view.component';
+import { I18nService } from '../../core/i18n/i18n.service';
 
 @Component({
   selector: 'app-personas',
@@ -30,6 +31,7 @@ export class PersonasComponent implements OnInit {
   private readonly personaService = inject(PersonaService);
   private readonly router = inject(Router);
   private readonly confirm = inject(ConfirmService);
+  readonly i18n = inject(I18nService);
 
   readonly personas = this.personaService.personas;
 
@@ -81,7 +83,7 @@ export class PersonasComponent implements OnInit {
       await this.personaService.loadPersonas();
     } catch (e) {
       console.error('Failed to load personas', e);
-      this.error.set('Failed to load personas from server.');
+      this.error.set(this.i18n.t('personas.loadFailed'));
     }
   }
 
@@ -128,10 +130,10 @@ export class PersonasComponent implements OnInit {
     if (this.isDirty()) {
       this.closeInFlight = true;
       const discard = await this.confirm.ask({
-        title: 'Unsaved changes',
-        message: 'This persona has edits that are not saved yet.\nDiscard them?',
-        confirmLabel: 'Discard',
-        cancelLabel: 'Keep editing',
+        title: this.i18n.t('personas.unsavedTitle'),
+        message: this.i18n.t('personas.unsavedMsg'),
+        confirmLabel: this.i18n.t('common.discard'),
+        cancelLabel: this.i18n.t('common.keepEditing'),
         danger: true
       });
       this.closeInFlight = false;
@@ -154,11 +156,11 @@ export class PersonasComponent implements OnInit {
     const shortName = this.form.shortName.trim();
 
     if (!name) {
-      this.error.set('Name is required');
+      this.error.set(this.i18n.t('common.nameRequired'));
       return;
     }
     if (!shortName) {
-      this.error.set('Short name is required');
+      this.error.set(this.i18n.t('personas.shortNameRequired'));
       return;
     }
 
@@ -184,21 +186,21 @@ export class PersonasComponent implements OnInit {
       this.closeForm();
     } catch (e: any) {
       console.error(e);
-      this.error.set(e?.error?.error || e?.message || 'Save failed');
+      this.error.set(e?.error?.error || e?.message || this.i18n.t('common.saveFailed'));
     } finally {
       this.saving.set(false);
     }
   }
 
   async deletePersona(persona: Persona) {
-    if (!confirm(`Delete persona "${persona.name}"? This cannot be undone.`)) {
+    if (!confirm(this.i18n.t('personas.deleteConfirm', { name: persona.name }))) {
       return;
     }
     try {
       await this.personaService.deletePersona(persona.id);
     } catch (e) {
       console.error(e);
-      alert('Failed to delete persona');
+      alert(this.i18n.t('personas.deleteFailed'));
     }
   }
 
@@ -208,13 +210,13 @@ export class PersonasComponent implements OnInit {
     if (!file) return;
 
     if (!file.type.startsWith('image/')) {
-      this.error.set('Please select an image file');
+      this.error.set(this.i18n.t('common.imageFileRequired'));
       return;
     }
 
     // Limit size roughly (data URLs get large)
     if (file.size > 800_000) {
-      this.error.set('Image is too large (max ~800 KB). Please choose a smaller one.');
+      this.error.set(this.i18n.t('common.imageTooLarge'));
       return;
     }
 
@@ -224,7 +226,7 @@ export class PersonasComponent implements OnInit {
       this.error.set(null);
     };
     reader.onerror = () => {
-      this.error.set('Failed to read image');
+      this.error.set(this.i18n.t('common.imageReadFailed'));
     };
     reader.readAsDataURL(file);
   }

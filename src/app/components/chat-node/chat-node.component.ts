@@ -17,6 +17,7 @@ import { ChatParametersService } from '../../core/chat-parameters.service';
 import { inferMimeType, nodeToMessageContent } from '../../core/llm/llm-message';
 import { formatParametersSummary } from '../../models/chat-parameters';
 import {ProjectService} from '../../core/project.service';
+import { I18nService } from '../../core/i18n/i18n.service';
 
 @Component({
   selector: 'app-chat-node',
@@ -34,6 +35,7 @@ export class ChatNodeComponent {
   private readonly parameters = inject(ChatParametersService);
 
   private readonly confirm = inject(ConfirmService);
+  readonly i18n = inject(I18nService);
 
   readonly node = input.required<ChatNode>();
   readonly activeChildId = input<string | null>(null);
@@ -224,10 +226,10 @@ export class ChatNodeComponent {
       this.editSession.isDirty()
     ) {
       const discard = await this.confirm.ask({
-        title: 'Discard edits?',
-        message: 'Close this editor without saving?',
-        confirmLabel: 'Discard',
-        cancelLabel: 'Keep editing',
+        title: this.i18n.t('node.discardTitle'),
+        message: this.i18n.t('node.discardMsg'),
+        confirmLabel: this.i18n.t('common.discard'),
+        cancelLabel: this.i18n.t('common.keepEditing'),
         danger: true
       });
       if (!discard) return;
@@ -294,7 +296,7 @@ export class ChatNodeComponent {
       this.closeEditor();
     } catch (err: any) {
       console.error(err);
-      alert('Save failed: ' + (err?.message || err));
+      alert(this.i18n.t('node.saveFailed', { error: err?.message || err }));
     } finally {
       this.isLoading.set(false);
       this.pendingAction.set(null);
@@ -346,13 +348,13 @@ export class ChatNodeComponent {
       m => m.modelId === modelId || m.id === modelId
     );
     if (!model) {
-      alert('Selected model not found');
+      alert(this.i18n.t('node.modelMissing'));
       return null;
     }
 
     const provider = this.settings.providers().find(p => p.id === model.providerId);
     if (!provider) {
-      alert('Provider not found');
+      alert(this.i18n.t('node.providerMissing'));
       return null;
     }
 
@@ -371,7 +373,7 @@ export class ChatNodeComponent {
       await work();
     } catch (err: any) {
       console.error(err);
-      alert('Failed: ' + (err?.message || err));
+      alert(this.i18n.t('node.failed', { error: err?.message || err }));
     } finally {
       this.isLoading.set(false);
       this.pendingAction.set(null);
@@ -540,12 +542,12 @@ export class ChatNodeComponent {
     if (children.length > 0) {
       const extra = this.collectSubtree(node.id).length - 1;
       const ok = await this.confirm.ask({
-        title: 'Regenerate answer?',
+        title: this.i18n.t('node.regenerateTitleAsk'),
         message: extra > 0
-          ? `This answer has ${extra} descendant node(s). Regenerating deletes them and sends the last user request again.`
-          : 'This answer has child nodes. Regenerating deletes them and sends the last user request again.',
-        confirmLabel: 'Regenerate',
-        cancelLabel: 'Cancel',
+          ? this.i18n.t('node.regenerateMsgExtra', { count: extra })
+          : this.i18n.t('node.regenerateMsg'),
+        confirmLabel: this.i18n.t('node.regenerate'),
+        cancelLabel: this.i18n.t('common.cancel'),
         danger: true
       });
       if (!ok) return;
@@ -558,20 +560,20 @@ export class ChatNodeComponent {
       ? this.chatService.nodes().find(n => n.id === node.parentId)
       : undefined;
     if (!question || question.role !== 'user') {
-      alert('Cannot regenerate: parent question not found');
+      alert(this.i18n.t('node.regenerateNoParent'));
       return;
     }
 
     const modelId = node.modelId || question.modelId || this.resolvePreferredModelId(question);
     const model = this.enabledModels().find(m => m.modelId === modelId || m.id === modelId);
     if (!model) {
-      alert('Selected model not found');
+      alert(this.i18n.t('node.modelMissing'));
       return;
     }
 
     const provider = this.settings.providers().find(p => p.id === model.providerId);
     if (!provider) {
-      alert('Provider not found');
+      alert(this.i18n.t('node.providerMissing'));
       return;
     }
 
@@ -583,7 +585,7 @@ export class ChatNodeComponent {
       await this.streamForQuestion(chatId, question, question.parentId, provider, model);
     } catch (err: any) {
       console.error(err);
-      alert('Regenerate failed: ' + (err?.message || err));
+      alert(this.i18n.t('node.regenerateFailed', { error: err?.message || err }));
     } finally {
       this.isLoading.set(false);
       this.pendingAction.set(null);
@@ -597,12 +599,12 @@ export class ChatNodeComponent {
     if (hasPayload) {
       const childCount = this.chatService.getChildren(node.id).length;
       const ok = await this.confirm.ask({
-        title: 'Remove this node?',
+        title: this.i18n.t('node.removeTitleAsk'),
         message: childCount > 0
-          ? `Delete this ${node.role} node only. Its ${childCount} child node(s) stay and attach to the parent.`
-          : `Delete this ${node.role} node? Child nodes, if any, stay in the thread.`,
-        confirmLabel: 'Remove',
-        cancelLabel: 'Cancel',
+          ? this.i18n.t('node.removeMsgChildren', { role: node.role === 'user' ? this.i18n.t('node.roleUser') : node.role === 'assistant' ? this.i18n.t('node.roleAssistant') : this.i18n.t('node.roleSystem'), count: childCount })
+          : this.i18n.t('node.removeMsg', { role: node.role === 'user' ? this.i18n.t('node.roleUser') : node.role === 'assistant' ? this.i18n.t('node.roleAssistant') : this.i18n.t('node.roleSystem') }),
+        confirmLabel: this.i18n.t('node.remove'),
+        cancelLabel: this.i18n.t('common.cancel'),
         danger: true
       });
       if (!ok) return;
@@ -621,7 +623,7 @@ export class ChatNodeComponent {
       }
     } catch (err: any) {
       console.error(err);
-      alert('Failed to remove node: ' + (err?.message || err));
+      alert(this.i18n.t('node.removeFailed', { error: err?.message || err }));
     }
   }
 
@@ -633,12 +635,12 @@ export class ChatNodeComponent {
     if (nonTrivial.length > 0) {
       const extra = subtree.length - 1;
       const ok = await this.confirm.ask({
-        title: 'Delete node?',
+        title: this.i18n.t('node.deleteTitleAsk'),
         message: extra > 0
-          ? `Delete this ${node.role} node and its ${extra} descendant(s)? ${nonTrivial.length} node(s) have content.`
-          : `Delete this ${node.role} node? It has content.`,
-        confirmLabel: 'Delete',
-        cancelLabel: 'Cancel',
+          ? this.i18n.t('node.deleteMsgExtra', { role: node.role === 'user' ? this.i18n.t('node.roleUser') : node.role === 'assistant' ? this.i18n.t('node.roleAssistant') : this.i18n.t('node.roleSystem'), count: extra, filled: nonTrivial.length })
+          : this.i18n.t('node.deleteMsg', { role: node.role === 'user' ? this.i18n.t('node.roleUser') : node.role === 'assistant' ? this.i18n.t('node.roleAssistant') : this.i18n.t('node.roleSystem') }),
+        confirmLabel: this.i18n.t('common.delete'),
+        cancelLabel: this.i18n.t('common.cancel'),
         danger: true
       });
       if (!ok) return;
@@ -665,7 +667,7 @@ export class ChatNodeComponent {
       }
     } catch (err: any) {
       console.error(err);
-      alert('Failed to delete: ' + (err?.message || err));
+      alert(this.i18n.t('node.deleteFailed', { error: err?.message || err }));
     }
   }
 
@@ -793,7 +795,7 @@ export class ChatNodeComponent {
         clearTimeout(this.copyTimeout);
         this.copyTimeout = setTimeout(() => this.copied.set(false), 1500);
       } catch {
-        alert('Copy failed');
+        alert(this.i18n.t('node.copyFailed'));
       }
       document.body.removeChild(textarea);
     }
@@ -816,7 +818,7 @@ export class ChatNodeComponent {
     const result: NodeAttachment[] = [];
     for (const file of Array.from(files)) {
       if (file.size > this.MAX_ATTACHMENT_BYTES) {
-        alert(`${file.name} is too large (max 4 MB)`);
+        alert(this.i18n.t('node.fileTooLarge', { name: file.name }));
         continue;
       }
       const dataUrl = await this.readAsDataURL(file);

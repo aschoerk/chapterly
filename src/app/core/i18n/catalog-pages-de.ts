@@ -20,7 +20,7 @@ export const DE_PAGES = {
     deleteConfirm: 'Persona „{{name}}“ löschen? Das kann nicht rückgängig gemacht werden.',
     deleteFailed: 'Persona konnte nicht gelöscht werden',
     unsavedTitle: 'Ungespeicherte Änderungen',
-    unsavedMsg: 'Diese Persona hat ungespeicherte Änderungen.\nVerwerfen?'
+    unsavedMsg: 'Diese Persona hat ungespeicherte Änderungen.\\nVerwerfen?'
   },
   projects: {
     topics: 'Themen',
@@ -63,12 +63,12 @@ export const DE_PAGES = {
     defaultSystem: 'Standard-Systemprompt',
     defaultSystemPh: 'Optionaler Systemprompt für Umgebungen in diesem Thema',
     loadFailed: 'Bücher konnten nicht vom Server geladen werden.',
-    unsavedEnvMsg: 'Diese Umgebung hat ungespeicherte Änderungen.\nVerwerfen?',
-    unsavedTopicMsg: 'Dieses Thema hat ungespeicherte Änderungen.\nVerwerfen?',
+    unsavedEnvMsg: 'Diese Umgebung hat ungespeicherte Änderungen.\\nVerwerfen?',
+    unsavedTopicMsg: 'Dieses Thema hat ungespeicherte Änderungen.\\nVerwerfen?',
     deleteEnvFailed: 'Umgebung konnte nicht gelöscht werden',
     deleteTopicAsk: 'Thema löschen',
     deleteTopicEmpty: 'Thema „{{name}}“ löschen?',
-    deleteTopicWithEnv: 'Thema „{{name}}“ löschen?\nEs enthält derzeit {{count}} Umgebung(en).\nDie Umgebungen selbst werden NICHT gelöscht.',
+    deleteTopicWithEnv: 'Thema „{{name}}“ löschen?\\nEs enthält derzeit {{count}} Umgebung(en).\\nDie Umgebungen selbst werden NICHT gelöscht.',
     deleteTopicFailed: 'Thema konnte nicht gelöscht werden: {{error}}',
     addFailed: 'Umgebung konnte dem Thema nicht hinzugefügt werden',
     removeFailed: 'Umgebung konnte nicht aus dem Thema entfernt werden'

@@ -1,4 +1,4 @@
-import { Component, effect, input, output, signal } from '@angular/core';
+import { Component, effect, inject, input, output, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import {
@@ -9,6 +9,7 @@ import {
   emptyParametersDraft,
   formatParametersSummary
 } from '../../models/chat-parameters';
+import { I18nService } from '../../core/i18n/i18n.service';
 
 export type ParamHintKey =
   | 'override'
@@ -28,6 +29,7 @@ export type ParamHintKey =
   styleUrl: './chat-parameters-editor.component.css'
 })
 export class ChatParametersEditorComponent {
+  readonly i18n = inject(I18nService);
   readonly compact = input(false);
   readonly inherited = input<ResolvedChatParameters | null>(null);
   readonly initial = input<ChatParametersDraft | null>(null);
@@ -41,40 +43,19 @@ export class ChatParametersEditorComponent {
 
   readonly levels = THINKING_LEVELS;
 
-  readonly hints: Record<ParamHintKey, { title: string; body: string }> = {
-    override: {
-      title: 'Override generation settings',
-      body: 'Off: this topic, project, model or chat inherits values from the next parent (model → topic → project → chat). On: store a dedicated parameter set on this item. Empty fields still inherit.'
-    },
-    effective: {
-      title: 'Effective values',
-      body: 'What will actually be sent after merging parents. The label in parentheses is the closest owner that set a value. Built-in defaults are temperature 0.7 and streaming on.'
-    },
-    temperature: {
-      title: 'Temperature',
-      body: 'OpenAI temperature, usually 0–2. Lower is more deterministic; higher is more varied. Leave empty to inherit. Default if nothing is set: 0.7.'
-    },
-    topK: {
-      title: 'top_k',
-      body: 'Limits sampling to the K most likely tokens. Used by many OpenAI-compatible providers (OpenRouter, Groq, local servers). OpenAI itself ignores this. Empty means inherit / omit.'
-    },
-    topM: {
-      title: 'top_m / top_p',
-      body: 'Nucleus sampling. Stored as top_m and sent as OpenAI top_p (0–1). 0.9 keeps the smallest set of tokens whose probabilities add up to 90%. Empty means inherit / omit.'
-    },
-    stream: {
-      title: 'Stream',
-      body: 'Yes streams tokens as they arrive. No waits for the full reply as one JSON message — useful for models that mishandle SSE. Inherit uses the parent, then streaming on.'
-    },
-    thinking: {
-      title: 'Thinking',
-      body: 'Ask the model for a reasoning / thinking trace (include_reasoning). Shown on the answer node when the provider returns it. No disables reasoning extras even if the model supports them.'
-    },
-    thinkingLevel: {
-      title: 'Thinking level',
-      body: 'Maps to OpenAI reasoning_effort: none, minimal, low, medium, high. Used when thinking is on. none turns reasoning off. Empty inherits the model catalog default if any.'
-    }
-  };
+  hint(key: ParamHintKey) {
+    const map: Record<ParamHintKey, { title: string; body: string }> = {
+      override: { title: this.i18n.t('params.hintOverrideTitle'), body: this.i18n.t('params.hintOverrideBody') },
+      effective: { title: this.i18n.t('params.hintEffectiveTitle'), body: this.i18n.t('params.hintEffectiveBody') },
+      temperature: { title: this.i18n.t('params.hintTemperatureTitle'), body: this.i18n.t('params.hintTemperatureBody') },
+      topK: { title: this.i18n.t('params.hintTopKTitle'), body: this.i18n.t('params.hintTopKBody') },
+      topM: { title: this.i18n.t('params.hintTopMTitle'), body: this.i18n.t('params.hintTopMBody') },
+      stream: { title: this.i18n.t('params.hintStreamTitle'), body: this.i18n.t('params.hintStreamBody') },
+      thinking: { title: this.i18n.t('params.hintThinkingTitle'), body: this.i18n.t('params.hintThinkingBody') },
+      thinkingLevel: { title: this.i18n.t('params.hintThinkingLevelTitle'), body: this.i18n.t('params.hintThinkingLevelBody') }
+    };
+    return map[key];
+  }
 
   constructor() {
     effect(() => {
@@ -91,7 +72,7 @@ export class ChatParametersEditorComponent {
 
   sourceLabel(): string {
     const src = this.inherited()?.source;
-    if (!src || src === 'default') return 'built-in defaults';
+    if (!src || src === 'default') return this.i18n.t('params.sourceDefault');
     return src.replace('_', ' ');
   }
 
@@ -99,10 +80,6 @@ export class ChatParametersEditorComponent {
     event?.preventDefault();
     event?.stopPropagation();
     this.openHint.update(current => current === key ? null : key);
-  }
-
-  hint(key: ParamHintKey) {
-    return this.hints[key];
   }
 
   setOverride(on: boolean) {

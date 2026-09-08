@@ -154,13 +154,14 @@ describe('ConfigComponent', () => {
     });
     await settings.addPreset('Claude', 'anthropic/claude', provider.id);
     const gpt = await settings.addPreset('GPT-4o', 'openai/gpt-4o', provider.id);
-    await settings.toggleModelEnabled(gpt.id);
+    await settings.toggleModelEnabled(gpt.id); // gpt disabled
     fixture.detectChanges();
 
     expect(component.filteredModels().map(m => m.displayName)).toEqual(['Claude', 'GPT-4o']);
 
     component.searchTerm.set('gpt');
     expect(component.filteredModels().map(m => m.displayName)).toEqual(['Claude', 'GPT-4o']);
+    // default view: enabled stay visible, search only applies to disabled
 
     component.searchTerm.set('');
     component.setEnabledOnly(true);

@@ -1,8 +1,9 @@
-import { Component, EventEmitter, Input, Output, computed, signal } from '@angular/core';
+import { Component, EventEmitter, Input, Output, computed, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { isImageRef } from '../../core/common/image-ref';
 import { AvatarViewComponent } from '../avatar-view/avatar-view.component';
+import { I18nService } from '../../core/i18n/i18n.service';
 
 export interface EmojiBlock {
   name: string;
@@ -60,10 +61,11 @@ const EMOJI_BLOCKS: EmojiBlock[] = [
   styleUrl: './avatar-picker.component.css'
 })
 export class AvatarPickerComponent {
+  readonly i18n = inject(I18nService);
   @Input() value = '';
   @Input() label = 'Avatar';
   @Input() placeholder = '?';
-  @Input() hint = 'Use a photo or an emoji. Images are stored as data URLs (keep under ~800 KB).';
+  @Input() hint = '';
   @Input() error: string | null = null;
 
   @Output() valueChange = new EventEmitter<string>();
@@ -73,7 +75,16 @@ export class AvatarPickerComponent {
   readonly showPalette = signal(false);
   readonly blockIndex = signal(0);
 
-  readonly currentBlock = computed(() => this.blocks[this.blockIndex()]);
+  readonly blockNameKeys = [
+    'avatar.originals', 'avatar.fantasy', 'avatar.animals', 'avatar.professions',
+    'avatar.nature', 'avatar.tech', 'avatar.games', 'avatar.places', 'avatar.food', 'avatar.objects'
+  ] as const;
+
+  readonly currentBlock = computed(() => {
+    this.i18n.locale();
+    const block = this.blocks[this.blockIndex()];
+    return { ...block, name: this.i18n.t(this.blockNameKeys[this.blockIndex()]) };
+  });
   readonly blockLabel = computed(
     () => `${this.blockIndex() + 1} / ${this.blocks.length}`
   );
@@ -123,11 +134,11 @@ export class AvatarPickerComponent {
     if (!file) return;
 
     if (!file.type.startsWith('image/')) {
-      this.errorChange.emit('Please select an image file');
+      this.errorChange.emit(this.i18n.t('common.imageFileRequired'));
       return;
     }
     if (file.size > 800_000) {
-      this.errorChange.emit('Image is too large (max ~800 KB). Please choose a smaller one.');
+      this.errorChange.emit(this.i18n.t('common.imageTooLarge'));
       return;
     }
 
@@ -137,7 +148,7 @@ export class AvatarPickerComponent {
       this.errorChange.emit(null);
       this.showPalette.set(false);
     };
-    reader.onerror = () => this.errorChange.emit('Failed to read image');
+    reader.onerror = () => this.errorChange.emit(this.i18n.t('common.imageReadFailed'));
     reader.readAsDataURL(file);
   }
 

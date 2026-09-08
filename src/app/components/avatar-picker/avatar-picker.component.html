@@ -7,16 +7,16 @@
 
     <div class="avatar-controls">
       <label class="btn small file-btn">
-        Choose image…
+        {{ i18n.t('avatar.choose') }}
         <input type="file" accept="image/*" (change)="onFileSelected($event)" hidden />
       </label>
 
       <button type="button" class="btn small" (click)="togglePalette()">
-        {{ showPalette() ? 'Hide emojis' : 'Use emoji' }}
+        {{ showPalette() ? i18n.t('avatar.hideEmojis') : i18n.t('avatar.useEmoji') }}
       </button>
 
       @if (value) {
-        <button type="button" class="btn small" (click)="clear()">Remove</button>
+        <button type="button" class="btn small" (click)="clear()">{{ i18n.t('avatar.remove') }}</button>
       }
     </div>
   </div>
@@ -28,7 +28,7 @@
         type="text"
         [ngModel]="emojiDraft()"
         (ngModelChange)="onEmojiTyped($event)"
-        placeholder="Paste or type an emoji — Win+. / Ctrl-Cmd-Space"
+        [placeholder]="i18n.t('avatar.emojiPh')"
         maxlength="16"
         autocomplete="off"
         spellcheck="false"
@@ -39,8 +39,8 @@
           type="button"
           class="btn small nav-btn"
           (click)="prevBlock()"
-          title="Previous group"
-          aria-label="Previous emoji group"
+          [title]="i18n.t('avatar.prevGroup')"
+          [attr.aria-label]="i18n.t('avatar.prevGroup')"
         >
           ‹
         </button>
@@ -52,8 +52,8 @@
           type="button"
           class="btn small nav-btn"
           (click)="nextBlock()"
-          title="Next group"
-          aria-label="Next emoji group"
+          [title]="i18n.t('avatar.nextGroup')"
+          [attr.aria-label]="i18n.t('avatar.nextGroup')"
         >
           ›
         </button>
@@ -79,5 +79,5 @@
     </div>
   }
 
-  <p class="hint">{{ hint }}</p>
+  <p class="hint">{{ hint || i18n.t('avatar.hintDefault') }}</p>
 </div>

@@ -1,12 +1,12 @@
 <div class="personas-page" (click)="closeMenu()">
   <header class="page-header">
-    <button class="btn primary" (click)="openCreate()">+ New Persona</button>
+    <button class="btn primary" (click)="openCreate()">{{ i18n.t('personas.new') }}</button>
   </header>
 
   <div class="toolbar">
     <input
       type="search"
-      placeholder="Search personas…"
+      [placeholder]="i18n.t('personas.search')"
       [ngModel]="searchTerm()"
       (ngModelChange)="searchTerm.set($event)"
     />
@@ -19,9 +19,9 @@
   @if (filteredPersonas().length === 0 && !showForm()) {
     <p class="empty">
       @if (searchTerm()) {
-        No personas match your search.
+        {{ i18n.t('personas.emptySearch') }}
       } @else {
-        No personas yet. Create one to use as a character / system voice in chats.
+        {{ i18n.t('personas.empty') }}
       }
     </p>
   }
@@ -41,7 +41,7 @@
             class="menu-btn"
             type="button"
             (click)="toggleMenu(persona.id, $event)"
-            title="Actions"
+            [title]="i18n.t('common.actions')"
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
               <circle cx="12" cy="5" r="2"/>
@@ -52,9 +52,9 @@
 
           @if (openMenuId() === persona.id) {
             <div class="card-menu" (click)="$event.stopPropagation()">
-              <button type="button" (click)="openEdit(persona); closeMenu()">Edit</button>
-              <button type="button" (click)="setAsCurrent(persona)">Set as current</button>
-              <button type="button" class="danger" (click)="deletePersona(persona); closeMenu()">Delete</button>
+              <button type="button" (click)="openEdit(persona); closeMenu()">{{ i18n.t('common.edit') }}</button>
+              <button type="button" (click)="setAsCurrent(persona)">{{ i18n.t('personas.setCurrent') }}</button>
+              <button type="button" class="danger" (click)="deletePersona(persona); closeMenu()">{{ i18n.t('common.delete') }}</button>
             </div>
           }
         </div>
@@ -62,7 +62,7 @@
         <div class="card-body">
           <h3 class="name">{{ persona.name }}</h3>
           @if (isCurrent(persona)) {
-            <span class="current-badge">Current</span>
+            <span class="current-badge">{{ i18n.t('personas.current') }}</span>
           }
           <p class="description">
             {{ persona.description || ('@' + persona.shortName) }}
@@ -81,37 +81,37 @@
         [style.width.px]="editorWidthPx()"
         (click)="$event.stopPropagation()"
       >
-        <h3>{{ editingId() ? 'Edit Persona' : 'New Persona' }}</h3>
+        <h3>{{ editingId() ? i18n.t('personas.editTitle') : i18n.t('personas.newTitle') }}</h3>
 
         @if (error()) {
           <div class="error-banner">{{ error() }}</div>
         }
 
         <label>
-          Name *
+          {{ i18n.t('personas.name') }}
           <input
             [(ngModel)]="form.name"
-            placeholder="e.g. Dr. Elena Voss"
+            [placeholder]="i18n.t('personas.namePh')"
             autofocus
           />
         </label>
 
         <label>
-          Short Name *
+          {{ i18n.t('personas.shortName') }}
           <input
             [(ngModel)]="form.shortName"
-            placeholder="e.g. Elena"
+            [placeholder]="i18n.t('personas.shortNamePh')"
           />
         </label>
 
         <label class="description-field">
-          Description
+          {{ i18n.t('personas.description') }}
           <textarea
             #descEditor
             [(ngModel)]="form.description"
             (ngModelChange)="onDescriptionChange()"
             rows="5"
-            placeholder="Personality, background, speaking style, system-prompt style text…"
+            [placeholder]="i18n.t('personas.descriptionPh')"
           ></textarea>
         </label>
 
@@ -119,18 +119,18 @@
           [value]="form.avatar"
           (valueChange)="form.avatar = $event"
           (errorChange)="error.set($event)"
-          label="Avatar"
+          [label]="i18n.t('personas.avatar')"
           placeholder="?"
         />
 
         <div class="modal-actions">
-          <button class="btn" (click)="requestClose()" [disabled]="saving()">Cancel</button>
+          <button class="btn" (click)="requestClose()" [disabled]="saving()">{{ i18n.t('common.cancel') }}</button>
           <button
             class="btn primary"
             (click)="save()"
             [disabled]="saving()"
           >
-            {{ saving() ? 'Saving…' : (editingId() ? 'Save changes' : 'Create') }}
+            {{ saving() ? i18n.t('common.saving') : (editingId() ? i18n.t('common.saveChanges') : i18n.t('common.create')) }}
           </button>
         </div>
       </div>

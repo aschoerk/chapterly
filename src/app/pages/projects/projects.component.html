@@ -2,16 +2,16 @@
   <!-- ===== LEFT: Topics ===== -->
   <aside class="topic-pane">
     <div class="pane-header">
-      <h2>Topics</h2>
-      <button class="btn-icon" (click)="openCreateTopic()" title="New topic">+</button>
+      <h2>{{ i18n.t('projects.topics') }}</h2>
+      <button class="btn-icon" (click)="openCreateTopic()" [title]="i18n.t('projects.newTopic')">+</button>
     </div>
 
     <ul class="topic-list">
       <li [class.active]="selectedTopicId() === 'all'"
-          (click)="selectTopic('all')">All</li>
+          (click)="selectTopic('all')">{{ i18n.t('projects.all') }}</li>
 
       <li [class.active]="selectedTopicId() === 'unassigned'"
-          (click)="selectTopic('unassigned')">Unassigned</li>
+          (click)="selectTopic('unassigned')">{{ i18n.t('projects.unassigned') }}</li>
 
       <li class="divider"></li>
 
@@ -31,12 +31,12 @@
           <div class="topic-actions">
             <button class="btn-icon small"
                     (click)="openEditTopic(t); $event.stopPropagation()"
-                    title="Edit topic">
+                    [title]="i18n.t('projects.editTopic')">
               ✎
             </button>
             <button class="btn-icon small danger"
                     (click)="deleteTopic(t, $event)"
-                    title="Delete topic (environments are kept)">
+                    [title]="i18n.t('projects.deleteTopicTitle')">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
                    stroke="currentColor" stroke-width="2">
                 <polyline points="3 6 5 6 21 6"/>
@@ -52,11 +52,11 @@
   <main class="project-pane">
     <div class="pane-header">
       <h2>
-        @if (selectedTopicId() === 'all') { All environments }
-        @else if (selectedTopicId() === 'unassigned') { Unfiled environments }
+        @if (selectedTopicId() === 'all') { {{ i18n.t('projects.allEnvironments') }} }
+        @else if (selectedTopicId() === 'unassigned') { {{ i18n.t('projects.unfiledEnvironments') }} }
         @else { {{ topics().find(t => t.id === selectedTopicId())?.name }} }
       </h2>
-      <button class="btn primary" (click)="openCreate()">+ New environment</button>
+      <button class="btn primary" (click)="openCreate()">{{ i18n.t('projects.newEnvironment') }}</button>
     </div>
 
     <div class="project-grid">
@@ -81,7 +81,7 @@
 
             <button class="btn-icon card-menu"
                     (click)="toggleMenu(p.id, $event)"
-                    title="More">
+                    [title]="i18n.t('common.more')">
               ⋮
             </button>
           </div>
@@ -99,7 +99,7 @@
                 {{ t.name }}
               </span>
             } @empty {
-              <span class="chip muted">No topic</span>
+              <span class="chip muted">{{ i18n.t('projects.noTopic') }}</span>
             }
           </div>
 
@@ -109,13 +109,13 @@
               <!-- we are inside a concrete topic -->
               <button class="btn small danger-outline"
                       (click)="removeProjectFromCurrentTopic(p.id)">
-                Remove from this topic
+                {{ i18n.t('projects.removeFromTopic') }}
               </button>
             } @else {
               <!-- All or Unassigned view → offer “Add environment to topic…” -->
               <select class="add-to-topic"
                       (change)="onAddToTopic(p.id, $event)">
-                <option value="">Add environment to topic…</option>
+                <option value="">{{ i18n.t('projects.addToTopic') }}</option>
                 @for (t of sortedTopics(); track t.id) {
                   @if (!t.projectIds.includes(p.id)) {
                     <option [value]="t.id">{{ t.name }}</option>
@@ -124,8 +124,8 @@
               </select>
             }
 
-            <button class="btn small" (click)="openEdit(p)">Edit</button>
-            <button class="btn small danger" (click)="deleteProject(p)">Delete</button>
+            <button class="btn small" (click)="openEdit(p)">{{ i18n.t('common.edit') }}</button>
+            <button class="btn small danger" (click)="deleteProject(p)">{{ i18n.t('common.delete') }}</button>
           </div>
 
         </article>
@@ -133,13 +133,13 @@
       @if (visibleProjects().length === 0) {
         <div class="empty-state">
           @if (selectedTopicId() === 'unassigned') {
-            <p>All environments are assigned to at least one topic.</p>
+            <p>{{ i18n.t('projects.emptyUnassigned') }}</p>
           } @else if (selectedTopicId() === 'all') {
-            <p>No environments yet.</p>
-            <button class="btn primary" (click)="openCreate()">Create the first environment</button>
+            <p>{{ i18n.t('projects.emptyAll') }}</p>
+            <button class="btn primary" (click)="openCreate()">{{ i18n.t('projects.createFirst') }}</button>
           } @else {
-            <p>This topic has no environments yet.</p>
-            <p class="hint">Use “Add environment to topic…” on an environment card, or create a new environment.</p>
+            <p>{{ i18n.t('projects.emptyTopic') }}</p>
+            <p class="hint">{{ i18n.t('projects.emptyTopicHint') }}</p>
           }
         </div>
       }
@@ -154,17 +154,17 @@
       [style.width.px]="editorWidthPx()"
       (click)="$event.stopPropagation()"
     >
-      <h3>{{ editingId() ? 'Edit environment' : 'New environment' }}</h3>
+      <h3>{{ editingId() ? i18n.t('projects.editEnvironment') : i18n.t('projects.newEnvironmentTitle') }}</h3>
 
       @if (error()) {
         <div class="error-banner">{{ error() }}</div>
       }
 
       <label>
-        Name *
+        {{ i18n.t('projects.name') }}
         <input
           [(ngModel)]="form.name"
-          placeholder="e.g. Research, Roleplay, Work"
+          [placeholder]="i18n.t('projects.namePh')"
           autofocus
         />
       </label>
@@ -174,37 +174,37 @@
         [value]="form.avatar"
         (valueChange)="form.avatar = $event"
         (errorChange)="error.set($event)"
-        label="Avatar"
+        [label]="i18n.t('projects.avatar')"
         placeholder="?"
       />
 
       <label class="auto-field">
-        Greeting
+        {{ i18n.t('projects.greeting') }}
         <textarea
           #greetingEditor
           [(ngModel)]="form.greeting"
           (ngModelChange)="onLongTextChange()"
           rows="4"
-          placeholder="The first message often describing the situation"
+          [placeholder]="i18n.t('projects.greetingPh')"
         ></textarea>
       </label>
 
       <label class="auto-field environment-definition-field">
-        Environment definition
+        {{ i18n.t('projects.definition') }}
         <textarea
           #systemPromptEditor
           class="environment-definition"
           [(ngModel)]="form.systemPrompt"
           (ngModelChange)="onLongTextChange()"
           rows="8"
-          placeholder="Optional environment definition applied to every story in this environment…"
+          [placeholder]="i18n.t('projects.definitionPh')"
         ></textarea>
       </label>
 
       <label>
-        Default model
+        {{ i18n.t('projects.defaultModel') }}
         <select [(ngModel)]="form.defaultModelId">
-          <option [ngValue]="null">No default model</option>
+          <option [ngValue]="null">{{ i18n.t('projects.noDefaultModel') }}</option>
           @for (m of enabledModels(); track m.id) {
             <option [ngValue]="m.id">{{ m.displayName }}</option>
           }
@@ -219,9 +219,9 @@
       />
 
       <div class="persona-picker">
-        <div class="picker-label">Personas</div>
+        <div class="picker-label">{{ i18n.t('projects.personas') }}</div>
         @if (personas().length === 0) {
-          <p class="hint">No personas yet. Create some on the Personas page.</p>
+          <p class="hint">{{ i18n.t('projects.noPersonas') }}</p>
         } @else {
           <div class="persona-options" role="group" aria-label="Personas">
             @for (persona of sortedFormPersonas(); track persona.id) {
@@ -253,13 +253,13 @@
       </div>
 
       <div class="modal-actions">
-        <button class="btn" (click)="requestClose()" [disabled]="saving()">Cancel</button>
+        <button class="btn" (click)="requestClose()" [disabled]="saving()">{{ i18n.t('common.cancel') }}</button>
         <button
           class="btn primary"
           (click)="save()"
           [disabled]="saving()"
         >
-          {{ saving() ? 'Saving…' : (editingId() ? 'Save changes' : 'Create') }}
+          {{ saving() ? i18n.t('common.saving') : (editingId() ? i18n.t('common.saveChanges') : i18n.t('common.create')) }}
         </button>
       </div>
     </div>
@@ -268,22 +268,22 @@
 @if (showTopicForm()) {
   <div class="modal-backdrop" (click)="requestCloseTopic()">
     <div class="modal topic-form" (click)="$event.stopPropagation()">
-      <h3>{{ editingTopicId() ? 'Edit Topic' : 'New Topic' }}</h3>
+      <h3>{{ editingTopicId() ? i18n.t('projects.editTopicTitle') : i18n.t('projects.newTopicTitle') }}</h3>
 
       @if (topicError()) {
         <div class="alert fail">{{ topicError() }}</div>
       }
 
       <label>
-        Name *
+        {{ i18n.t('projects.name') }}
         <input type="text"
                [ngModel]="topicName()"
                (ngModelChange)="topicName.set($event)"
-               placeholder="e.g. Cyberpunk Night" />
+               [placeholder]="i18n.t('projects.topicNamePh')" />
       </label>
 
       <label>
-        Description
+        {{ i18n.t('projects.description') }}
         <textarea rows="2"
                   [ngModel]="topicDescription()"
                   (ngModelChange)="topicDescription.set($event)">
@@ -294,16 +294,16 @@
         [value]="topicIcon()"
         (valueChange)="topicIcon.set($event)"
         (errorChange)="topicError.set($event)"
-        label="Icon"
+        [label]="i18n.t('projects.icon')"
         placeholder="📌"
-        hint="Optional. Use a photo or an emoji."
+        [hint]="i18n.t('projects.iconHint')"
       />
 
       <label>
-        Default model
+        {{ i18n.t('projects.defaultModel') }}
         <select [ngModel]="topicDefaultModelId()"
                 (ngModelChange)="topicDefaultModelId.set($event)">
-          <option [ngValue]="null">— none —</option>
+          <option [ngValue]="null">{{ i18n.t('projects.noneModel') }}</option>
           @for (m of enabledModels(); track m.id) {
             <option [ngValue]="m.id">{{ m.displayName }}</option>
           }
@@ -311,11 +311,11 @@
       </label>
 
       <label>
-        Default system prompt
+        {{ i18n.t('projects.defaultSystem') }}
         <textarea rows="5"
                   [ngModel]="topicDefaultSystemPrompt()"
                   (ngModelChange)="topicDefaultSystemPrompt.set($event)"
-                  placeholder="Optional system prompt that can be used by environments in this topic">
+                  [placeholder]="i18n.t('projects.defaultSystemPh')">
     </textarea>
       </label>
 
@@ -328,12 +328,12 @@
 
       <div class="modal-actions">
         <button class="btn" (click)="requestCloseTopic()" [disabled]="topicSaving()">
-          Cancel
+          {{ i18n.t('common.cancel') }}
         </button>
         <button class="btn primary"
                 (click)="saveTopic()"
                 [disabled]="topicSaving() || !topicName().trim()">
-          {{ topicSaving() ? 'Saving…' : (editingTopicId() ? 'Update' : 'Create') }}
+          {{ topicSaving() ? i18n.t('common.saving') : (editingTopicId() ? i18n.t('common.update') : i18n.t('common.create')) }}
         </button>
       </div>
     </div>

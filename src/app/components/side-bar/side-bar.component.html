@@ -6,7 +6,7 @@
         <div
           class="current-persona-avatar"
           (click)="goToPersonas()"
-          [title]="persona.name + ' (current persona)'"
+          [title]="i18n.t('sidebar.currentPersona', { name: persona.name })"
         >
           <app-avatar-view
             [value]="persona.avatar"
@@ -15,7 +15,7 @@
           />
         </div>
       }
-      <h2>Stories</h2>
+      <h2>{{ i18n.t('sidebar.stories') }}</h2>
     </div>
   </div>
 
@@ -25,7 +25,7 @@
     <select
       [ngModel]="selectedTopicId()"
       (ngModelChange)="selectTopicFilter($event)">
-      <option value="all">All topics</option>
+      <option value="all">{{ i18n.t('sidebar.allTopics') }}</option>
       @for (t of topics(); track t.id) {
         <option [value]="t.id">{{ t.name }}</option>
       }
@@ -35,7 +35,7 @@
       type="button"
       [disabled]="selectedTopicId() === 'all'"
       (click)="editCurrentTopic($event)"
-      title="Edit current topic">
+      [title]="i18n.t('sidebar.editTopic')">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
         <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
@@ -47,14 +47,14 @@
   <div class="sidebar-search">
     <input
       type="search"
-      placeholder="Filter environments & stories…"
+      [placeholder]="i18n.t('sidebar.filterPh')"
       [ngModel]="searchQuery()"
       (ngModelChange)="searchQuery.set($event)" />
 
     <button
       class="btn-icon collapse-all-btn"
       (click)="collapseAll($event)"
-      title="Collapse all environments">
+      [title]="i18n.t('sidebar.collapseAll')">
       <!-- double-chevron / collapse icon -->
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <polyline points="17 11 12 6 7 11"/>
@@ -66,7 +66,7 @@
       class="btn-icon"
       [class.active]="sortByNewest()"
       (click)="toggleSortByNewest($event)"
-      [title]="sortByNewest() ? 'Sorted by newest – click for A-Z' : 'Sorted A-Z – click for newest first'">
+      [title]="sortByNewest() ? i18n.t('sidebar.sortNewest') : i18n.t('sidebar.sortAlpha')">
       <!-- clock / sort icon -->
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <circle cx="12" cy="12" r="10"/>
@@ -100,13 +100,13 @@
 
 
           <div class="project-actions">
-            <button class="btn-icon" type="button" (click)="editProject(project, $event)" title="Edit environment">
+            <button class="btn-icon" type="button" (click)="editProject(project, $event)" [title]="i18n.t('sidebar.editEnvironment')">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
                 <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
               </svg>
             </button>
-            <button class="btn-icon"  (click)="createChatForProject(project, $event)" title="New story">
+            <button class="btn-icon"  (click)="createChatForProject(project, $event)" [title]="i18n.t('sidebar.newStory')">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
                 <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
               </svg>
@@ -114,7 +114,7 @@
             <button
               class="btn-icon danger"
               (click)="deleteProject(project, $event)"
-              title="Delete book">
+              [title]="i18n.t('sidebar.deleteBook')">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <polyline points="3 6 5 6 21 6"/>
                 <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
@@ -125,7 +125,7 @@
           </div>
           <span
             class="item-count count-chats"
-            [title]="getChatCount(project.id) + ' story' + (getChatCount(project.id) === 1 ? '' : 's')">
+            [title]="i18n.t(getChatCount(project.id) === 1 ? 'sidebar.storiesCountOne' : 'sidebar.storiesCountMany', { count: getChatCount(project.id) })">
                   {{ getChatCount(project.id) }}
           </span>
         </div>
@@ -154,7 +154,7 @@
                     class="btn-icon rename-btn"
                     type="button"
                     (click)="startEditChatTitle(chat, $event)"
-                    title="Rename story">
+                    [title]="i18n.t('sidebar.renameStory')">
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                       <path d="M12 20h9"/>
                       <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/>
@@ -167,7 +167,7 @@
                   <button
                     class="btn-icon"
                     (click)="unassignChat(chat, $event)"
-                    title="Move to Unassigned">
+                    [title]="i18n.t('sidebar.moveUnassigned')">
                     <!-- simple “eject / unassign” icon -->
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                       <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
@@ -181,7 +181,7 @@
                 <button
                   class="btn-icon"
                   (click)="toggleReassign(chat.id, $event)"
-                  title="Move to another environment">
+                  [title]="i18n.t('sidebar.moveEnvironment')">
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <path d="M17 11l-5-5-5 5M17 18l-5-5-5 5"/>
                   </svg>
@@ -192,21 +192,21 @@
                   class="btn-icon"
                   type="button"
                   (click)="cloneChat(chat, $event)"
-                  title="Clone story">
+                  [title]="i18n.t('sidebar.cloneStory')">
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
                     <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
                   </svg>
                 </button>
 
-                <button class="btn-icon danger" (click)="deleteChat(chat, $event)" title="Delete">
+                <button class="btn-icon danger" (click)="deleteChat(chat, $event)" [title]="i18n.t('common.delete')">
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
                   </svg>
                 </button>
                 <span
                   class="item-count count-nodes"
-                  [title]="chat.node_number + ' node' + (chat.node_number === 1 ? '' : 's')">
+                  [title]="i18n.t(chat.node_number === 1 ? 'sidebar.nodesCountOne' : 'sidebar.nodesCountMany', { count: chat.node_number })">
                   {{ chat.node_number }}
                 </span>
                 <!--div>{{chat.id}}</div-->
@@ -217,7 +217,7 @@
                   <select
                     class="reassign-select"
                     (change)="onReassign(chat, $any($event.target).value || null)">
-                    <option value="">— Unassigned —</option>
+                    <option value="">{{ i18n.t('sidebar.unassignedOption') }}</option>
                     @for (p of otherProjects(project.id); track p.id) {
                       <option [value]="p.id">{{ p.name }}</option>
                     }
@@ -225,13 +225,13 @@
                 </div>
               }
             } @empty {
-              <p class="empty">No chats yet</p>
+              <p class="empty">{{ i18n.t('sidebar.noChats') }}</p>
             }
           </div>
         }
       </div>
     } @empty {
-      <p class="empty">No books yet. Create one to organize your drafts.</p>
+      <p class="empty">{{ i18n.t('sidebar.noBooks') }}</p>
     }
 
     <!-- Unassigned chats (legacy / chats without project) -->
@@ -241,10 +241,10 @@
           <button
             class="btn-icon expand-btn"
             (click)="toggleExpanded('__unassigned__', $event)"
-            [title]="isExpanded('__unassigned__') ? 'Hide chats' : 'Show chats'">
+            [title]="isExpanded('__unassigned__') ? i18n.t('sidebar.hideChats') : i18n.t('sidebar.showChats')">
             {{ isExpanded('__unassigned__') ? '▼' : '▶' }}
           </button>
-          <span class="project-name">Unfiled stories</span>
+          <span class="project-name">{{ i18n.t('sidebar.unfiled') }}</span>
         </div>
 
         @if (isExpanded('__unassigned__')) {
@@ -273,7 +273,7 @@
                           class="btn-icon rename-btn"
                           type="button"
                           (click)="startEditChatTitle(chat, $event)"
-                          title="Rename story">
+                          [title]="i18n.t('sidebar.renameStory')">
                       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <path d="M12 20h9"/>
                         <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/>
@@ -286,7 +286,7 @@
                 <button
                   class="btn-icon"
                   (click)="toggleReassign(chat.id, $event)"
-                  title="Move to another environment">
+                  [title]="i18n.t('sidebar.moveEnvironment')">
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <path d="M17 11l-5-5-5 5M17 18l-5-5-5 5"/>
                   </svg>
@@ -297,14 +297,14 @@
                   class="btn-icon"
                   type="button"
                   (click)="cloneChat(chat, $event)"
-                  title="Clone story">
+                  [title]="i18n.t('sidebar.cloneStory')">
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
                     <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
                   </svg>
                 </button>
 
-                <button class="btn-icon danger" (click)="deleteChat(chat, $event)" title="Delete">
+                <button class="btn-icon danger" (click)="deleteChat(chat, $event)" [title]="i18n.t('common.delete')">
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
                   </svg>
@@ -315,7 +315,7 @@
                   <select
                     class="reassign-select"
                     (change)="onReassign(chat, $any($event.target).value || null)">
-                    <option value="">— Unassigned —</option>
+                    <option value="">{{ i18n.t('sidebar.unassignedOption') }}</option>
                     @for (p of filteredProjects(); track p.id) {
                       <option [value]="p.id">{{ p.name }}</option>
                     }

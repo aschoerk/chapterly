@@ -1,22 +1,22 @@
 <!-- src/app/pages/import/import.component.html -->
 <section class="section export-box">
-  <h2>Export</h2>
+  <h2>{{ i18n.t('import.export') }}</h2>
   <p class="drop-hint">
-    Writes a JSON bundle this page can import again (projects, chats, full node tree).
+    {{ i18n.t('import.exportHint') }}
   </p>
   <div class="actions-bar">
     <label class="project-select">
-      Scope
+      {{ i18n.t('import.scope') }}
       <select [ngModel]="exportScope()" (ngModelChange)="exportScope.set($event)">
-        <option value="chat">Current chat</option>
-        <option value="project">Current project</option>
-        <option value="all">All chats</option>
+        <option value="chat">{{ i18n.t('import.scopeChat') }}</option>
+        <option value="project">{{ i18n.t('import.scopeProject') }}</option>
+        <option value="all">{{ i18n.t('import.scopeAll') }}</option>
       </select>
     </label>
     <button class="btn primary" type="button"
             [disabled]="isExporting() || isImporting()"
             (click)="exportBundle()">
-      {{ isExporting() ? 'Exporting…' : 'Download bundle' }}
+      {{ isExporting() ? i18n.t('import.exporting') : i18n.t('import.download') }}
     </button>
   </div>
 </section>
@@ -29,13 +29,12 @@
   (drop)="onDrop($event)">
 
   <div class="drop-content">
-    <p class="drop-title">Drop JSON file(s) here</p>
+    <p class="drop-title">{{ i18n.t('import.dropTitle') }}</p>
     <p class="drop-hint">
-      Copilots → Projects immediately &nbsp;|&nbsp; Sessions → review list
-      &nbsp;|&nbsp; Grok export → one session per conversation
+      {{ i18n.t('import.dropHint') }}
     </p>
     <label class="btn primary file-label">
-      Choose file(s)
+      {{ i18n.t('import.chooseFiles') }}
       <input
         type="file"
         accept=".json,application/json,.txt"
@@ -50,16 +49,16 @@
 <section class="section slice-box">
   <label class="checkbox">
     <input type="checkbox" [(ngModel)]="useSlice" />
-    Read only a byte window (for multi-hundred-MB Grok exports)
+    {{ i18n.t('import.slice') }}
   </label>
   @if (useSlice) {
     <div class="slice-fields">
       <label>
-        Offset (bytes from start)
+        {{ i18n.t('import.offset') }}
         <input type="number" min="0" [(ngModel)]="sliceOffset" />
       </label>
       <label>
-        Length (bytes, empty = rest of file)
+        {{ i18n.t('import.length') }}
         <input
           type="number"
           min="1"
@@ -68,20 +67,16 @@
       </label>
     </div>
     <p class="drop-hint">
-      Offset is a search start: the reader walks forward to the next
-      <code>"conversation"</code> wrapper. Length is a soft stop: a conversation
-      that started inside the window is always read through its closing brace.
-      If the offset sits inside an object, that object is skipped.
+      {{ i18n.t('import.sliceHint') }}
     </p>
   }
 </section>
 
 @if (lastAlignedStart() !== null) {
   <div class="alert info">
-    Snapped window: bytes {{ lastAlignedStart() }} → {{ lastAlignedEnd() }}
-    (end is the close of the last conversation that was opened).
+    {{ i18n.t('import.snapped', { start: lastAlignedStart()!, end: lastAlignedEnd()! }) }}
     <button class="btn small" type="button" (click)="useAlignedEndAsNextOffset()">
-      Use end as next offset
+      {{ i18n.t('import.useEnd') }}
     </button>
   </div>
 }
@@ -98,7 +93,7 @@
 @if (pendingSessions().length) {
   <section class="section">
     <div class="section-header">
-      <h2>Sessions to import</h2>
+      <h2>{{ i18n.t('import.sessionsTitle') }}</h2>
       <span class="badge">{{ pendingSessions().length }}</span>
     </div>
 
@@ -108,12 +103,12 @@
           <div class="pending-main">
             <div class="pending-title">{{ s.result.title }}</div>
             <div class="pending-meta">
-              {{ s.fileName }} · {{ s.result.format }} · {{ s.result.turns.length }} turns
+              {{ s.fileName }} · {{ s.result.format }} · {{ i18n.t('import.turns', { count: s.result.turns.length }) }}
             </div>
           </div>
 
           <label class="project-select">
-            Project
+            {{ i18n.t('import.project') }}
             <select
               [ngModel]="s.selectedProjectId"
               (ngModelChange)="setSessionProject(s.id, $event)">
@@ -127,8 +122,8 @@
             class="btn danger small"
             (click)="removeSession(s.id)"
             [disabled]="isImporting()"
-            title="Remove from import list">
-            Remove
+            [title]="i18n.t('import.removeTitle')">
+            {{ i18n.t('common.remove') }}
           </button>
         </div>
       }
@@ -139,13 +134,13 @@
         class="btn"
         (click)="pendingSessions.set([])"
         [disabled]="isImporting()">
-        Clear list
+        {{ i18n.t('import.clearList') }}
       </button>
       <button
         class="btn primary"
         (click)="importPendingSessions()"
         [disabled]="isImporting() || pendingSessions().length === 0">
-        {{ isImporting() ? 'Importing…' : 'Import all remaining sessions' }}
+        {{ isImporting() ? i18n.t('import.importing') : i18n.t('import.importAll') }}
       </button>
     </div>
   </section>
@@ -154,16 +149,16 @@
 <!-- ========== Finished imports ========== -->
 @if (summaries().length) {
   <section class="section">
-    <h2>Import result</h2>
+    <h2>{{ i18n.t('import.result') }}</h2>
 
     <ul class="summary-list">
       @for (s of summaries(); track s.fileName + s.title) {
         <li [class.error]="!!s.error">
           <strong>{{ s.fileName }}</strong>
-          – {{ s.kind === 'copilots' ? 'Projects' : 'Chat' }}:
+          – {{ s.kind === 'copilots' ? i18n.t('import.kindProjects') : i18n.t('import.kindChat') }}:
           “{{ s.title }}”
           → {{ s.created }}
-          {{ s.kind === 'copilots' ? 'project(s)' : 'node(s)' }}
+          {{ s.kind === 'copilots' ? i18n.t('import.projectsCount') : i18n.t('import.nodesCount') }}
           @if (s.error) {
             <span class="err"> ({{ s.error }})</span>
           }
@@ -172,9 +167,9 @@
     </ul>
 
     <div class="actions-bar">
-      <button class="btn" (click)="clear()">Clear</button>
-      <button class="btn primary" (click)="goToProjects()">Go to Projects</button>
-      <button class="btn" (click)="goToChat()">Go to Chat</button>
+      <button class="btn" (click)="clear()">{{ i18n.t('import.clear') }}</button>
+      <button class="btn primary" (click)="goToProjects()">{{ i18n.t('import.goProjects') }}</button>
+      <button class="btn" (click)="goToChat()">{{ i18n.t('import.goChat') }}</button>
     </div>
   </section>
 }

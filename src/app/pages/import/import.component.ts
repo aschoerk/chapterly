@@ -6,6 +6,7 @@ import { ChatService } from '../../core/chat.service';
 import { ProjectService } from '../../core/project.service';
 import { PersonaService } from '../../core/persona.service';
 import {Chat, ChatNode, Persona, Project, Topic} from '../../models/chat';
+import { I18nService } from '../../core/i18n/i18n.service';
 
 const BUNDLE_FORMAT = 'aschoerk.chat.bundle';
 const BUNDLE_VERSION = 1;
@@ -78,6 +79,7 @@ const STREAM_CHUNK = 1024 * 1024;         // 1 MiB File.slice windows
   styleUrl: './import.component.css'
 })
 export class ImportComponent {
+  readonly i18n = inject(I18nService);
   private readonly chatService = inject(ChatService);
   private readonly projectService = inject(ProjectService);
   private readonly personaService = inject(PersonaService);
@@ -152,14 +154,14 @@ export class ImportComponent {
   private async processFiles(files: File[]) {
     this.isImporting.set(true);
     this.globalError.set(null);
-    this.progress.set(`Processing ${files.length} file(s)…`);
+    this.progress.set(this.i18n.t('import.processing', { count: files.length }));
 
     const newSummaries: ImportSummary[] = [];
     const newPending: PendingSession[] = [];
     const slice = this.sliceOptions();
 
     for (const file of files) {
-      this.progress.set(`Reading ${file.name} (${this.formatBytes(file.size)})…`);
+      this.progress.set(this.i18n.t('import.reading', { name: file.name, size: this.formatBytes(file.size) }));
       try {
         const results = await this.parseFile(file, slice);
         for (const parsed of results) {
@@ -206,10 +208,11 @@ export class ImportComponent {
   }
 
   private formatBytes(n: number): string {
-    if (n < 1024) return `${n} B`;
-    if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KiB`;
-    if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MiB`;
-    return `${(n / (1024 * 1024 * 1024)).toFixed(2)} GiB`;
+    const fmt = (v: number, d: number) => this.i18n.formatNumber(v, { minimumFractionDigits: d, maximumFractionDigits: d });
+    if (n < 1024) return `${this.i18n.formatNumber(n)} B`;
+    if (n < 1024 * 1024) return `${fmt(n / 1024, 1)} KiB`;
+    if (n < 1024 * 1024 * 1024) return `${fmt(n / (1024 * 1024), 1)} MiB`;
+    return `${fmt(n / (1024 * 1024 * 1024), 2)} GiB`;
   }
 
   /**
@@ -249,7 +252,7 @@ export class ImportComponent {
       return this.detectAndParseAll(data);
     }
 
-    this.progress.set(`Aligning ${file.name} from byte ${rawStart}…`);
+    this.progress.set(this.i18n.t('import.aligning', { name: file.name, start: rawStart }));
     return this.streamGrokConversations(file, rawStart, rawEnd);
   }
 
@@ -329,8 +332,9 @@ export class ImportComponent {
       if (loc.start >= rawEnd && results.length > 0) break;
 
       this.progress.set(
-        `Reading conversation at ${loc.start}–${loc.end} ` +
-        `(${this.formatBytes(loc.end - loc.start)})…`
+        this.i18n.t('import.readingConv', {
+          start: loc.start, end: loc.end, size: this.formatBytes(loc.end - loc.start)
+        })
       );
 
       const item = await this.readConversationJson(file, loc);
@@ -550,7 +554,7 @@ export class ImportComponent {
         if (next == null || next <= end) return null;
         end = next;
         this.progress.set(
-          `Extending conversation window to byte ${end} (look-ahead)…`
+          this.i18n.t('import.extending', { end })
         );
       }
     }
@@ -576,12 +580,12 @@ export class ImportComponent {
       }
     }
 
-    matching.sort((a, b) => a.name.localeCompare(b.name));
-    rest.sort((a, b) => a.name.localeCompare(b.name));
+    matching.sort((a, b) => a.name.localeCompare(b.name, this.i18n.localeId()));
+    rest.sort((a, b) => a.name.localeCompare(b.name, this.i18n.localeId()));
 
     return [
       ...matching.map(p => ({ id: p.id, label: p.name })),
-      { id: null, label: 'Unknown' },
+      { id: null, label: this.i18n.t('common.unknown') },
       ...rest.map(p => ({ id: p.id, label: p.name }))
     ];
   }
