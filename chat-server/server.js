@@ -6,7 +6,7 @@ const { createApp } = require('./src/app');
 
   const PORT = process.env.PORT || 3847;
 
-  app.listen(PORT, () => {
-    console.log(`✅ Chat server running on http://localhost:${PORT} started by server.js`);
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`✅ Chat server running on http://0.0.0.0:${PORT} started by server.js`);
   });
 })();

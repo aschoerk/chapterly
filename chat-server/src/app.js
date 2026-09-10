@@ -1,4 +1,6 @@
 const express = require('express');
+const path = require('path');
+const fs = require('fs');
 const cors = require('cors');
 const proxyRoutes = require('./routes/proxy');
 const apiRoutes = require('./routes/api');
@@ -36,6 +38,7 @@ function createApp() {
       'Content-Type',
       'Authorization',
       'x-target-base',
+      'x-provider-id',
       'HTTP-Referer',
       'X-Title'
     ]
@@ -68,9 +71,18 @@ function createApp() {
     }
   }));
 
-  app.get('/', (req, res) => {
-    res.json({ status: 'ok', message: 'Chat server is running' });
-  });
+  const publicDir = path.join(__dirname, '..', 'public');
+  if (fs.existsSync(path.join(publicDir, 'index.html'))) {
+    app.use(express.static(publicDir));
+    app.get('/{*path}', (req, res, next) => {
+      if (req.path.startsWith('/proxy') || req.path.startsWith('/api')) return next();
+      res.sendFile(path.join(publicDir, 'index.html'));
+    });
+  } else {
+    app.get('/', (req, res) => {
+      res.json({ status: 'ok', message: 'Chat server is running' });
+    });
+  }
 
   return app;
 }

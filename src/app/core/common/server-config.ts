@@ -1,3 +1,5 @@
+import {isElectron} from './electron';
+
 export interface ServerConfig {
   apiBase: string;
   proxyBase: string;
@@ -9,17 +11,17 @@ export interface ServerConfig {
  * Later we can make this smarter (read from a config file, environment, etc.).
  */
 export function getServerConfig(): ServerConfig {
-  // For now we use a fixed port.
-  // Later you can replace this with a dynamic discovery or environment variable.
+  const browser = typeof window !== 'undefined';
+  const origin = browser ? window.location.origin : '';
+  const localDev = browser && /^http:\/\/localhost:4200/.test(origin);
 
   const port = getServerPort();
-
-  const base = `http://localhost:${port}`;
+  const fallback = `http://localhost:${port}`;
 
   return {
-    apiBase: `${base}/api`,
-    proxyBase: `${base}/proxy`,
-    mode: "local"  // indexdb: "cloud"
+    apiBase: `${localDev ? fallback : origin}/api`,
+    proxyBase: `${localDev ? fallback : origin}/proxy`,
+    mode: isElectron() ? "local" : "cloud"
   };
 }
 
