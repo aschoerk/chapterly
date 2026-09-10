@@ -1,0 +1,41 @@
+# One HTTP port: chat-server serves API, proxy, and the Angular build.
+# ng build --watch writes into the shared `spa` volume → /app/public.
+#
+#   docker compose up --build
+#   http://localhost:3847
+#
+services:
+  web:
+    build:
+      context: .
+      dockerfile: docker/dev/Dockerfile.web
+    volumes:
+      - ./src:/app/src
+      - ./public:/app/public
+      - ./angular.json:/app/angular.json
+      - ./tsconfig.json:/app/tsconfig.json
+      - ./tsconfig.app.json:/app/tsconfig.app.json
+      - spa:/out
+    environment:
+      CHOKIDAR_USEPOLLING: "true"
+
+  server:
+    build:
+      context: ./chat-server
+      dockerfile: ../docker/dev/Dockerfile.server
+    ports:
+      - "3847:3847"
+    volumes:
+      - ./chat-server/src:/app/src
+      - ./chat-server/server.js:/app/server.js
+      - spa:/app/public
+      - chat-data:/app/data
+    environment:
+      PORT: "3847"
+      NODE_ENV: development
+    depends_on:
+      - web
+
+volumes:
+  spa:
+  chat-data:

@@ -5,21 +5,15 @@ import { Router } from '@angular/router';
 import { ChatService } from '../../core/chat.service';
 import { ProjectService } from '../../core/project.service';
 import { PersonaService } from '../../core/persona.service';
-import {Chat, ChatNode, Persona, Project, Topic} from '../../models/chat';
+import {
+  BUNDLE_FORMAT,
+  BundleScope,
+  BundleService,
+  ChatBundle,
+  ImportPolicy
+} from '../../core/bundle.service';
+import { Project } from '../../models/chat';
 import { I18nService } from '../../core/i18n/i18n.service';
-
-const BUNDLE_FORMAT = 'aschoerk.chat.bundle';
-const BUNDLE_VERSION = 1;
-
-interface ChatBundle {
-  format: typeof BUNDLE_FORMAT;
-  version: typeof BUNDLE_VERSION;
-  exportedAt: string;
-  projects: Project[];
-  topics: Topic[];
-  personas: Persona[];
-  chats: Array<Chat & { nodes: ChatNode[] }>;
-}
 
 export interface ParsedTurn {
   role: 'system' | 'user' | 'assistant' | 'other';
@@ -56,9 +50,10 @@ export interface PendingSession {
 
 interface ImportSummary {
   fileName: string;
-  kind: 'chat' | 'copilots';
+  kind: 'chat' | 'copilots' | 'bundle';
   title: string;
   created: number;
+  detail?: string;
   error?: string;
 }
 
@@ -83,9 +78,13 @@ export class ImportComponent {
   private readonly chatService = inject(ChatService);
   private readonly projectService = inject(ProjectService);
   private readonly personaService = inject(PersonaService);
+  private readonly bundleService = inject(BundleService);
   private readonly router = inject(Router);
 
   readonly projects = this.projectService.projects;
+  readonly topics = this.projectService.topics;
+  readonly chats = this.chatService.chats;
+  readonly personas = this.personaService.personas;
 
   readonly isDragging = signal(false);
   readonly isImporting = signal(false);
@@ -94,6 +93,48 @@ export class ImportComponent {
   readonly globalError = signal<string | null>(null);
 
   readonly pendingSessions = signal<PendingSession[]>([]);
+
+  readonly exportScope = signal<BundleScope>('chat');
+  readonly exportProjectId = signal<string | null>(null);
+  readonly exportChatId = signal<string | null>(null);
+  readonly includeChats = signal(true);
+  readonly importPolicy = signal<ImportPolicy>('reuse');
+  readonly isExporting = signal(false);
+
+  constructor() {
+    void this.bundleService.loadAll().then(() => {
+      if (!this.exportChatId()) {
+        this.exportChatId.set(this.chatService.currentChatId());
+      }
+      if (!this.exportProjectId()) {
+        const current = this.chats().find(c => c.id === this.exportChatId());
+        this.exportProjectId.set(current?.projectId ?? this.projects()[0]?.id ?? null);
+      }
+    });
+  }
+
+  needsProjectPicker(): boolean {
+    const scope = this.exportScope();
+    return scope === 'topic-project' || scope === 'project-chats' || scope === 'chats-only';
+  }
+
+  needsChatPicker(): boolean {
+    const scope = this.exportScope();
+    return scope === 'chat' || scope === 'chats-only';
+  }
+
+  needsIncludeChats(): boolean {
+    return this.exportScope() === 'topic-project';
+  }
+
+  exportChatsForPicker() {
+    const all = this.chats();
+    const pid = this.exportProjectId();
+    if (this.exportScope() === 'chats-only' && pid) {
+      return all.filter(c => c.projectId === pid);
+    }
+    return all;
+  }
 
   /** Optional byte window for huge Grok export files */
   sliceOffset = 0;
@@ -174,12 +215,20 @@ export class ImportComponent {
               created
             });
           } else if (parsed.kind === 'bundle' && parsed.bundle) {
-            const created = await this.importBundle(parsed.bundle);
+            const imported = await this.bundleService.importBundle(parsed.bundle, this.importPolicy());
+            const created =
+              imported.createdPersonas +
+              imported.createdProjects +
+              imported.createdTopics +
+              imported.createdChats +
+              imported.createdNodes;
             newSummaries.push({
               fileName: file.name,
-              kind: 'copilots',
+              kind: 'bundle',
               title: parsed.title,
-              created
+              created,
+              detail: this.describeImport(imported),
+              error: imported.warnings.length ? imported.warnings.join(' ') : undefined
             });
           } else {
               newPending.push({
@@ -220,10 +269,10 @@ export class ImportComponent {
    *
    * Byte window rules when a slice is set:
    *   - the given offset is a *search start*: scan forward for the next
-   *     `"conversation"` wrapper object and begin there
-   *   - the given end (offset+length) is a *soft* limit: if a conversation
+   *     JSON value (object/array) or known wrapper and begin there
+   *   - the given end (offset+length) is a *soft* limit: if a value
    *     was already opened before that point, keep reading until its
-   *     matching closing brace, even past the requested length
+   *     matching closing brace/bracket, even past the requested length
    */
   private async parseFile(file: File, slice: SliceOptions | null): Promise<ParseResult[]> {
     const rawStart = slice ? slice.offset : 0;
@@ -236,15 +285,13 @@ export class ImportComponent {
 
     const peekSize = Math.min(file.size - rawStart, 64 * 1024);
     const peekText = await this.readSlice(file, rawStart, peekSize);
-    const looksLikeGrokExport =
-      /"conversations"\s*:/.test(peekText) ||
-      /"conversation"\s*:\s*\{/.test(peekText);
+    const kind = this.classifyPeek(peekText);
 
     const windowHint = rawEnd - rawStart;
     const shouldStream =
       !!slice ||
       windowHint >= LARGE_FILE_BYTES ||
-      (looksLikeGrokExport && windowHint >= 2 * 1024 * 1024);
+      (kind !== 'value' && windowHint >= 2 * 1024 * 1024);
 
     if (!shouldStream) {
       const text = await this.readSlice(file, rawStart, windowHint);
@@ -253,7 +300,47 @@ export class ImportComponent {
     }
 
     this.progress.set(this.i18n.t('import.aligning', { name: file.name, start: rawStart }));
-    return this.streamGrokConversations(file, rawStart, rawEnd);
+    return this.streamFile(file, rawStart, rawEnd, kind);
+  }
+
+  private classifyPeek(peekText: string): 'grok' | 'bundle' | 'array' | 'value' {
+    if (
+      /"conversations"\s*:/.test(peekText) ||
+      /"conversation"\s*:\s*\{/.test(peekText)
+    ) {
+      return 'grok';
+    }
+    if (
+      /"format"\s*:\s*"aschoerk\.chat\.bundle"/.test(peekText) ||
+      (/"chats"\s*:\s*\[/.test(peekText) && /"projects"\s*:/.test(peekText))
+    ) {
+      return 'bundle';
+    }
+    const trimmed = peekText.trimStart();
+    if (trimmed.startsWith('[')) return 'array';
+    return 'value';
+  }
+
+  private async streamFile(
+    file: File,
+    rawStart: number,
+    rawEnd: number,
+    kind: 'grok' | 'bundle' | 'array' | 'value'
+  ): Promise<ParseResult[]> {
+    if (kind === 'grok') {
+      return this.streamGrokConversations(file, rawStart, rawEnd);
+    }
+    if (kind === 'bundle') {
+      return this.streamBundle(file, rawStart, rawEnd);
+    }
+    if (kind === 'array') {
+      const arrayStart = await this.findNextJsonValueStart(file, rawStart);
+      if (arrayStart == null) {
+        throw new Error(`No JSON array found at or after byte ${rawStart}.`);
+      }
+      return this.streamTopLevelArray(file, arrayStart, rawEnd);
+    }
+    return this.streamJsonValue(file, rawStart, rawEnd);
   }
 
   private readSlice(file: File, offset: number, length: number): Promise<string> {
@@ -283,11 +370,376 @@ export class ImportComponent {
     const trimmed = text.trim();
     if (!sliced) return trimmed;
     if (trimmed.startsWith('{') || trimmed.startsWith('[')) return trimmed;
-    // raw conversation objects dumped from the middle of the array
-    if (trimmed.startsWith('"conversation"') || trimmed.startsWith('"responses"')) {
+    // raw objects dumped from the middle of an object/array
+    if (/^"(conversation|responses|chats|projects|topics|personas|messages|mapping|nodes|turns)"/.test(trimmed)) {
       return `{${trimmed}}`;
     }
     return trimmed;
+  }
+
+  /** Skip whitespace and return the offset of the next `{` or `[`, or null. */
+  private async findNextJsonValueStart(
+    file: File,
+    from: number,
+    limit = file.size
+  ): Promise<number | null> {
+    let pos = Math.max(0, from);
+    let inString = false;
+    let escape = false;
+    const stop = Math.min(limit, file.size);
+    while (pos < stop) {
+      const chunkLen = Math.min(STREAM_CHUNK, stop - pos);
+      const bytes = await this.readSliceBytes(file, pos, chunkLen);
+      for (let i = 0; i < bytes.length; i++) {
+        const b = bytes[i];
+        if (inString) {
+          if (escape) escape = false;
+          else if (b === 0x5c) escape = true;
+          else if (b === 0x22) inString = false;
+          continue;
+        }
+        if (b === 0x22) {
+          inString = true;
+          continue;
+        }
+        if (b === 0x20 || b === 0x09 || b === 0x0a || b === 0x0d || b === 0x2c || b === 0x3a) {
+          continue;
+        }
+        if (b === 0x7b || b === 0x5b) {
+          return pos + i;
+        }
+      }
+      pos += chunkLen;
+    }
+    return null;
+  }
+
+  /** From `{` or `[` at `openOffset`, return the byte *after* the matching closer. */
+  private async scanForwardToMatching(
+    file: File,
+    openOffset: number,
+    initialDepth = 0
+  ): Promise<number | null> {
+    const head = await this.readSliceBytes(file, openOffset, 1);
+    const openByte = head.length ? head[0] : 0x7b;
+    const closeByte = openByte === 0x5b ? 0x5d : 0x7d;
+    const pairOpen = openByte === 0x5b ? 0x5b : 0x7b;
+    let pos = openOffset;
+    let depth = initialDepth;
+    let inString = false;
+    let escape = false;
+    let started = initialDepth > 0;
+
+    while (pos < file.size) {
+      const chunkLen = Math.min(STREAM_CHUNK, file.size - pos);
+      const bytes = await this.readSliceBytes(file, pos, chunkLen);
+      for (let i = 0; i < bytes.length; i++) {
+        const b = bytes[i];
+        if (inString) {
+          if (escape) escape = false;
+          else if (b === 0x5c) escape = true;
+          else if (b === 0x22) inString = false;
+          continue;
+        }
+        if (b === 0x22) {
+          inString = true;
+          continue;
+        }
+        if (b === pairOpen) {
+          depth++;
+          started = true;
+        } else if (b === closeByte) {
+          depth--;
+          if (started && depth === 0) {
+            return pos + i + 1;
+          }
+        }
+      }
+      pos += chunkLen;
+    }
+    return null;
+  }
+
+  private async readJsonRange(
+    file: File,
+    loc: { start: number; end: number }
+  ): Promise<any | null> {
+    let end = loc.end;
+    for (let attempt = 0; attempt < 8; attempt++) {
+      const json = await this.readSlice(file, loc.start, end - loc.start);
+      try {
+        const item = JSON.parse(this.repairSlicedJson(json, true));
+        loc.end = end;
+        return item;
+      } catch {
+        const next = await this.scanForwardToMatching(file, end, 1);
+        if (next == null || next <= end) return null;
+        end = next;
+        this.progress.set(this.i18n.t('import.extending', { end }));
+      }
+    }
+    return null;
+  }
+
+  private async findJsonKey(
+    file: File,
+    from: number,
+    key: string
+  ): Promise<{ keyStart: number; valueStart: number } | null> {
+    const KEY = new TextEncoder().encode(`"${key}"`);
+    let pos = Math.max(0, from);
+    let carry = new Uint8Array(0);
+
+    while (pos < file.size) {
+      const chunkLen = Math.min(STREAM_CHUNK, file.size - pos);
+      const chunk = await this.readSliceBytes(file, pos, chunkLen);
+      const combined = this.concatBytes(carry, chunk);
+      const base = pos - carry.length;
+
+      let inString = false;
+      let escape = false;
+      for (let i = 0; i < combined.length; i++) {
+        const b = combined[i];
+        if (inString) {
+          if (escape) escape = false;
+          else if (b === 0x5c) escape = true;
+          else if (b === 0x22) inString = false;
+          continue;
+        }
+        if (b === 0x22) {
+          if (this.bytesStartWith(combined, i, KEY) && this.isJsonKeyBytes(combined, i, KEY.length)) {
+            const keyAbs = base + i;
+            const valueStart = await this.skipToJsonValueStart(file, keyAbs + KEY.length);
+            if (valueStart == null) {
+              i += KEY.length - 1;
+              continue;
+            }
+            if (keyAbs < from) {
+              return this.findJsonKey(file, valueStart, key);
+            }
+            return { keyStart: keyAbs, valueStart };
+          }
+          inString = true;
+          continue;
+        }
+      }
+
+      const keep = KEY.length + 32;
+      carry = combined.slice(Math.max(0, combined.length - keep));
+      pos += chunkLen;
+    }
+    return null;
+  }
+
+  /** After a `"key"`, require `:` then the first non-space value byte. */
+  private isJsonKeyBytes(bytes: Uint8Array, i: number, keyLen: number): boolean {
+    let p = i + keyLen;
+    while (p < bytes.length && (bytes[p] === 0x20 || bytes[p] === 0x09 || bytes[p] === 0x0a || bytes[p] === 0x0d)) p++;
+    return p < bytes.length && bytes[p] === 0x3a;
+  }
+
+  private async skipToJsonValueStart(file: File, from: number): Promise<number | null> {
+    let pos = from;
+    let seenColon = false;
+    while (pos < file.size) {
+      const chunkLen = Math.min(4096, file.size - pos);
+      const bytes = await this.readSliceBytes(file, pos, chunkLen);
+      for (let i = 0; i < bytes.length; i++) {
+        const b = bytes[i];
+        if (b === 0x20 || b === 0x09 || b === 0x0a || b === 0x0d) continue;
+        if (!seenColon) {
+          if (b !== 0x3a) return null;
+          seenColon = true;
+          continue;
+        }
+        return pos + i;
+      }
+      pos += chunkLen;
+    }
+    return null;
+  }
+
+  private async readNamedJsonValue(file: File, from: number, key: string): Promise<any | undefined> {
+    const loc = await this.findJsonKey(file, from, key);
+    if (!loc) return undefined;
+    const head = await this.readSliceBytes(file, loc.valueStart, 1);
+    const b = head[0];
+    const end = (b === 0x7b || b === 0x5b)
+      ? await this.scanForwardToMatching(file, loc.valueStart)
+      : await this.scanForwardToPrimitiveEnd(file, loc.valueStart);
+    if (end == null) return undefined;
+    return this.readJsonRange(file, { start: loc.valueStart, end });
+  }
+
+  /** End offset (exclusive) of a JSON primitive starting at `from`. */
+  private async scanForwardToPrimitiveEnd(file: File, from: number): Promise<number | null> {
+    let pos = from;
+    let inString = false;
+    let escape = false;
+    let started = false;
+    while (pos < file.size) {
+      const chunkLen = Math.min(STREAM_CHUNK, file.size - pos);
+      const bytes = await this.readSliceBytes(file, pos, chunkLen);
+      for (let i = 0; i < bytes.length; i++) {
+        const b = bytes[i];
+        if (inString) {
+          started = true;
+          if (escape) escape = false;
+          else if (b === 0x5c) escape = true;
+          else if (b === 0x22) inString = false;
+          continue;
+        }
+        if (!started && b === 0x22) {
+          inString = true;
+          started = true;
+          continue;
+        }
+        if (b === 0x2c || b === 0x7d || b === 0x5d || b === 0x20 || b === 0x09 || b === 0x0a || b === 0x0d) {
+          if (!started && (b === 0x20 || b === 0x09 || b === 0x0a || b === 0x0d)) continue;
+          return pos + i;
+        }
+        started = true;
+      }
+      pos += chunkLen;
+    }
+    return started ? file.size : null;
+  }
+
+  private async streamArrayValues(
+    file: File,
+    arrayStart: number,
+    rawEnd: number
+  ): Promise<any[]> {
+    const arrayEnd = await this.scanForwardToMatching(file, arrayStart);
+    const hardEnd = arrayEnd == null ? file.size : arrayEnd;
+    const items: any[] = [];
+    let cursor = arrayStart + 1;
+    let alignedStart: number | null = null;
+    let alignedEnd = arrayStart;
+
+    while (cursor < hardEnd) {
+      const start = await this.findNextJsonValueStart(file, cursor, hardEnd);
+      if (start == null || start >= hardEnd) break;
+
+      const opener = await this.readSliceBytes(file, start, 1);
+      if (opener[0] === 0x5d) break; // closing ]
+
+      if (start >= rawEnd && items.length > 0) break;
+
+      const end = await this.scanForwardToMatching(file, start);
+      if (end == null) break;
+
+      this.progress.set(
+        this.i18n.t('import.readingConv', {
+          start, end, size: this.formatBytes(end - start)
+        })
+      );
+
+      const item = await this.readJsonRange(file, { start, end });
+      if (item !== null && item !== undefined) {
+        items.push(item);
+        if (alignedStart == null) alignedStart = start;
+      }
+      alignedEnd = end;
+      cursor = end;
+      await Promise.resolve();
+    }
+
+    this.lastAlignedStart.set(alignedStart);
+    this.lastAlignedEnd.set(alignedEnd);
+    return items;
+  }
+
+  private async streamTopLevelArray(
+    file: File,
+    arrayStart: number,
+    rawEnd: number
+  ): Promise<ParseResult[]> {
+    const items = await this.streamArrayValues(file, arrayStart, rawEnd);
+    if (!items.length) {
+      throw new Error(
+        `No extractable array items at or after byte ${arrayStart}.`
+      );
+    }
+    if (typeof items[0]?.name === 'string' && typeof items[0]?.prompt === 'string') {
+      return [this.parseCopilots(items, [])];
+    }
+    const results: ParseResult[] = [];
+    for (const item of items) {
+      results.push(...this.detectAndParseAll(item));
+    }
+    if (!results.length) {
+      throw new Error(
+        `No extractable conversation at or after byte ${arrayStart}.`
+      );
+    }
+    return results;
+  }
+
+  private async streamJsonValue(
+    file: File,
+    rawStart: number,
+    rawEnd: number
+  ): Promise<ParseResult[]> {
+    const start = await this.findNextJsonValueStart(file, rawStart);
+    if (start == null) {
+      throw new Error(`No JSON value found at or after byte ${rawStart}.`);
+    }
+    const end = await this.scanForwardToMatching(file, start);
+    if (end == null) {
+      throw new Error(`Unclosed JSON value starting at byte ${start}.`);
+    }
+    this.lastAlignedStart.set(start);
+    this.lastAlignedEnd.set(end);
+    this.progress.set(
+      this.i18n.t('import.readingConv', {
+        start, end, size: this.formatBytes(end - start)
+      })
+    );
+    const data = await this.readJsonRange(file, { start, end });
+    if (data == null) {
+      throw new Error(`Could not parse JSON value at bytes ${start}–${end}.`);
+    }
+    return this.detectAndParseAll(data);
+  }
+
+  private async streamBundle(
+    file: File,
+    rawStart: number,
+    rawEnd: number
+  ): Promise<ParseResult[]> {
+    const projects = (await this.readNamedJsonValue(file, rawStart, 'projects')) || [];
+    const topics = (await this.readNamedJsonValue(file, rawStart, 'topics')) || [];
+    const personas = (await this.readNamedJsonValue(file, rawStart, 'personas')) || [];
+    const scope = (await this.readNamedJsonValue(file, rawStart, 'scope')) || 'all-chats';
+    const includeChats = (await this.readNamedJsonValue(file, rawStart, 'includeChats'));
+    const exportedAt = (await this.readNamedJsonValue(file, rawStart, 'exportedAt')) || '';
+    const version = (await this.readNamedJsonValue(file, rawStart, 'version')) || 2;
+
+    const chatsKey = await this.findJsonKey(file, rawStart, 'chats');
+    let chats: any[] = [];
+    if (chatsKey) {
+      const opener = await this.readSliceBytes(file, chatsKey.valueStart, 1);
+      if (opener[0] === 0x5b) {
+        chats = await this.streamArrayValues(file, chatsKey.valueStart, rawEnd);
+      } else {
+        const parsed = await this.readNamedJsonValue(file, rawStart, 'chats');
+        chats = Array.isArray(parsed) ? parsed : [];
+      }
+    }
+
+    const bundle: ChatBundle = {
+      format: BUNDLE_FORMAT,
+      version: typeof version === 'number' ? version : 2,
+      exportedAt: typeof exportedAt === 'string' ? exportedAt : '',
+      scope,
+      includeChats: includeChats !== false && chats.length > 0,
+      projects: Array.isArray(projects) ? projects : [],
+      topics: Array.isArray(topics) ? topics : [],
+      personas: Array.isArray(personas) ? personas : [],
+      chats
+    };
+    return [this.parseBundle(bundle)];
   }
 
   // ------------------------------------------------------------------
@@ -755,7 +1207,7 @@ export class ImportComponent {
       return this.parseChatGptExport(data, warnings);
     }
 
-    if (data?.format === BUNDLE_FORMAT && Array.isArray(data.chats)) {
+    if (this.bundleService.isBundle(data)) {
       return this.parseBundle(data);
     }
 
@@ -1140,135 +1592,76 @@ export class ImportComponent {
 
   private parseBundle(data: ChatBundle): ParseResult {
     return {
-      title: `Bundle (${data.chats.length} chat(s))`,
+      title: this.bundleService.bundleTitle(data),
       systemPrompt: null,
       turns: [],
       format: BUNDLE_FORMAT,
       warnings: [],
       kind: 'bundle',
       bundle: data
-    } as ParseResult;
+    };
   }
 
-  private async importBundle(bundle: ChatBundle): Promise<number> {
-    const projectMap = new Map<string, string>();
-    const personaMap = new Map<string, string>();
-    let created = 0;
-
-    for (const p of bundle.personas || []) {
-      const np = await this.personaService.createPersona({
-        name: p.name,
-        shortName: p.shortName,
-        description: p.description,
-        avatar: p.avatar
-      });
-      personaMap.set(p.id, np.id);
-    }
-
-    for (const p of bundle.projects || []) {
-      const np = await this.projectService.createProject({
-        name: p.name,
-        greeting: p.greeting,
-        systemPrompt: p.systemPrompt,
-        defaultModelId: p.defaultModelId,
-        personaIds: (p.personaIds || []).map(id => personaMap.get(id) || id)
-      });
-      projectMap.set(p.id, np.id);
-    }
-
-    for (const t of bundle.topics || []) {
-      await this.projectService.createTopic({
-        name: t.name,
-        description: t.description,
-        defaultModelId: t.defaultModelId,
-        defaultSystemPrompt: t.defaultSystemPrompt,
-        icon: t.icon,
-        projectIds: (t.projectIds || []).map(id => projectMap.get(id) || id)
-      });
-    }
-
-    for (const chat of bundle.chats) {
-      this.progress.set(`Importing “${chat.title}”…`);
-      const nc = await this.chatService.createChat(
-        chat.title,
-        chat.projectId ? projectMap.get(chat.projectId) ?? null : null
-      );
-
-      const idMap = new Map<string, string>();
-      const pending = [...(chat.nodes || [])];
-      const ready = (n: ChatNode) => !n.parentId || idMap.has(n.parentId);
-
-      while (pending.length) {
-        const idx = pending.findIndex(ready);
-        if (idx < 0) break;
-        const [n] = pending.splice(idx, 1);
-        const createdNode = await this.chatService.addNode(nc.id, {
-          parentId: n.parentId ? idMap.get(n.parentId) ?? null : null,
-          role: n.role,
-          content: n.content,
-          thinking: n.thinking || undefined,
-          modelId: n.modelId || undefined,
-          providerId: n.providerId || undefined,
-          attachments: n.attachments
-        });
-        idMap.set(n.id, createdNode.id);
-        created++;
-      }
-    }
-    return created;
+  private describeImport(imported: {
+    createdPersonas: number;
+    reusedPersonas: number;
+    createdProjects: number;
+    reusedProjects: number;
+    createdTopics: number;
+    reusedTopics: number;
+    createdChats: number;
+    createdNodes: number;
+    unresolvedProjects: number;
+  }): string {
+    return this.i18n.t('import.bundleDetail', {
+      personas: imported.createdPersonas,
+      personasReused: imported.reusedPersonas,
+      projects: imported.createdProjects,
+      projectsReused: imported.reusedProjects,
+      topics: imported.createdTopics,
+      topicsReused: imported.reusedTopics,
+      chats: imported.createdChats,
+      nodes: imported.createdNodes
+    });
   }
-
-  readonly exportScope = signal<'chat' | 'project' | 'all'>('chat');
-  readonly isExporting = signal(false);
 
   async exportBundle(): Promise<void> {
     this.isExporting.set(true);
     this.globalError.set(null);
     try {
-      await Promise.all([
-        this.chatService.loadChats(),
-        this.projectService.loadProjects(),
-        this.projectService.loadTopics(),
-        this.personaService.loadPersonas()
-      ]);
-
+      await this.bundleService.loadAll();
       const scope = this.exportScope();
-      const currentId = this.chatService.currentChatId();
-      const current = this.chatService.chats().find(c => c.id === currentId);
+      const bundle = await this.bundleService.buildBundle({
+        scope,
+        includeChats: scope === 'topic-project' ? this.includeChats() : scope !== 'personas',
+        projectId: this.needsProjectPicker() ? this.exportProjectId() : null,
+        chatId: scope === 'chat' || (scope === 'chats-only' && this.exportChatId())
+          ? this.exportChatId()
+          : null,
+        onProgress: (message) => this.progress.set(message)
+      });
 
-      let chats = this.chatService.chats();
-      if (scope === 'chat') {
-        chats = current ? [current] : [];
-      } else if (scope === 'project') {
-        chats = chats.filter(c => c.projectId === (current?.projectId ?? null));
+      if (
+        !bundle.personas.length &&
+        !bundle.projects.length &&
+        !bundle.topics.length &&
+        !bundle.chats.length
+      ) {
+        throw new Error(this.i18n.t('import.exportEmpty'));
       }
-
-      const packed = [];
-      for (const chat of chats) {
-        this.progress.set(`Exporting “${chat.title}”…`);
-        packed.push({ ...chat, nodes: await this.chatService.fetchNodes(chat.id) });
-      }
-
-      const usedProjects = new Set(packed.map(c => c.projectId).filter(Boolean));
-      const bundle: ChatBundle = {
-        format: BUNDLE_FORMAT,
-        version: BUNDLE_VERSION,
-        exportedAt: new Date().toISOString(),
-        projects: this.projectService.projects().filter(p => usedProjects.has(p.id)),
-        topics: this.projectService.topics().filter(t =>
-          t.projectIds?.some(id => usedProjects.has(id))
-        ),
-        personas: this.personaService.personas(),
-        chats: packed
-      };
 
       const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' });
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
-      a.download = `chat-bundle-${scope}-${new Date().toISOString().slice(0, 10)}.json`;
+      a.download = `chapterly-bundle-${scope}-${new Date().toISOString().slice(0, 10)}.json`;
       a.click();
       URL.revokeObjectURL(a.href);
-      this.progress.set(`Exported ${packed.length} chat(s).`);
+      this.progress.set(this.i18n.t('import.exported', {
+        personas: bundle.personas.length,
+        projects: bundle.projects.length,
+        topics: bundle.topics.length,
+        chats: bundle.chats.length
+      }));
     } catch (err: any) {
       this.globalError.set(err?.message || String(err));
     } finally {

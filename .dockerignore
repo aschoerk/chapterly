@@ -1,0 +1,13 @@
+.git
+.idea
+.angular
+dist
+electron/renderer
+node_modules
+chat-server/node_modules
+chat-server/data
+coverage
+*.iml
+npm-debug.log
+Dockerfile
+docker-compose*.yml

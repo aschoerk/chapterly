@@ -4,15 +4,55 @@
   <p class="drop-hint">
     {{ i18n.t('import.exportHint') }}
   </p>
-  <div class="actions-bar">
+  <div class="export-grid">
     <label class="project-select">
       {{ i18n.t('import.scope') }}
       <select [ngModel]="exportScope()" (ngModelChange)="exportScope.set($event)">
+        <option value="personas">{{ i18n.t('import.scopePersonas') }}</option>
+        <option value="topic-project">{{ i18n.t('import.scopeTopicProject') }}</option>
+        <option value="project-chats">{{ i18n.t('import.scopeProjectChats') }}</option>
         <option value="chat">{{ i18n.t('import.scopeChat') }}</option>
-        <option value="project">{{ i18n.t('import.scopeProject') }}</option>
-        <option value="all">{{ i18n.t('import.scopeAll') }}</option>
+        <option value="all-chats">{{ i18n.t('import.scopeAll') }}</option>
+        <option value="chats-only">{{ i18n.t('import.scopeChatsOnly') }}</option>
       </select>
     </label>
+
+    @if (needsProjectPicker()) {
+      <label class="project-select">
+        {{ i18n.t('import.exportProject') }}
+        <select [ngModel]="exportProjectId()" (ngModelChange)="exportProjectId.set($event)">
+          <option [ngValue]="null">{{ i18n.t('import.allProjects') }}</option>
+          @for (p of projects(); track p.id) {
+            <option [ngValue]="p.id">{{ p.name }}</option>
+          }
+        </select>
+      </label>
+    }
+
+    @if (needsChatPicker()) {
+      <label class="project-select">
+        {{ i18n.t('import.exportChat') }}
+        <select [ngModel]="exportChatId()" (ngModelChange)="exportChatId.set($event)">
+          @if (exportScope() === 'chats-only') {
+            <option [ngValue]="null">{{ i18n.t('import.allChatsInScope') }}</option>
+          }
+          @for (c of exportChatsForPicker(); track c.id) {
+            <option [ngValue]="c.id">{{ c.title }}</option>
+          }
+        </select>
+      </label>
+    }
+
+    @if (needsIncludeChats()) {
+      <label class="checkbox export-check">
+        <input type="checkbox"
+               [ngModel]="includeChats()"
+               (ngModelChange)="includeChats.set($event)" />
+        {{ i18n.t('import.includeChats') }}
+      </label>
+    }
+  </div>
+  <div class="actions-bar">
     <button class="btn primary" type="button"
             [disabled]="isExporting() || isImporting()"
             (click)="exportBundle()">
@@ -41,6 +81,13 @@
         multiple
         (change)="onFileSelected($event)"
         hidden />
+    </label>
+    <label class="project-select import-policy">
+      {{ i18n.t('import.policy') }}
+      <select [ngModel]="importPolicy()" (ngModelChange)="importPolicy.set($event)">
+        <option value="reuse">{{ i18n.t('import.policyReuse') }}</option>
+        <option value="create">{{ i18n.t('import.policyCreate') }}</option>
+      </select>
     </label>
   </div>
 </section>
@@ -155,10 +202,15 @@
       @for (s of summaries(); track s.fileName + s.title) {
         <li [class.error]="!!s.error">
           <strong>{{ s.fileName }}</strong>
-          – {{ s.kind === 'copilots' ? i18n.t('import.kindProjects') : i18n.t('import.kindChat') }}:
+          – {{ s.kind === 'bundle'
+            ? i18n.t('import.kindBundle')
+            : (s.kind === 'copilots' ? i18n.t('import.kindProjects') : i18n.t('import.kindChat')) }}:
           “{{ s.title }}”
           → {{ s.created }}
           {{ s.kind === 'copilots' ? i18n.t('import.projectsCount') : i18n.t('import.nodesCount') }}
+          @if (s.detail) {
+            <div class="pending-meta">{{ s.detail }}</div>
+          }
           @if (s.error) {
             <span class="err"> ({{ s.error }})</span>
           }

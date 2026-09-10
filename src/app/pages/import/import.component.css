@@ -481,3 +481,28 @@ select, input, textarea {
   color: var(--text);
   border-color: var(--color-input-border);
 }
+
+.export-box {
+  margin-bottom: 1.5rem;
+}
+
+.export-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.9rem 1.2rem;
+  align-items: flex-end;
+  margin-bottom: 0.9rem;
+}
+
+.export-check {
+  flex-direction: row !important;
+  align-items: center;
+  gap: 0.4rem !important;
+  font-size: 0.85rem;
+}
+
+.import-policy {
+  margin: 0.9rem auto 0;
+  max-width: 420px;
+  text-align: left;
+}

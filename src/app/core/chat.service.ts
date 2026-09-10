@@ -249,6 +249,15 @@ export class ChatService {
     return node;
   }
 
+  /** Create a node during bundle import without polluting another chat's in-memory list. */
+  async createNodeForImport(chatId: string, data: CreateNodeRequest): Promise<ChatNode> {
+    const node = await this.api.createNode(chatId, data);
+    if (this._currentChatId() === chatId) {
+      this._nodes.update(list => [...list, node]);
+    }
+    return node;
+  }
+
   async deleteNode(
     chatId: string,
     nodeId: string,
