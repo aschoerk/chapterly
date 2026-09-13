@@ -18,10 +18,15 @@ export function getServerConfig(): ServerConfig {
   const port = getServerPort();
   const fallback = `http://localhost:${port}`;
 
+  // IndexedDB content only after a Google / OAuth access token exists.
+  // Electron and skip/password stay on the local chat-server.
+  const hasToken = typeof sessionStorage !== 'undefined'
+    && !!sessionStorage.getItem('chapterly.access_token');
+
   return {
     apiBase: `${localDev ? fallback : origin}/api`,
     proxyBase: `${localDev ? fallback : origin}/proxy`,
-    mode: isElectron() ? "local" : "cloud"
+    mode: isElectron() && !hasToken ? "local" : "cloud"
   };
 }
 

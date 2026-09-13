@@ -120,12 +120,83 @@ function ensureFallbackTopic() {
   return db().prepare('SELECT * FROM topics WHERE id = ?').get(id);
 }
 
+function resolveRequestedTopicId(requestedId) {
+  if (requestedId) {
+    const topic = db().prepare('SELECT id FROM topics WHERE id = ?').get(requestedId);
+    if (topic) return topic.id;
+  }
+  return ensureFallbackTopic().id;
+}
+
+function syncProjectMainTopic(projectId, topicId) {
+  if (!projectId || !topicId) return;
+  try {
+    db().prepare('UPDATE projects SET main_topic_id = ? WHERE id = ?').run(topicId, projectId);
+  } catch {
+    // column may not exist yet during very early migrate
+  }
+}
+
+function assignProjectMainTopic(projectId, requestedId) {
+  const topicId = resolveRequestedTopicId(requestedId);
+  attachProjectToTopic(topicId, projectId);
+  syncProjectMainTopic(projectId, topicId);
+  return topicId;
+}
+
+function assignPersonaMainTopic(personaId, requestedId) {
+  const topicId = resolveRequestedTopicId(requestedId);
+  try {
+    db().prepare('UPDATE personas SET main_topic_id = ? WHERE id = ?').run(topicId, personaId);
+  } catch {
+    // column may not exist yet during very early migrate
+  }
+  return topicId;
+}
+
+function ensurePersonaHasMainTopic(personaId) {
+  if (!personaId) return null;
+  let row;
+  try {
+    row = db().prepare('SELECT id, main_topic_id FROM personas WHERE id = ?').get(personaId);
+  } catch {
+    return null;
+  }
+  if (!row) return null;
+  if (row.main_topic_id) {
+    const exists = db().prepare('SELECT id FROM topics WHERE id = ?').get(row.main_topic_id);
+    if (exists) return row.main_topic_id;
+  }
+  return assignPersonaMainTopic(personaId, null);
+}
+
+function rehomeOrphanPersonas() {
+  let rows = [];
+  try {
+    rows = db().prepare(`
+      SELECT id FROM personas
+      WHERE main_topic_id IS NULL
+         OR main_topic_id = ''
+         OR NOT EXISTS (SELECT 1 FROM topics t WHERE t.id = personas.main_topic_id)
+    `).all();
+  } catch {
+    return;
+  }
+  for (const row of rows) {
+    ensurePersonaHasMainTopic(row.id);
+  }
+}
+
 function ensureProjectHasTopic(projectId) {
   if (!projectId) return null;
   const ids = topicIdsOfProject(projectId);
-  if (ids.length) return ids[0];
+  if (ids.length) {
+    syncProjectMainTopic(projectId, ids[0]);
+    return ids[0];
+  }
   const fallback = ensureFallbackTopic();
   attachProjectToTopic(fallback.id, projectId);
+  syncProjectMainTopic(projectId, fallback.id);
   return fallback.id;
 }
 
@@ -138,8 +209,7 @@ function resolveTopicIdForProject(projectId) {
 
 function resolveUnassignProjectId(fromProjectId) {
   const topicId = resolveTopicIdForProject(fromProjectId);
-  const inboxId = ensureTopicDefaultProject(topicId);
-  return inboxId;
+  return ensureTopicDefaultProject(topicId);
 }
 
 function assertProjectExists(projectId) {
@@ -206,6 +276,7 @@ function backfillAssignmentInvariants() {
   }
   rehomeOrphanProjects();
   rehomeOrphanChats();
+  rehomeOrphanPersonas();
 }
 
 module.exports = {
@@ -217,6 +288,11 @@ module.exports = {
   ensureTopicDefaultProject,
   ensureFallbackTopic,
   ensureProjectHasTopic,
+  resolveRequestedTopicId,
+  assignProjectMainTopic,
+  assignPersonaMainTopic,
+  ensurePersonaHasMainTopic,
+  rehomeOrphanPersonas,
   resolveTopicIdForProject,
   resolveUnassignProjectId,
   assertProjectExists,

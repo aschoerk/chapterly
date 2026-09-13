@@ -12,6 +12,10 @@ const {
   placeholders,
   primaryClientId
 } = require('../oauth');
+const {
+  assignPersonaMainTopic,
+  ensurePersonaHasMainTopic
+} = require('../assignment');
 
 const router = express.Router();
 
@@ -95,7 +99,7 @@ router.get('/', (req, res) => {
  *         description: Validation error
  */
 router.post('/', (req, res) => {
-  const { name, shortName, description = '', avatar = '' } = req.body;
+  const { name, shortName, description = '', avatar = '', mainTopicId = null } = req.body;
 
   if (!name || !name.trim()) {
     return res.status(400).json({ error: 'name is required' });
@@ -121,6 +125,8 @@ router.post('/', (req, res) => {
     avatar || '',
     workspace.id
   );
+
+  assignPersonaMainTopic(id, mainTopicId);
 
   const row = db.prepare('SELECT * FROM personas WHERE id = ?').get(id);
   res.status(201).json(mapPersona(row));
@@ -197,7 +203,7 @@ router.get('/:id', (req, res) => {
  */
 router.put('/:id', (req, res) => {
   const { id } = req.params;
-  const { name, shortName, description, avatar } = req.body;
+  const { name, shortName, description, avatar, mainTopicId } = req.body;
 
   const existing = db.prepare('SELECT * FROM personas WHERE id = ?').get(id);
   if (!existing) return res.status(404).json({ error: 'Persona not found' });
@@ -227,6 +233,12 @@ router.put('/:id', (req, res) => {
     workspace.id,
     id
   );
+
+  if (mainTopicId !== undefined) {
+    assignPersonaMainTopic(id, mainTopicId);
+  } else {
+    ensurePersonaHasMainTopic(id);
+  }
 
   const row = db.prepare('SELECT * FROM personas WHERE id = ?').get(id);
   res.json(mapPersona(row));
@@ -271,6 +283,7 @@ function mapPersona(row) {
     description: row.description || '',
     avatar: row.avatar || '',
     workspaceId: row.workspace_id || null,
+    mainTopicId: row.main_topic_id || null,
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };

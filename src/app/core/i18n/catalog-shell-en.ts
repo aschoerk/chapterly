@@ -33,6 +33,8 @@ export const EN_SHELL = {
     readTitle: 'Book view',
     environments: 'Environments',
     environmentsTitle: 'Environments & topics',
+    topics: 'Topics',
+    topicsTitle: 'Topics',
     personas: 'Personas',
     personasTitle: 'Personas',
     import: 'Import',
@@ -51,6 +53,7 @@ export const EN_SHELL = {
     signIn: 'Sign in',
     signingIn: 'Signing in…',
     skip: 'Continue without token',
+    google: 'Sign in with Google',
     invalid: 'Invalid credentials',
     failed: 'Login failed'
   },

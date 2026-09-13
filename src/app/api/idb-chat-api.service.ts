@@ -120,9 +120,25 @@ export class IdbChatApiService implements ChatApiPort {
     const row: Project = {
       id: this.id(), name: data.name, greeting: data.greeting ?? '', systemPrompt: data.systemPrompt ?? '',
       defaultModelId: data.defaultModelId ?? null, chatParametersId: data.chatParametersId ?? null,
-      avatar: data.avatar ?? '', personaIds: data.personaIds ?? [], createdAt: this.now(), updatedAt: this.now()
+      avatar: data.avatar ?? '', personaIds: data.personaIds ?? [],
+      mainTopicId: data.mainTopicId ?? data.topicId ?? null,
+      topicIds: data.topicIds ?? (data.mainTopicId || data.topicId ? [data.mainTopicId || data.topicId!] : []),
+      createdAt: this.now(), updatedAt: this.now()
     };
-    await this.tx(['projects'], 'readwrite', tx => this.req(tx.objectStore('projects').put(row)));
+    await this.tx(['projects', 'topics'], 'readwrite', async tx => {
+      await this.req(tx.objectStore('projects').put(row));
+      const topicId = row.mainTopicId;
+      if (topicId) {
+        const topic = await this.req<Topic>(tx.objectStore('topics').get(topicId));
+        if (topic && !topic.projectIds.includes(row.id)) {
+          await this.req(tx.objectStore('topics').put({
+            ...topic,
+            projectIds: [...topic.projectIds, row.id],
+            updatedAt: this.now()
+          }));
+        }
+      }
+    });
     return row;
   }
 
@@ -389,7 +405,7 @@ export class IdbChatApiService implements ChatApiPort {
     return this.tx(['personas'], 'readonly', tx => this.all(tx.objectStore('personas')));
   }
   async createPersona(data: CreatePersonaRequest): Promise<Persona> {
-    const row: Persona = { id: this.id(), name: data.name, shortName: data.shortName ?? data.name, description: data.description ?? '', avatar: data.avatar ?? '', createdAt: this.now(), updatedAt: this.now() };
+    const row: Persona = { id: this.id(), name: data.name, shortName: data.shortName ?? data.name, description: data.description ?? '', avatar: data.avatar ?? '', mainTopicId: data.mainTopicId ?? null, createdAt: this.now(), updatedAt: this.now() };
     await this.tx(['personas'], 'readwrite', tx => this.req(tx.objectStore('personas').put(row)));
     return row;
   }

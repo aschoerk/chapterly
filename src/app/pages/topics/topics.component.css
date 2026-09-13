@@ -1,4 +1,4 @@
-.personas-page {
+.topics-page {
   max-width: 1400px;
   margin: 0 auto;
   padding: 1.25rem 1.5rem 2rem;
@@ -26,41 +26,6 @@
 
 .toolbar {
   margin-bottom: 1.5rem;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.75rem;
-}
-
-.toolbar .topic-filter,
-.bulk-bar select {
-  padding: 0.5rem 0.75rem;
-  border: 1px solid #d1d5db;
-  border-radius: 8px;
-  font-size: 0.9rem;
-  background: #fff;
-  min-width: 180px;
-}
-
-.toolbar .select-all {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  font-size: 0.85rem;
-  color: #4b5563;
-}
-
-.bulk-bar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.65rem;
-  margin: -0.5rem 0 1.25rem;
-  padding: 0.65rem 0.8rem;
-  background: #eff6ff;
-  border: 1px solid #bfdbfe;
-  border-radius: 10px;
-  font-size: 0.9rem;
 }
 
 .toolbar input[type='search'] {
@@ -87,13 +52,13 @@
 }
 
 /* ---------- Dense responsive card grid ---------- */
-.persona-grid {
+.topic-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
   gap: 1.1rem;
 }
 
-.persona-card {
+.topic-card {
   background: #fff;
   border-radius: 14px;
   overflow: hidden;
@@ -107,16 +72,11 @@
   flex-direction: column;
 }
 
-.persona-card:hover {
+.topic-card:hover {
   transform: translateY(-2px);
   box-shadow:
     0 4px 8px rgba(0, 0, 0, 0.06),
     0 12px 24px rgba(0, 0, 0, 0.08);
-}
-
-.persona-card.selected {
-  outline: 2px solid #2563eb;
-  outline-offset: -2px;
 }
 
 .card-image {
@@ -124,21 +84,6 @@
   aspect-ratio: 3 / 4;
   background: var(--bg-hover-strong, #e5e7eb);
   overflow: hidden;
-}
-
-.select-box {
-  position: absolute;
-  top: 0.5rem;
-  left: 0.5rem;
-  z-index: 2;
-  width: 22px;
-  height: 22px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(255, 255, 255, 0.9);
-  border-radius: 6px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
 }
 
 .card-image img,
@@ -189,7 +134,7 @@
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
 }
 
-.persona-card:hover .menu-btn,
+.topic-card:hover .menu-btn,
 .menu-btn:focus {
   opacity: 1;
 }
@@ -441,13 +386,13 @@
 
 /* Slightly tighter on very wide screens so more cards fit */
 @media (min-width: 1200px) {
-  .persona-grid {
+  .topic-grid {
     grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
   }
 }
 
 @media (min-width: 1600px) {
-  .persona-grid {
+  .topic-grid {
     grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
   }
 }

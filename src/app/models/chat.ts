@@ -9,6 +9,9 @@ export interface Project {
   chatParametersId?: string | null;
   avatar: string;
   personaIds: string[];
+  /** Required primary topic this environment belongs to. */
+  mainTopicId?: string | null;
+  topicIds?: string[];
   createdAt: string;
   updatedAt: string;
 }
@@ -81,6 +84,8 @@ export interface Persona {
   shortName: string;
   description: string;
   avatar: string;
+  /** Required primary topic this persona belongs to. */
+  mainTopicId?: string | null;
   createdAt: string;
   updatedAt: string;
 }

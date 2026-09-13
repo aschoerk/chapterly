@@ -44,3 +44,5 @@ __screenshots__/
 .DS_Store
 Thumbs.db
 /chat-server/data/*
+/.env
+/src/assets/proxy-config.json

@@ -528,6 +528,12 @@ const options = {
               description: 'URL or data URL for the project avatar',
               example: 'https://example.com/avatars/project.png'
             },
+            mainTopicId: {
+              type: 'string',
+              format: 'uuid',
+              nullable: true,
+              description: 'Required primary topic this project belongs to'
+            },
             personaIds: {
               type: 'array',
               description: 'IDs of personas linked to this project',
@@ -642,6 +648,12 @@ const options = {
               format: 'uuid',
               nullable: true,
               description: 'Owning workspace'
+            },
+            mainTopicId: {
+              type: 'string',
+              format: 'uuid',
+              nullable: true,
+              description: 'Required primary topic this persona belongs to'
             },
             createdAt: {
               type: 'string',

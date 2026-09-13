@@ -13,7 +13,7 @@
     "test:server": "npm test --prefix chat-server",
     "docker:dev": "docker compose up",
     "docker:dev:build": "docker compose up --build",
-    "docker:prod": "docker build -t chapterly . && docker run --rm -p 8080:8080 -e PORT=8080 chapterly"
+    "docker:prod": "docker build -t chapterly . && docker run --env-file .env --rm -p 8080:8080 chapterly"
   },
   "private": true,
   "packageManager": "npm@10.9.8",

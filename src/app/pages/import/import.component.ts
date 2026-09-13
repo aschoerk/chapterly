@@ -520,7 +520,6 @@ export class ImportComponent {
             return { keyStart: keyAbs, valueStart };
           }
           inString = true;
-          continue;
         }
       }
 
@@ -866,7 +865,6 @@ export class ImportComponent {
             return { start: wrapperStart, end: wrapperEnd };
           }
           inString = true;
-          continue;
         }
       }
 

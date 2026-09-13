@@ -1,0 +1,138 @@
+<div class="topics-page" (click)="closeMenu()">
+  <header class="page-header">
+    <button class="btn primary" (click)="openCreate()">{{ i18n.t('topics.new') }}</button>
+  </header>
+
+  <div class="toolbar">
+    <input
+      type="search"
+      [placeholder]="i18n.t('topics.search')"
+      [ngModel]="searchTerm()"
+      (ngModelChange)="searchTerm.set($event)"
+    />
+  </div>
+
+  @if (error() && !showForm()) {
+    <div class="error-banner">{{ error() }}</div>
+  }
+
+  @if (filteredTopics().length === 0 && !showForm()) {
+    <p class="empty">
+      @if (searchTerm()) {
+        {{ i18n.t('topics.emptySearch') }}
+      } @else {
+        {{ i18n.t('topics.empty') }}
+      }
+    </p>
+  }
+
+  <div class="topic-grid">
+    @for (topic of filteredTopics(); track trackById($index, topic)) {
+      <article class="topic-card" (click)="openEdit(topic)">
+        <div class="card-image">
+          <app-avatar-view
+            class="card-avatar"
+            [value]="topic.icon"
+            [alt]="topic.name"
+            fallback="📌"
+          />
+
+          <button
+            class="menu-btn"
+            type="button"
+            (click)="toggleMenu(topic.id, $event)"
+            [title]="i18n.t('common.actions')"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+              <circle cx="12" cy="5" r="2"/>
+              <circle cx="12" cy="12" r="2"/>
+              <circle cx="12" cy="19" r="2"/>
+            </svg>
+          </button>
+
+          @if (openMenuId() === topic.id) {
+            <div class="card-menu" (click)="$event.stopPropagation()">
+              <button type="button" (click)="openEdit(topic); closeMenu()">{{ i18n.t('common.edit') }}</button>
+              <button type="button" class="danger" (click)="deleteTopic(topic); closeMenu()">{{ i18n.t('common.delete') }}</button>
+            </div>
+          }
+        </div>
+
+        <div class="card-body">
+          <h3 class="name">{{ topic.name }}</h3>
+          <p class="description">
+            {{ topic.description || topic.defaultSystemPrompt || i18n.t('topics.noDescription') }}
+          </p>
+          <p class="description">
+            {{ i18n.t('topics.linkedCounts', { projects: projectCount(topic), personas: personaCount(topic) }) }}
+          </p>
+        </div>
+      </article>
+    }
+  </div>
+
+  @if (showForm()) {
+    <div class="modal-backdrop" (click)="requestClose()">
+      <div
+        #topicModal
+        class="modal"
+        [style.width.px]="editorWidthPx()"
+        (click)="$event.stopPropagation()"
+      >
+        <h3>{{ editingId() ? i18n.t('topics.editTitle') : i18n.t('topics.newTitle') }}</h3>
+
+        @if (error()) {
+          <div class="error-banner">{{ error() }}</div>
+        }
+
+        <label>
+          {{ i18n.t('topics.name') }}
+          <input
+            [(ngModel)]="form.name"
+            [placeholder]="i18n.t('topics.namePh')"
+            autofocus
+          />
+        </label>
+
+        <label class="description-field">
+          {{ i18n.t('topics.description') }}
+          <textarea
+            #descEditor
+            [(ngModel)]="form.description"
+            (ngModelChange)="onDescriptionChange()"
+            rows="5"
+            [placeholder]="i18n.t('topics.descriptionPh')"
+          ></textarea>
+        </label>
+
+        <app-avatar-picker
+          [value]="form.icon"
+          (valueChange)="form.icon = $event"
+          (errorChange)="error.set($event)"
+          [label]="i18n.t('topics.icon')"
+          placeholder="📌"
+        />
+
+        <label class="description-field">
+          {{ i18n.t('topics.defaultSystem') }}
+          <textarea
+            [(ngModel)]="form.defaultSystemPrompt"
+            rows="4"
+            [placeholder]="i18n.t('topics.defaultSystemPh')"
+          ></textarea>
+        </label>
+
+        <div class="modal-actions">
+          <button class="btn" (click)="requestClose()" [disabled]="saving()">{{ i18n.t('common.cancel') }}</button>
+          <button
+            class="btn primary"
+            (click)="save()"
+            [disabled]="saving()"
+          >
+            {{ saving() ? i18n.t('common.saving') : (editingId() ? i18n.t('common.saveChanges') : i18n.t('common.create')) }}
+          </button>
+        </div>
+      </div>
+    </div>
+  }
+</div>

@@ -9,6 +9,9 @@ export interface CreateProjectRequest {
   chatParametersId?: string | null;
   avatar?: string;
   personaIds?: string[];
+  mainTopicId?: string | null;
+  topicId?: string | null;
+  topicIds?: string[];
 }
 
 export type UpdateProjectRequest = Partial<{
@@ -19,6 +22,9 @@ export type UpdateProjectRequest = Partial<{
   chatParametersId: string | null;
   avatar: string;
   personaIds: string[];
+  mainTopicId: string | null;
+  topicId: string | null;
+  topicIds: string[];
   attachments?: NodeAttachment[];
 }>;
 
@@ -41,6 +47,7 @@ export interface CreatePersonaRequest {
   shortName: string;
   description?: string;
   avatar?: string;
+  mainTopicId?: string | null;
 }
 
 export type UpdatePersonaRequest = Partial<{
@@ -48,6 +55,7 @@ export type UpdatePersonaRequest = Partial<{
   shortName: string;
   description: string;
   avatar: string;
+  mainTopicId: string | null;
 }>;
 
 export interface CreateTopicRequest {
@@ -91,6 +99,7 @@ export interface AskLlmOptions {
   onChunk?: (chunk: string) => void;
   signal?: AbortSignal;
   temperature?: number;
+  providerId?: string | null;
 }
 
 export type CreateProviderRequest = Omit<ProviderConfig, 'id'>;

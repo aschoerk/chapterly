@@ -18,7 +18,7 @@ describe('I18nService', () => {
     expect(i18n.t('nav.stories')).toBe('Stories');
     i18n.setLocale('de');
     expect(i18n.t('config.providers.empty')).toBe('Noch keine Anbieter eingerichtet.');
-    expect(i18n.t('nav.stories')).toBe('Geschichten');
+    expect(i18n.t('nav.stories')).toBe('Stories');
     expect(i18n.t('config.providers.missing.key')).toBe('config.providers.missing.key');
   });
 

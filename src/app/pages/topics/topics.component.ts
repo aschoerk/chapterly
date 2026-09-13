@@ -10,39 +10,32 @@ import {
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { Router } from '@angular/router';
-import { ChatService } from '../../core/chat.service';
-import { PersonaService } from '../../core/persona.service';
 import { ProjectService } from '../../core/project.service';
+import { PersonaService } from '../../core/persona.service';
 import { ConfirmService } from '../../core/confirm.service';
-import { Persona } from '../../models/chat';
+import { Topic } from '../../models/chat';
 import { AvatarPickerComponent } from '../../components/avatar-picker/avatar-picker.component';
 import { AvatarViewComponent } from '../../components/avatar-view/avatar-view.component';
 import { I18nService } from '../../core/i18n/i18n.service';
 
 @Component({
-  selector: 'app-personas',
+  selector: 'app-topics',
   standalone: true,
   imports: [CommonModule, FormsModule, AvatarPickerComponent, AvatarViewComponent],
-  templateUrl: './personas.component.html',
-  styleUrl: './personas.component.css'
+  templateUrl: './topics.component.html',
+  styleUrl: './topics.component.css'
 })
-export class PersonasComponent implements OnInit {
-  private readonly chatService = inject(ChatService);
-  private readonly personaService = inject(PersonaService);
+export class TopicsComponent implements OnInit {
   private readonly projectService = inject(ProjectService);
-  private readonly router = inject(Router);
+  private readonly personaService = inject(PersonaService);
   private readonly confirm = inject(ConfirmService);
   readonly i18n = inject(I18nService);
 
-  readonly personas = this.personaService.personas;
   readonly topics = this.projectService.topics;
+  readonly projects = this.projectService.projects;
+  readonly personas = this.personaService.personas;
 
   readonly searchTerm = signal('');
-  readonly topicFilterId = signal<string | 'all'>('all');
-  readonly selectedIds = signal<Set<string>>(new Set());
-  readonly bulkTopicId = signal('');
-  readonly bulkAssigning = signal(false);
   readonly showForm = signal(false);
   readonly editingId = signal<string | null>(null);
   readonly saving = signal(false);
@@ -53,70 +46,66 @@ export class PersonasComponent implements OnInit {
   readonly editorWidthPx = signal(520);
 
   @ViewChild('descEditor') private descEditor?: ElementRef<HTMLTextAreaElement>;
-  @ViewChild('personaModal') private personaModal?: ElementRef<HTMLElement>;
+  @ViewChild('topicModal') private topicModal?: ElementRef<HTMLElement>;
 
   // Form model
   form = {
     name: '',
-    shortName: '',
     description: '',
-    avatar: '',
-    mainTopicId: '' as string
+    icon: '',
+    defaultSystemPrompt: ''
   };
 
   /** Snapshot taken when the editor opens; used to detect unsaved edits. */
   private baseline: {
     name: string;
-    shortName: string;
     description: string;
-    avatar: string;
-    mainTopicId: string;
+    icon: string;
+    defaultSystemPrompt: string;
   } | null = null;
 
   private closeInFlight = false;
 
-  readonly filteredPersonas = computed(() => {
+  readonly filteredTopics = computed(() => {
     const term = this.searchTerm().toLowerCase().trim();
-    const topicId = this.topicFilterId();
-    let list = this.personas();
-    if (topicId !== 'all') {
-      list = list.filter(p => p.mainTopicId === topicId);
-    }
+    const list = this.topics();
     if (!term) return list;
     return list.filter(
-      p =>
-        p.name.toLowerCase().includes(term) ||
-        p.shortName.toLowerCase().includes(term) ||
-        (p.description || '').toLowerCase().includes(term)
+      t =>
+        t.name.toLowerCase().includes(term) ||
+        (t.description || '').toLowerCase().includes(term) ||
+        (t.defaultSystemPrompt || '').toLowerCase().includes(term)
     );
   });
-
-  readonly selectedCount = computed(() => this.selectedIds().size);
 
   async ngOnInit() {
     try {
       await Promise.all([
-        this.personaService.loadPersonas(),
-        this.projectService.loadTopics()
+        this.projectService.loadTopics(),
+        this.projectService.loadProjects(),
+        this.personaService.loadPersonas()
       ]);
     } catch (e) {
-      console.error('Failed to load personas', e);
-      this.error.set(this.i18n.t('personas.loadFailed'));
+      console.error('Failed to load topics', e);
+      this.error.set(this.i18n.t('topics.loadFailed'));
     }
   }
 
-  goToChat() {
-    this.router.navigate(['/chat']);
+  projectCount(topic: Topic): number {
+    return (topic.projectIds || []).length;
+  }
+
+  personaCount(topic: Topic): number {
+    return this.personas().filter(p => p.mainTopicId === topic.id).length;
   }
 
   openCreate() {
     this.editingId.set(null);
     this.form = {
       name: '',
-      shortName: '',
       description: '',
-      avatar: '',
-      mainTopicId: this.topics()[0]?.id || ''
+      icon: '',
+      defaultSystemPrompt: ''
     };
     this.error.set(null);
     this.captureBaseline();
@@ -124,15 +113,14 @@ export class PersonasComponent implements OnInit {
     this.scheduleFitEditor();
   }
 
-  openEdit(persona: Persona) {
+  openEdit(topic: Topic) {
     this.closeMenu();
-    this.editingId.set(persona.id);
+    this.editingId.set(topic.id);
     this.form = {
-      name: persona.name,
-      shortName: persona.shortName,
-      description: persona.description || '',
-      avatar: persona.avatar || '',
-      mainTopicId: persona.mainTopicId || this.topics()[0]?.id || ''
+      name: topic.name,
+      description: topic.description || '',
+      icon: topic.icon || '',
+      defaultSystemPrompt: topic.defaultSystemPrompt || ''
     };
     this.error.set(null);
     this.captureBaseline();
@@ -151,7 +139,7 @@ export class PersonasComponent implements OnInit {
       this.closeInFlight = true;
       const discard = await this.confirm.ask({
         title: this.i18n.t('personas.unsavedTitle'),
-        message: this.i18n.t('personas.unsavedMsg'),
+        message: this.i18n.t('topics.unsavedMsg'),
         confirmLabel: this.i18n.t('common.discard'),
         cancelLabel: this.i18n.t('common.keepEditing'),
         danger: true
@@ -173,19 +161,9 @@ export class PersonasComponent implements OnInit {
 
   async save() {
     const name = this.form.name.trim();
-    const shortName = this.form.shortName.trim();
 
     if (!name) {
       this.error.set(this.i18n.t('common.nameRequired'));
-      return;
-    }
-    if (!shortName) {
-      this.error.set(this.i18n.t('personas.shortNameRequired'));
-      return;
-    }
-    const mainTopicId = this.form.mainTopicId.trim();
-    if (!mainTopicId) {
-      this.error.set(this.i18n.t('personas.mainTopicRequired'));
       return;
     }
 
@@ -194,20 +172,18 @@ export class PersonasComponent implements OnInit {
 
     try {
       if (this.editingId()) {
-        await this.personaService.updatePersona(this.editingId()!, {
+        await this.projectService.updateTopic(this.editingId()!, {
           name,
-          shortName,
           description: this.form.description,
-          avatar: this.form.avatar,
-          mainTopicId
+          icon: this.form.icon,
+          defaultSystemPrompt: this.form.defaultSystemPrompt
         });
       } else {
-        await this.personaService.createPersona({
+        await this.projectService.createTopic({
           name,
-          shortName,
           description: this.form.description,
-          avatar: this.form.avatar,
-          mainTopicId
+          icon: this.form.icon,
+          defaultSystemPrompt: this.form.defaultSystemPrompt
         });
       }
       this.closeForm();
@@ -219,47 +195,25 @@ export class PersonasComponent implements OnInit {
     }
   }
 
-  async deletePersona(persona: Persona) {
-    if (!confirm(this.i18n.t('personas.deleteConfirm', { name: persona.name }))) {
-      return;
-    }
+  async deleteTopic(topic: Topic) {
+    const count = this.projectCount(topic);
+    const message = count === 0
+      ? this.i18n.t('projects.deleteTopicEmpty', { name: topic.name })
+      : this.i18n.t('projects.deleteTopicWithEnv', { name: topic.name, count });
+    const ok = await this.confirm.ask({
+      title: this.i18n.t('projects.deleteTopicAsk'),
+      message,
+      confirmLabel: this.i18n.t('common.delete'),
+      cancelLabel: this.i18n.t('common.cancel'),
+      danger: true
+    });
+    if (!ok) return;
     try {
-      await this.personaService.deletePersona(persona.id);
-    } catch (e) {
+      await this.projectService.deleteTopic(topic.id);
+    } catch (e: any) {
       console.error(e);
-      alert(this.i18n.t('personas.deleteFailed'));
+      alert(this.i18n.t('projects.deleteTopicFailed', { error: e?.error?.error || e?.message || '' }));
     }
-  }
-
-  onAvatarSelected(event: Event) {
-    const input = event.target as HTMLInputElement;
-    const file = input.files?.[0];
-    if (!file) return;
-
-    if (!file.type.startsWith('image/')) {
-      this.error.set(this.i18n.t('common.imageFileRequired'));
-      return;
-    }
-
-    // Limit size roughly (data URLs get large)
-    if (file.size > 800_000) {
-      this.error.set(this.i18n.t('common.imageTooLarge'));
-      return;
-    }
-
-    const reader = new FileReader();
-    reader.onload = () => {
-      this.form.avatar = reader.result as string;
-      this.error.set(null);
-    };
-    reader.onerror = () => {
-      this.error.set(this.i18n.t('common.imageReadFailed'));
-    };
-    reader.readAsDataURL(file);
-  }
-
-  clearAvatar() {
-    this.form.avatar = '';
   }
 
   toggleMenu(id: string, event: Event) {
@@ -271,80 +225,8 @@ export class PersonasComponent implements OnInit {
     this.openMenuId.set(null);
   }
 
-  trackById(_: number, p: Persona) {
-    return p.id;
-  }
-
-  isCurrent(persona: Persona): boolean {
-    return this.personaService.currentPersonaId() === persona.id;
-  }
-
-  setAsCurrent(persona: Persona): void {
-    this.personaService.setCurrentPersona(persona.id);
-    this.closeMenu();
-  }
-
-  clearCurrent(): void {
-    this.personaService.setCurrentPersona(null);
-  }
-
-  topicName(id: string | null | undefined): string {
-    if (!id) return '';
-    return this.topics().find(t => t.id === id)?.name || '';
-  }
-
-  isSelected(id: string): boolean {
-    return this.selectedIds().has(id);
-  }
-
-  toggleSelected(id: string, event: Event): void {
-    event.stopPropagation();
-    const next = new Set(this.selectedIds());
-    if (next.has(id)) next.delete(id);
-    else next.add(id);
-    this.selectedIds.set(next);
-  }
-
-  toggleSelectAllVisible(): void {
-    const visible = this.filteredPersonas();
-    const selected = this.selectedIds();
-    const allOn = visible.length > 0 && visible.every(p => selected.has(p.id));
-    const next = new Set(selected);
-    if (allOn) {
-      visible.forEach(p => next.delete(p.id));
-    } else {
-      visible.forEach(p => next.add(p.id));
-    }
-    this.selectedIds.set(next);
-  }
-
-  clearSelection(): void {
-    this.selectedIds.set(new Set());
-    this.bulkTopicId.set('');
-  }
-
-  async assignSelectedToTopic(): Promise<void> {
-    const topicId = this.bulkTopicId().trim();
-    const ids = [...this.selectedIds()];
-    if (!topicId) {
-      this.error.set(this.i18n.t('personas.mainTopicRequired'));
-      return;
-    }
-    if (!ids.length) return;
-
-    this.bulkAssigning.set(true);
-    this.error.set(null);
-    try {
-      for (const id of ids) {
-        await this.personaService.updatePersona(id, { mainTopicId: topicId });
-      }
-      this.clearSelection();
-    } catch (e: any) {
-      console.error(e);
-      this.error.set(e?.error?.error || e?.message || this.i18n.t('common.saveFailed'));
-    } finally {
-      this.bulkAssigning.set(false);
-    }
+  trackById(_: number, t: Topic) {
+    return t.id;
   }
 
   onDescriptionChange(): void {
@@ -362,7 +244,6 @@ export class PersonasComponent implements OnInit {
   onDocumentKeydown(ev: KeyboardEvent): void {
     if (ev.key !== 'Escape') return;
 
-    // Confirm dialog is already up — Escape means "keep editing".
     if (this.confirm.current()) {
       ev.preventDefault();
       this.confirm.close(false);
@@ -377,10 +258,9 @@ export class PersonasComponent implements OnInit {
   private captureBaseline(): void {
     this.baseline = {
       name: this.form.name,
-      shortName: this.form.shortName,
       description: this.form.description,
-      avatar: this.form.avatar,
-      mainTopicId: this.form.mainTopicId
+      icon: this.form.icon,
+      defaultSystemPrompt: this.form.defaultSystemPrompt
     };
   }
 
@@ -389,17 +269,16 @@ export class PersonasComponent implements OnInit {
     if (!b) return false;
     return (
       this.form.name !== b.name ||
-      this.form.shortName !== b.shortName ||
       this.form.description !== b.description ||
-      this.form.avatar !== b.avatar ||
-      this.form.mainTopicId !== b.mainTopicId
+      this.form.icon !== b.icon ||
+      this.form.defaultSystemPrompt !== b.defaultSystemPrompt
     );
   }
 
   /** Wait for the modal/textarea to exist in the DOM, then size them. */
   private scheduleFitEditor(retries = 0): void {
     requestAnimationFrame(() => {
-      if (this.descEditor?.nativeElement && this.personaModal?.nativeElement) {
+      if (this.descEditor?.nativeElement && this.topicModal?.nativeElement) {
         this.fitEditorToDescription();
         return;
       }
@@ -428,10 +307,9 @@ export class PersonasComponent implements OnInit {
     const width = this.measureEditorWidth(text, ta, minWidth, maxWidth);
     this.editorWidthPx.set(width);
 
-    // Let the new width apply, then measure wrapped height.
     requestAnimationFrame(() => {
       const textarea = this.descEditor?.nativeElement;
-      const modal = this.personaModal?.nativeElement;
+      const modal = this.topicModal?.nativeElement;
       if (!textarea || !modal) return;
 
       textarea.style.height = 'auto';
@@ -480,7 +358,6 @@ export class PersonasComponent implements OnInit {
       this.parsePx(style.borderLeftWidth) +
       this.parsePx(style.borderRightWidth);
 
-    // Modal padding (1.5rem each side) sits outside the textarea.
     const modalPad = 48;
     const measured = Math.ceil(longest + horizontalChrome + modalPad + 8);
 

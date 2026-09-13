@@ -10,6 +10,12 @@ const {
   requireAuth
 } = require('../oauth');
 const { findUserByLogin, verifyPassword, normalizeOptional } = require('../users');
+const {
+  isConfigured,
+  startLogin,
+  finishGoogleLogin,
+  appendHashParams
+} = require('../googleAuth');
 
 const router = express.Router();
 
@@ -247,5 +253,70 @@ async function authorizeWithPassword(req, res) {
  */
 router.post('/dev/authorize', authorizeWithPassword);
 router.post('/authorize', authorizeWithPassword);
+
+/**
+ * @openapi
+ * /api/oauth/google:
+ *   get:
+ *     summary: Whether Google login is configured
+ *     tags: [OAuth]
+ *     responses:
+ *       200:
+ *         description: enabled flag
+ */
+router.get('/google', (_req, res) => {
+  res.json({ enabled: isConfigured() });
+});
+
+/**
+ * @openapi
+ * /api/oauth/google/start:
+ *   get:
+ *     summary: Redirect the browser to Google OIDC
+ *     tags: [OAuth]
+ */
+router.get('/google/start', (req, res) => {
+  const started = startLogin(req.query.return_to || req.query.returnTo);
+  if (started.error) return res.status(started.status || 503).json({ error: started.error });
+  res.redirect(started.url);
+});
+
+/**
+ * @openapi
+ * /api/oauth/google/callback:
+ *   get:
+ *     summary: Google OIDC redirect target
+ *     tags: [OAuth]
+ */
+router.get('/google/callback', async (req, res) => {
+  if (req.query.error) {
+    const started = { returnTo: null };
+    const fallback = appendHashParams(
+      `${process.env.CHAPTERLY_SPA_ORIGIN || 'http://localhost:4200'}/#/login`,
+      { error: String(req.query.error) }
+    );
+    return res.redirect(fallback);
+  }
+
+  try {
+    const result = await finishGoogleLogin({
+      code: req.query.code,
+      state: req.query.state
+    });
+    const returnTo = result.returnTo
+      || `${process.env.CHAPTERLY_SPA_ORIGIN || 'http://localhost:4200'}/#/login`;
+    if (result.error) {
+      return res.redirect(appendHashParams(returnTo, { error: result.error }));
+    }
+    return res.redirect(appendHashParams(returnTo, { code: result.code }));
+  } catch (err) {
+    console.error('Google callback failed:', err.message);
+    const fallback = appendHashParams(
+      `${process.env.CHAPTERLY_SPA_ORIGIN || 'http://localhost:4200'}/#/login`,
+      { error: 'google_login_failed' }
+    );
+    return res.redirect(fallback);
+  }
+});
 
 module.exports = router;

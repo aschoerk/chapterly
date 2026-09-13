@@ -62,6 +62,7 @@ export class ProjectsComponent implements OnInit {
     defaultModelId: string | null;
     avatar: string;
     personaIds: string;
+    mainTopicId: string;
   } | null = null;
 
   private topicBaseline: {
@@ -96,6 +97,10 @@ export class ProjectsComponent implements OnInit {
   readonly openMenuId = signal<string | null>(null);
   /** Currently selected filter in the left column */
   readonly selectedTopicId = signal<string | 'all' | 'unassigned'>('all');
+  readonly selectedIds = signal<Set<string>>(new Set());
+  readonly bulkTopicId = signal('');
+  readonly bulkAssigning = signal(false);
+  readonly selectedCount = computed(() => this.selectedIds().size);
 
   // form fields
   readonly topicName = signal('');
@@ -115,7 +120,8 @@ export class ProjectsComponent implements OnInit {
     defaultModelId: null as string | null,
     avatar: '',
     personaIds: [] as string[],
-    chatParametersId: null as string | null
+    chatParametersId: null as string | null,
+    mainTopicId: '' as string
   };
   readonly projectParamsOverride = signal(false);
   readonly projectParamsDraft = signal<ChatParametersDraft>(emptyParametersDraft());
@@ -208,6 +214,7 @@ export class ProjectsComponent implements OnInit {
 
   openCreate() {
     this.editingId.set(null);
+    const selected = this.selectedTopicId();
     this.form = {
       name: '',
       greeting: '',
@@ -215,7 +222,10 @@ export class ProjectsComponent implements OnInit {
       defaultModelId: null,
       avatar: '',
       personaIds: [],
-      chatParametersId: null
+      chatParametersId: null,
+      mainTopicId: selected !== 'all' && selected !== 'unassigned'
+        ? selected
+        : (this.topics()[0]?.id || '')
     };
     this.projectParamsOverride.set(false);
     this.projectParamsDraft.set(emptyParametersDraft());
@@ -236,7 +246,8 @@ export class ProjectsComponent implements OnInit {
       defaultModelId: project.defaultModelId,
       avatar: project.avatar || '',
       personaIds: [...(project.personaIds || [])],
-      chatParametersId: project.chatParametersId || null
+      chatParametersId: project.chatParametersId || null,
+      mainTopicId: project.mainTopicId || this.topicsOf(project.id)[0]?.id || this.topics()[0]?.id || ''
     };
     void this.loadProjectParams(project);
     this.error.set(null);
@@ -278,6 +289,11 @@ export class ProjectsComponent implements OnInit {
       this.error.set(this.i18n.t('common.nameRequired'));
       return;
     }
+    const mainTopicId = (this.form.mainTopicId || '').trim();
+    if (!mainTopicId) {
+      this.error.set(this.i18n.t('projects.mainTopicRequired'));
+      return;
+    }
 
     this.saving.set(true);
     this.error.set(null);
@@ -290,6 +306,8 @@ export class ProjectsComponent implements OnInit {
         defaultModelId: this.form.defaultModelId,
         avatar: this.form.avatar,
         personaIds: this.form.personaIds,
+        mainTopicId,
+        topicId: mainTopicId,
         chatParametersId: await this.parameters.persistDraft(
           this.form.chatParametersId,
           this.projectParamsOverride(),
@@ -299,13 +317,9 @@ export class ProjectsComponent implements OnInit {
 
       if (this.editingId()) {
         await this.projectService.updateProject(this.editingId()!, payload);
+        await this.projectService.addProjectToTopic(mainTopicId, this.editingId()!);
       } else {
-        const created = await this.projectService.createProject(payload);
-        // if a concrete topic is selected, attach the project to it
-        const topicId = this.selectedTopicId();
-        if (topicId && topicId !== 'all' && topicId !== 'unassigned') {
-          await this.projectService.addProjectToTopic(topicId, created.id);
-        }
+        await this.projectService.createProject(payload);
       }
       this.closeForm();
     } catch (e: any) {
@@ -381,6 +395,61 @@ export class ProjectsComponent implements OnInit {
 
   closeMenu() {
     this.openMenuId.set(null);
+  }
+
+  isSelected(id: string): boolean {
+    return this.selectedIds().has(id);
+  }
+
+  toggleSelected(id: string, event: Event): void {
+    event.stopPropagation();
+    const next = new Set(this.selectedIds());
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    this.selectedIds.set(next);
+  }
+
+  toggleSelectAllVisible(): void {
+    const visible = this.visibleProjects();
+    const selected = this.selectedIds();
+    const allOn = visible.length > 0 && visible.every(p => selected.has(p.id));
+    const next = new Set(selected);
+    if (allOn) {
+      visible.forEach(p => next.delete(p.id));
+    } else {
+      visible.forEach(p => next.add(p.id));
+    }
+    this.selectedIds.set(next);
+  }
+
+  clearSelection(): void {
+    this.selectedIds.set(new Set());
+    this.bulkTopicId.set('');
+  }
+
+  async assignSelectedToTopic(): Promise<void> {
+    const topicId = this.bulkTopicId().trim();
+    const ids = [...this.selectedIds()];
+    if (!topicId) {
+      this.error.set(this.i18n.t('projects.mainTopicRequired'));
+      return;
+    }
+    if (!ids.length) return;
+
+    this.bulkAssigning.set(true);
+    this.error.set(null);
+    try {
+      for (const id of ids) {
+        await this.projectService.addProjectToTopic(topicId, id);
+        await this.projectService.updateProject(id, { mainTopicId: topicId });
+      }
+      this.clearSelection();
+    } catch (e: any) {
+      console.error(e);
+      this.error.set(e?.error?.error || e?.message || this.i18n.t('projects.addFailed'));
+    } finally {
+      this.bulkAssigning.set(false);
+    }
   }
 
   trackById(_: number, p: Project) {
@@ -726,7 +795,8 @@ export class ProjectsComponent implements OnInit {
       systemPrompt: this.form.systemPrompt,
       defaultModelId: this.form.defaultModelId,
       avatar: this.form.avatar,
-      personaIds: JSON.stringify(this.form.personaIds)
+      personaIds: JSON.stringify(this.form.personaIds),
+      mainTopicId: this.form.mainTopicId
     };
   }
 
@@ -739,7 +809,8 @@ export class ProjectsComponent implements OnInit {
       this.form.systemPrompt !== b.systemPrompt ||
       this.form.defaultModelId !== b.defaultModelId ||
       this.form.avatar !== b.avatar ||
-      JSON.stringify(this.form.personaIds) !== b.personaIds
+      JSON.stringify(this.form.personaIds) !== b.personaIds ||
+      this.form.mainTopicId !== b.mainTopicId
     );
   }
 

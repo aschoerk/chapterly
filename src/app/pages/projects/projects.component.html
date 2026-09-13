@@ -59,12 +59,51 @@
       <button class="btn primary" (click)="openCreate()">{{ i18n.t('projects.newEnvironment') }}</button>
     </div>
 
+    <div class="bulk-toolbar">
+      <label class="select-all">
+        <input
+          type="checkbox"
+          [checked]="visibleProjects().length > 0 && visibleProjects().every(p => isSelected(p.id))"
+          (change)="toggleSelectAllVisible()"
+        />
+        {{ i18n.t('projects.selectVisible') }}
+      </label>
+      @if (selectedCount() > 0) {
+        <span>{{ i18n.t('projects.selectedCount', { count: selectedCount() }) }}</span>
+        <select
+          [ngModel]="bulkTopicId()"
+          (ngModelChange)="bulkTopicId.set($event)"
+        >
+          <option value="">{{ i18n.t('projects.assignToTopic') }}</option>
+          @for (t of sortedTopics(); track t.id) {
+            <option [ngValue]="t.id">{{ t.name }}</option>
+          }
+        </select>
+        <button
+          class="btn primary small"
+          type="button"
+          [disabled]="bulkAssigning() || !bulkTopicId()"
+          (click)="assignSelectedToTopic()"
+        >
+          {{ bulkAssigning() ? i18n.t('common.saving') : i18n.t('projects.assignSelected') }}
+        </button>
+        <button class="btn small" type="button" (click)="clearSelection()">{{ i18n.t('common.cancel') }}</button>
+      }
+    </div>
+
     <div class="project-grid">
       @for (p of visibleProjects(); track p.id) {
-        <article class="project-card" (click)="openEdit(p)">
+        <article class="project-card" [class.selected]="isSelected(p.id)" (click)="openEdit(p)">
 
           <!-- top row: avatar + name + menu -->
           <div class="card-top">
+            <label class="select-box" (click)="$event.stopPropagation()">
+              <input
+                type="checkbox"
+                [checked]="isSelected(p.id)"
+                (change)="toggleSelected(p.id, $event)"
+              />
+            </label>
             <app-avatar-view
               class="project-avatar"
               [value]="p.avatar"
@@ -169,6 +208,20 @@
         />
       </label>
 
+      <label>
+        {{ i18n.t('projects.mainTopic') }}
+        @if (topics().length === 0) {
+          <p class="hint">{{ i18n.t('projects.noTopics') }}</p>
+        } @else {
+          <select [(ngModel)]="form.mainTopicId">
+            <option value="">{{ i18n.t('projects.mainTopic') }}</option>
+            @for (topic of sortedTopics(); track topic.id) {
+              <option [ngValue]="topic.id">{{ topic.name }}</option>
+            }
+          </select>
+        }
+      </label>
+
 
       <app-avatar-picker
         [value]="form.avatar"
@@ -244,7 +297,7 @@
                 />
                 <span class="option-text">
                   <strong>{{ persona.name }}</strong>
-                  <span class="option-short">@{{ persona.shortName }}</span>
+                  <span class="option-short">&#64;{{ persona.shortName }}</span>
                 </span>
               </label>
             }

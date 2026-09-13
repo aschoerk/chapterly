@@ -6,7 +6,8 @@ const {
   attachProjectToTopic,
   ensureTopicDefaultProject,
   ensureProjectHasTopic,
-  rehomeOrphanProjects
+  rehomeOrphanProjects,
+  rehomeOrphanPersonas
 } = require('../assignment');
 const {
   resolveContentClientId,
@@ -368,6 +369,7 @@ router.delete('/:id', (req, res) => {
     return res.status(404).json({ error: 'Topic not found' });
   }
   rehomeOrphanProjects();
+  rehomeOrphanPersonas();
   res.status(204).end();
 });
 

@@ -276,7 +276,7 @@ export class ChatNodeComponent {
 
     if ((!newContent && attachments.length === 0) ||
       (newContent === node.content && attachmentsUnchanged)) {
-      this.cancelEdit();
+      await this.cancelEdit();
       return;
     }
 

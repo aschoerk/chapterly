@@ -7,7 +7,8 @@ const {
   ensureProjectHasTopic,
   ensureTopicDefaultProject,
   rehomeChatsFromProject,
-  topicIdsOfProject
+  topicIdsOfProject,
+  assignProjectMainTopic
 } = require('../assignment');
 const {
   enforceGrant,
@@ -138,7 +139,8 @@ router.post('/', (req, res) => {
     avatar = '',
     personaIds = [],
     topicId = null,
-    topicIds = []
+    topicIds = [],
+    mainTopicId = null
   } = req.body;
 
   if (!name || !name.trim()) {
@@ -171,6 +173,7 @@ router.post('/', (req, res) => {
   );
 
   const requestedTopicIds = [
+    ...(mainTopicId ? [mainTopicId] : []),
     ...(topicId ? [topicId] : []),
     ...(Array.isArray(topicIds) ? topicIds : [])
   ].filter(Boolean);
@@ -203,6 +206,8 @@ router.post('/', (req, res) => {
   } else {
     ensureProjectHasTopic(id);
   }
+
+  assignProjectMainTopic(id, mainTopicId || requestedTopicIds[0] || null);
 
   const row = db.prepare('SELECT * FROM projects WHERE id = ?').get(id);
   res.status(201).json(mapProject(row));
@@ -302,7 +307,7 @@ router.get('/:id', (req, res) => {
  */
 router.put('/:id', (req, res) => {
   const { id } = req.params;
-  const { name, greeting, systemPrompt, defaultModelId, avatar, personaIds } = req.body;
+  const { name, greeting, systemPrompt, defaultModelId, avatar, personaIds, mainTopicId } = req.body;
 
   const existing = db.prepare('SELECT * FROM projects WHERE id = ?').get(id);
   if (!existing) return res.status(404).json({ error: 'Project not found' });
@@ -343,6 +348,12 @@ router.put('/:id', (req, res) => {
   } catch (err) {
     console.error('Project update failed:', err.message, { id, body: req.body });
     return res.status(400).json({ error: err.message });
+  }
+
+  if (mainTopicId !== undefined) {
+    assignProjectMainTopic(id, mainTopicId);
+  } else {
+    ensureProjectHasTopic(id);
   }
 
   const row = db.prepare('SELECT * FROM projects WHERE id = ?').get(id);
@@ -412,6 +423,7 @@ function mapProject(row) {
     personaIds: parsePersonaIds(row.persona_ids),
     chatParametersId: row.chat_parameters_id || null,
     isDefault: !!row.is_default,
+    mainTopicId: row.main_topic_id || topicIdsOfProject(row.id)[0] || null,
     topicIds: topicIdsOfProject(row.id),
     createdAt: row.created_at,
     updatedAt: row.updated_at

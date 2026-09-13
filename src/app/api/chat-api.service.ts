@@ -4,6 +4,7 @@ import { firstValueFrom } from 'rxjs';
 import {Chat, ChatNode, CreateNodeRequest, Project, Persona, Topic, NodeAttachment} from '../models/chat';
 import { ProviderConfig, ModelEntry } from '../models/chat-config';
 import { getServerConfig } from '../core/common/server-config';
+import { AuthService } from '../core/auth.service';
 import {
   AskLlmOptions,
   BranchQuestionRequest,
@@ -32,6 +33,7 @@ import { ChatParameters, ChatParametersDraft } from '../models/chat-parameters';
 })
 export class ChatApiService {
   private readonly http = inject(HttpClient);
+  private readonly auth = inject(AuthService);
   private readonly config = getServerConfig();
 
   private api(path: string): string {
@@ -230,15 +232,15 @@ export class ChatApiService {
       messages,
       onChunk,
       signal,
-      temperature = 0.7
+      temperature = 0.7,
+      providerId
     } = options;
 
     const response = await fetch(`${this.config.proxyBase}/chat/completions`, {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${apiKey}`,
+        ...this.auth.proxyAuthHeaders({ apiKey, providerBaseUrl, providerId }),
         'Content-Type': 'application/json',
-        'x-target-base': providerBaseUrl,
         'HTTP-Referer': 'https://chat-client.local',
         'X-Title': 'Chapterly'
       },

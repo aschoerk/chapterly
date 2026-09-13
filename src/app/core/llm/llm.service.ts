@@ -2,6 +2,7 @@ import { ChatMessage, ChatNode } from '../../models/chat';
 import { ModelEntry } from '../../models/chat-config';
 import { getServerConfig } from '../common/server-config';
 import { inject, Injectable } from '@angular/core';
+import { AuthService } from '../auth.service';
 import { ChatService } from '../chat.service';
 import { ChatParametersService } from '../chat-parameters.service';
 import { normalizeChatMessages } from './llm-message';
@@ -16,6 +17,7 @@ export class LlmService {
   private readonly chatService = inject(ChatService);
   private readonly projectService = inject(ProjectService);
   private readonly parameters = inject(ChatParametersService);
+  private readonly auth = inject(AuthService);
 
   async askLlm(
     providerBaseUrl: string,
@@ -25,7 +27,8 @@ export class LlmService {
     stream: boolean | null,
     onChunk?: (chunk: LlmChunk) => void,
     signal?: AbortSignal,
-    extras: Record<string, unknown> = {}
+    extras: Record<string, unknown> = {},
+    providerId?: string | null
   ): Promise<{ content: string; thinking: string }> {
     const config = getServerConfig();
     const payloadMessages = normalizeChatMessages(messages);
@@ -43,9 +46,12 @@ export class LlmService {
     const response =    await fetch(`${config.proxyBase}/chat/completions`, {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${apiKey}`,
+        ...this.auth.proxyAuthHeaders({
+          apiKey,
+          providerBaseUrl,
+          providerId
+        }),
         'Content-Type': 'application/json',
-        'x-target-base': providerBaseUrl,
         'HTTP-Referer': 'https://chat-client.local',
         'X-Title': 'Chapterly'
       },
@@ -313,7 +319,8 @@ export class LlmService {
           onChunk?.(chunk);
         },
         signal,
-        extras
+        extras,
+        model.providerId
       );
 
       accContent = result.content;

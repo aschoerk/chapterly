@@ -90,6 +90,32 @@
   padding: 1rem;
 }
 
+.bulk-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.65rem;
+  margin: 0 0 1rem;
+  padding: 0.55rem 0.75rem;
+  background: color-mix(in srgb, #2563eb 8%, var(--panel, #fff));
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 10px;
+  font-size: 0.85rem;
+}
+
+.bulk-toolbar .select-all {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.bulk-toolbar select {
+  padding: 0.35rem 0.55rem;
+  border: 1px solid var(--border, #d1d5db);
+  border-radius: 8px;
+  background: var(--panel, #fff);
+}
+
 .topic-name {
   flex: 1 1 auto;
   min-width: 0;
@@ -222,6 +248,18 @@
 .project-card:hover {
   transform: translateY(-1px);
   box-shadow: 0 6px 16px rgba(0, 0, 0, 0.07);
+}
+
+.project-card.selected {
+  outline: 2px solid #2563eb;
+  outline-offset: -2px;
+}
+
+.select-box {
+  display: flex;
+  align-items: center;
+  margin-right: 0.35rem;
+  flex: 0 0 auto;
 }
 
 .card-title-row {

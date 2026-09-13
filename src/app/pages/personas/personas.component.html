@@ -10,7 +10,49 @@
       [ngModel]="searchTerm()"
       (ngModelChange)="searchTerm.set($event)"
     />
+    <select
+      class="topic-filter"
+      [ngModel]="topicFilterId()"
+      (ngModelChange)="topicFilterId.set($event)"
+    >
+      <option value="all">{{ i18n.t('personas.allTopics') }}</option>
+      @for (topic of topics(); track topic.id) {
+        <option [ngValue]="topic.id">{{ topic.name }}</option>
+      }
+    </select>
+    <label class="select-all">
+      <input
+        type="checkbox"
+        [checked]="filteredPersonas().length > 0 && filteredPersonas().every(p => isSelected(p.id))"
+        (change)="toggleSelectAllVisible()"
+      />
+      {{ i18n.t('personas.selectVisible') }}
+    </label>
   </div>
+
+  @if (selectedCount() > 0) {
+    <div class="bulk-bar">
+      <span>{{ i18n.t('personas.selectedCount', { count: selectedCount() }) }}</span>
+      <select
+        [ngModel]="bulkTopicId()"
+        (ngModelChange)="bulkTopicId.set($event)"
+      >
+        <option value="">{{ i18n.t('personas.assignToTopic') }}</option>
+        @for (topic of topics(); track topic.id) {
+          <option [ngValue]="topic.id">{{ topic.name }}</option>
+        }
+      </select>
+      <button
+        class="btn primary"
+        type="button"
+        [disabled]="bulkAssigning() || !bulkTopicId()"
+        (click)="assignSelectedToTopic()"
+      >
+        {{ bulkAssigning() ? i18n.t('common.saving') : i18n.t('personas.assignSelected') }}
+      </button>
+      <button class="btn" type="button" (click)="clearSelection()">{{ i18n.t('common.cancel') }}</button>
+    </div>
+  }
 
   @if (error() && !showForm()) {
     <div class="error-banner">{{ error() }}</div>
@@ -28,8 +70,15 @@
 
   <div class="persona-grid">
     @for (persona of filteredPersonas(); track trackById($index, persona)) {
-      <article class="persona-card" (click)="openEdit(persona)">
+      <article class="persona-card" [class.selected]="isSelected(persona.id)" (click)="openEdit(persona)">
         <div class="card-image">
+          <label class="select-box" (click)="$event.stopPropagation()">
+            <input
+              type="checkbox"
+              [checked]="isSelected(persona.id)"
+              (change)="toggleSelected(persona.id, $event)"
+            />
+          </label>
           <app-avatar-view
             class="card-avatar"
             [value]="persona.avatar"
@@ -63,6 +112,9 @@
           <h3 class="name">{{ persona.name }}</h3>
           @if (isCurrent(persona)) {
             <span class="current-badge">{{ i18n.t('personas.current') }}</span>
+          }
+          @if (topicName(persona.mainTopicId)) {
+            <span class="current-badge">{{ topicName(persona.mainTopicId) }}</span>
           }
           <p class="description">
             {{ persona.description || ('@' + persona.shortName) }}
@@ -102,6 +154,20 @@
             [(ngModel)]="form.shortName"
             [placeholder]="i18n.t('personas.shortNamePh')"
           />
+        </label>
+
+        <label>
+          {{ i18n.t('personas.mainTopic') }}
+          @if (topics().length === 0) {
+            <p class="hint">{{ i18n.t('personas.noTopics') }}</p>
+          } @else {
+            <select [(ngModel)]="form.mainTopicId">
+              <option value="">{{ i18n.t('personas.mainTopic') }}</option>
+              @for (topic of topics(); track topic.id) {
+                <option [ngValue]="topic.id">{{ topic.name }}</option>
+              }
+            </select>
+          }
         </label>
 
         <label class="description-field">

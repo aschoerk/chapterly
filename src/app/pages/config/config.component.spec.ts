@@ -88,7 +88,7 @@ describe('ConfigComponent', () => {
     const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
     expect(text).toContain('Darstellung');
     expect(text).toContain('Noch keine Anbieter eingerichtet.');
-    expect(text).toContain('Geschichten, Eingaben und Modellantworten bleiben unverändert.');
+    expect(text).toContain('Stories, Eingaben und Modellantworten bleiben unverändert.');
   });
 
   it('refuses to save a provider without an API key', () => {
@@ -110,8 +110,8 @@ describe('ConfigComponent', () => {
       apiKey: 'sk-test-1234567890',
       enabled: true
     };
-    await component.saveProvider();
-    await fixture.whenStable();
+    component.saveProvider();
+    fixture.whenStable();
     fixture.detectChanges();
 
     expect(api.providers.length).toBe(1);
@@ -135,7 +135,7 @@ describe('ConfigComponent', () => {
     await settings.addPreset('Llama', 'llama3', provider.id);
     fixture.detectChanges();
 
-    await component.deleteProvider(provider.id);
+    component.deleteProvider(provider.id);
     await fixture.whenStable();
     fixture.detectChanges();
 

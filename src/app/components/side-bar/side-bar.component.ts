@@ -164,7 +164,7 @@ export class SideBarComponent implements OnInit {
   }
 
   isExpanded(projectId: string): boolean {
-    return this.expanded()[projectId] !== false;
+    return this.expanded()[projectId];
   }
 
   toggleExpanded(projectId: string, event?: Event) {
@@ -431,6 +431,6 @@ export class SideBarComponent implements OnInit {
   }
 
   async goToPersonas() {
-    this.router.navigate(['/personas']);
+    await this.router.navigate(['/personas']);
   }
 }

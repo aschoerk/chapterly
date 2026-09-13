@@ -33,6 +33,8 @@ export const DE = {
     readTitle: 'Leseansicht',
     environments: 'Umgebungen',
     environmentsTitle: 'Umgebungen & Themen',
+    topics: 'Themen',
+    topicsTitle: 'Themen',
     personas: 'Personas',
     personasTitle: 'Personas',
     import: 'Import',
@@ -51,6 +53,7 @@ export const DE = {
     signIn: 'Anmelden',
     signingIn: 'Anmeldung läuft…',
     skip: 'Ohne Token fortfahren',
+    google: 'Mit Google anmelden',
     invalid: 'Ungültige Anmeldedaten',
     failed: 'Anmeldung fehlgeschlagen'
   },

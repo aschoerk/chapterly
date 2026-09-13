@@ -4,6 +4,7 @@ import { ChatComponent } from './pages/chat/chat.component';
 import { ImportComponent } from './pages/import/import.component';
 import {PersonasComponent} from './pages/personas/personas.component';
 import {ProjectsComponent} from './pages/projects/projects.component';
+import { TopicsComponent } from './pages/topics/topics.component';
 import { ChatReaderComponent } from './pages/chat-reader/chat-reader.component';
 import { LoginComponent } from './pages/login/login.component';
 import { ClaimsComponent } from './pages/claims/claims.component';
@@ -16,6 +17,7 @@ export const routes: Routes = [
   { path: 'chat', component: ChatComponent, canActivate: [authGuard] },
   { path: 'read', component: ChatReaderComponent, canActivate: [authGuard] },
   { path: 'personas', component: PersonasComponent, canActivate: [authGuard] },
+  { path: 'topics', component: TopicsComponent, canActivate: [authGuard] },
   { path: 'import', component: ImportComponent, canActivate: [authGuard] },
   { path: 'projects', component: ProjectsComponent, canActivate: [authGuard] },
   { path: '', redirectTo: 'chat', pathMatch: 'full' }

@@ -3,6 +3,7 @@ import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import { ProviderConfig, ModelEntry, ModelArchitecture } from '../models/chat-config';
 import { getServerConfig } from './common/server-config';
+import { AuthService } from './auth.service';
 import { CHAT_API } from '../api/chat-api.token';
 import { ChatApiPort } from '../api/chat-api.port';
 import {
@@ -71,6 +72,7 @@ function mapProviderModel(raw: any, providerId: string): Omit<ModelEntry, 'id' |
 })
 export class SettingsService {
   private readonly http = inject(HttpClient);
+  private readonly auth = inject(AuthService);
   private readonly serverConfig = getServerConfig();
   private readonly api = inject(CHAT_API);
 
@@ -165,10 +167,11 @@ export class SettingsService {
     try {
       await firstValueFrom(
         this.http.get(`${this.PROXY_BASE}/models`, {
-          headers: {
-            Authorization: `Bearer ${provider.apiKey}`,
-            'x-target-base': provider.baseUrl
-          }
+          headers: this.auth.proxyAuthHeaders({
+            apiKey: provider.apiKey,
+            providerBaseUrl: provider.baseUrl,
+            providerId: provider.id
+          })
         })
       );
       return { ok: true, message: 'Connection successful' };
@@ -192,9 +195,12 @@ export class SettingsService {
           },
           {
             headers: {
-              Authorization: `Bearer ${provider.apiKey}`,
+              ...this.auth.proxyAuthHeaders({
+                apiKey: provider.apiKey,
+                providerBaseUrl: provider.baseUrl,
+                providerId: provider.id
+              }),
               'Content-Type': 'application/json',
-              'x-target-base': provider.baseUrl,
               'HTTP-Referer': 'https://chat-client.local',
               'X-Title': 'Chapterly'
             }
@@ -220,10 +226,11 @@ export class SettingsService {
 
       const response: any = await firstValueFrom(
         this.http.get(`${this.PROXY_BASE}/models`, {
-          headers: {
-            Authorization: `Bearer ${provider.apiKey}`,
-            'x-target-base': provider.baseUrl
-          }
+          headers: this.auth.proxyAuthHeaders({
+            apiKey: provider.apiKey,
+            providerBaseUrl: provider.baseUrl,
+            providerId: provider.id
+          })
         })
       );
 

@@ -19,6 +19,11 @@
     <button class="btn primary" type="submit" [disabled]="busy() || !username || !password">
       {{ busy() ? i18n.t('login.signingIn') : i18n.t('login.signIn') }}
     </button>
+    @if (googleEnabled()) {
+      <button class="btn google" type="button" (click)="google()" [disabled]="busy()">
+        {{ i18n.t('login.google') }}
+      </button>
+    }
     <button class="btn" type="button" (click)="skip()">{{ i18n.t('login.skip') }}</button>
   </form>
 </div>
