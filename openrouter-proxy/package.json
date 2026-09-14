@@ -1,0 +1,13 @@
+{
+  "name": "openrouter-logger-proxy",
+  "version": "1.0.0",
+  "description": "Local logging proxy that stands in for openrouter.ai so Chapterly chat-server traffic can be inspected.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "license": "ISC",
+  "dependencies": {
+    "http-proxy": "^1.18.1"
+  }
+}

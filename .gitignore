@@ -46,3 +46,4 @@ Thumbs.db
 /chat-server/data/*
 /.env
 /src/assets/proxy-config.json
+/openrouter-proxy/logs/
