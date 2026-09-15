@@ -8,12 +8,7 @@ export const BUNDLE_FORMAT = 'aschoerk.chat.bundle';
 export const BUNDLE_VERSION = 2;
 
 export type BundleScope =
-  | 'personas'
-  | 'topic-project'
-  | 'project-chats'
-  | 'chat'
-  | 'all-chats'
-  | 'chats-only';
+  'personas' | 'topic-project' | 'project-chats' | 'chat' | 'all-chats' | 'chats-only';
 
 export type ImportPolicy = 'reuse' | 'create';
 
@@ -39,6 +34,7 @@ export interface BundleExportOptions {
   scope: BundleScope;
   includeChats: boolean;
   projectId: string | null;
+  topicId: string | null;
   chatId: string | null;
   onProgress?: (message: string) => void;
 }
@@ -82,7 +78,7 @@ export class BundleService {
       this.chatService.loadChats(),
       this.projectService.loadProjects(),
       this.projectService.loadTopics(),
-      this.personaService.loadPersonas()
+      this.personaService.loadPersonas(),
     ]);
   }
 
@@ -101,44 +97,45 @@ export class BundleService {
     if (scope === 'personas') {
       personas = allPersonas;
     } else if (scope === 'topic-project') {
-      if (options.projectId) {
-        projects = allProjects.filter(p => p.id === options.projectId);
+      if (options.topicId) {
+        topics = allTopics.filter((t) => t.id === options.topicId);
+      } else if (options.projectId) {
+        const seed = allProjects.filter((p) => p.id === options.projectId);
+        topics = this.topicsOwningProjects(allTopics, seed);
       } else {
-        projects = allProjects;
+        topics = allTopics;
       }
-      topics = this.topicsForProjects(allTopics, projects);
-      personas = this.personasForProjects(allPersonas, projects);
+      projects = this.projectsForTopics(allProjects, topics);
+      personas = this.personasForTopics(allPersonas, topics, projects);
       if (options.includeChats) {
         chats = this.chatsForProjects(allChats, projects);
       }
     } else if (scope === 'project-chats') {
       projects = options.projectId
-        ? allProjects.filter(p => p.id === options.projectId)
+        ? allProjects.filter((p) => p.id === options.projectId)
         : allProjects;
-      topics = this.topicsForProjects(allTopics, projects);
-      personas = this.personasForProjects(allPersonas, projects);
+      topics = this.topicsOwningProjects(allTopics, projects);
+      personas = this.personasForTopics(allPersonas, topics, projects);
       chats = this.chatsForProjects(allChats, projects);
     } else if (scope === 'chat') {
-      const current = options.chatId
-        ? allChats.find(c => c.id === options.chatId)
-        : undefined;
+      const current = options.chatId ? allChats.find((c) => c.id === options.chatId) : undefined;
       chats = current ? [current] : [];
-      const usedProjectIds = new Set(chats.map(c => c.projectId).filter(Boolean) as string[]);
-      projects = allProjects.filter(p => usedProjectIds.has(p.id));
-      topics = this.topicsForProjects(allTopics, projects);
-      personas = this.personasForProjects(allPersonas, projects);
+      const usedProjectIds = new Set(chats.map((c) => c.projectId).filter(Boolean) as string[]);
+      projects = allProjects.filter((p) => usedProjectIds.has(p.id));
+      topics = this.topicsOwningProjects(allTopics, projects);
+      personas = this.personasForTopics(allPersonas, topics, projects);
     } else if (scope === 'all-chats') {
       chats = allChats;
-      const usedProjectIds = new Set(chats.map(c => c.projectId).filter(Boolean) as string[]);
-      projects = allProjects.filter(p => usedProjectIds.has(p.id));
-      topics = this.topicsForProjects(allTopics, projects);
-      personas = this.personasForProjects(allPersonas, projects);
+      const usedProjectIds = new Set(chats.map((c) => c.projectId).filter(Boolean) as string[]);
+      projects = allProjects.filter((p) => usedProjectIds.has(p.id));
+      topics = this.topicsOwningProjects(allTopics, projects);
+      personas = this.personasForTopics(allPersonas, topics, projects);
     } else if (scope === 'chats-only') {
       if (options.chatId) {
-        const current = allChats.find(c => c.id === options.chatId);
+        const current = allChats.find((c) => c.id === options.chatId);
         chats = current ? [current] : [];
       } else if (options.projectId) {
-        chats = allChats.filter(c => c.projectId === options.projectId);
+        chats = allChats.filter((c) => c.projectId === options.projectId);
       } else {
         chats = allChats;
       }
@@ -152,15 +149,16 @@ export class BundleService {
     const packed: PackedChat[] = [];
     for (const chat of planned.chats) {
       options.onProgress?.(`Exporting “${chat.title}”…`);
-      const project = chat.projectId
-        ? this.projectService.getProject(chat.projectId)
-        : undefined;
-      const topic = this.projectService.topicForProject(chat.projectId, this.projectService.topics());
+      const project = chat.projectId ? this.projectService.getProject(chat.projectId) : undefined;
+      const topic = this.projectService.topicForProject(
+        chat.projectId,
+        this.projectService.topics(),
+      );
       packed.push({
         ...chat,
         nodes: await this.chatService.fetchNodes(chat.id),
         projectName: project?.name ?? null,
-        topicName: topic?.name ?? null
+        topicName: topic?.name ?? null,
       });
     }
 
@@ -173,7 +171,7 @@ export class BundleService {
       projects: planned.projects,
       topics: planned.topics,
       personas: planned.personas,
-      chats: packed
+      chats: packed,
     };
   }
 
@@ -199,10 +197,11 @@ export class BundleService {
       createdChats: 0,
       createdNodes: 0,
       unresolvedProjects: 0,
-      warnings: []
+      warnings: [],
     };
 
-    const chatsOnly = bundle.scope === 'chats-only' ||
+    const chatsOnly =
+      bundle.scope === 'chats-only' ||
       ((bundle.projects?.length ?? 0) === 0 &&
         (bundle.topics?.length ?? 0) === 0 &&
         (bundle.personas?.length ?? 0) === 0 &&
@@ -210,9 +209,24 @@ export class BundleService {
 
     const reuse = policy === 'reuse' || chatsOnly;
 
-    const personaMap = await this.importPersonas(bundle.personas || [], reuse, result);
-    const projectMap = await this.importProjects(bundle.projects || [], personaMap, reuse, chatsOnly, result);
-    await this.importTopics(bundle.topics || [], projectMap, reuse, chatsOnly, result);
+    // Topics first so persona/environment mainTopicId can be remapped.
+    const topicMap = await this.importTopics(
+      bundle.topics || [],
+      new Map(),
+      reuse,
+      chatsOnly,
+      result,
+    );
+    const personaMap = await this.importPersonas(bundle.personas || [], topicMap, reuse, result);
+    const projectMap = await this.importProjects(
+      bundle.projects || [],
+      personaMap,
+      topicMap,
+      reuse,
+      chatsOnly,
+      result,
+    );
+    await this.linkTopicsToProjects(bundle.topics || [], topicMap, projectMap, chatsOnly);
 
     if (chatsOnly) {
       this.fillExistingProjectMap(projectMap, bundle);
@@ -223,7 +237,7 @@ export class BundleService {
       if (chat.projectId && !mappedProjectId) {
         result.unresolvedProjects++;
         result.warnings.push(
-          `Chat “${chat.title}” refers to project “${chat.projectName || chat.projectId}” which was not found; imported without project.`
+          `Chat “${chat.title}” refers to project “${chat.projectName || chat.projectId}” which was not found; imported without project.`,
         );
       }
       const created = await this.importChat(chat, mappedProjectId);
@@ -235,42 +249,86 @@ export class BundleService {
   }
 
   private topicsForProjects(allTopics: Topic[], projects: Project[]): Topic[] {
-    const ids = new Set(projects.map(p => p.id));
+    const ids = new Set(projects.map((p) => p.id));
     if (!ids.size) return [];
-    return allTopics.filter(t => (t.projectIds || []).some(id => ids.has(id)));
+    return allTopics.filter((t) => (t.projectIds || []).some((id) => ids.has(id)));
+  }
+
+  /** Topics that list the project or are its main topic. */
+  private topicsOwningProjects(allTopics: Topic[], projects: Project[]): Topic[] {
+    const projectIds = new Set(projects.map((p) => p.id));
+    const mainIds = new Set(projects.map((p) => p.mainTopicId).filter(Boolean) as string[]);
+    const extraIds = new Set(projects.flatMap((p) => p.topicIds || []));
+    if (!projectIds.size && !mainIds.size && !extraIds.size) return [];
+    return allTopics.filter(
+      (t) =>
+        mainIds.has(t.id) ||
+        extraIds.has(t.id) ||
+        (t.projectIds || []).some((id) => projectIds.has(id)),
+    );
+  }
+
+  private projectsForTopics(allProjects: Project[], topics: Topic[]): Project[] {
+    const topicIds = new Set(topics.map((t) => t.id));
+    const listed = new Set(topics.flatMap((t) => t.projectIds || []));
+    if (!topicIds.size && !listed.size) return [];
+    return allProjects.filter(
+      (p) =>
+        listed.has(p.id) ||
+        (!!p.mainTopicId && topicIds.has(p.mainTopicId)) ||
+        (p.topicIds || []).some((id) => topicIds.has(id)),
+    );
   }
 
   private personasForProjects(allPersonas: Persona[], projects: Project[]): Persona[] {
-    const ids = new Set(projects.flatMap(p => p.personaIds || []));
+    const ids = new Set(projects.flatMap((p) => p.personaIds || []));
     if (!ids.size) return [];
-    return allPersonas.filter(p => ids.has(p.id));
+    return allPersonas.filter((p) => ids.has(p.id));
+  }
+
+  private personasForTopics(
+    allPersonas: Persona[],
+    topics: Topic[],
+    projects: Project[],
+  ): Persona[] {
+    const topicIds = new Set(topics.map((t) => t.id));
+    const fromProjects = new Set(projects.flatMap((p) => p.personaIds || []));
+    return allPersonas.filter(
+      (p) => fromProjects.has(p.id) || (!!p.mainTopicId && topicIds.has(p.mainTopicId)),
+    );
   }
 
   private chatsForProjects(allChats: Chat[], projects: Project[]): Chat[] {
-    const ids = new Set(projects.map(p => p.id));
+    const ids = new Set(projects.map((p) => p.id));
     if (!ids.size) return [];
-    return allChats.filter(c => c.projectId && ids.has(c.projectId));
+    return allChats.filter((c) => c.projectId && ids.has(c.projectId));
   }
 
   private async importPersonas(
     personas: Persona[],
+    topicMap: Map<string, string>,
     reuse: boolean,
-    result: BundleImportResult
+    result: BundleImportResult,
   ): Promise<Map<string, string>> {
     const map = new Map<string, string>();
     const existing = this.personaService.personas();
     for (const p of personas) {
+      const mappedMainTopicId = p.mainTopicId ? topicMap.get(p.mainTopicId) || null : null;
       const matched = reuse ? this.matchByIdOrName(existing, p.id, p.name) : undefined;
       if (matched) {
         map.set(p.id, matched.id);
         result.reusedPersonas++;
+        if (mappedMainTopicId && matched.mainTopicId !== mappedMainTopicId) {
+          await this.personaService.updatePersona(matched.id, { mainTopicId: mappedMainTopicId });
+        }
         continue;
       }
       const created = await this.personaService.createPersona({
         name: p.name,
         shortName: p.shortName,
         description: p.description,
-        avatar: p.avatar
+        avatar: p.avatar,
+        mainTopicId: mappedMainTopicId,
       });
       map.set(p.id, created.id);
       result.createdPersonas++;
@@ -281,17 +339,25 @@ export class BundleService {
   private async importProjects(
     projects: Project[],
     personaMap: Map<string, string>,
+    topicMap: Map<string, string>,
     reuse: boolean,
     chatsOnly: boolean,
-    result: BundleImportResult
+    result: BundleImportResult,
   ): Promise<Map<string, string>> {
     const map = new Map<string, string>();
     const existing = this.projectService.projects();
     for (const p of projects) {
+      const mappedMainTopicId = p.mainTopicId ? topicMap.get(p.mainTopicId) || null : null;
+      const mappedTopicIds = (p.topicIds || [])
+        .map((id) => topicMap.get(id))
+        .filter((id): id is string => !!id);
       const matched = reuse ? this.matchByIdOrName(existing, p.id, p.name) : undefined;
       if (matched) {
         map.set(p.id, matched.id);
         result.reusedProjects++;
+        if (!chatsOnly && mappedMainTopicId && matched.mainTopicId !== mappedMainTopicId) {
+          await this.projectService.updateProject(matched.id, { mainTopicId: mappedMainTopicId });
+        }
         continue;
       }
       if (chatsOnly) {
@@ -304,7 +370,9 @@ export class BundleService {
         defaultModelId: p.defaultModelId,
         chatParametersId: p.chatParametersId ?? null,
         avatar: p.avatar,
-        personaIds: (p.personaIds || []).map(id => personaMap.get(id) || id)
+        personaIds: (p.personaIds || []).map((id) => personaMap.get(id) || id),
+        mainTopicId: mappedMainTopicId,
+        topicIds: mappedTopicIds,
       });
       map.set(p.id, created.id);
       result.createdProjects++;
@@ -317,20 +385,20 @@ export class BundleService {
     projectMap: Map<string, string>,
     reuse: boolean,
     chatsOnly: boolean,
-    result: BundleImportResult
+    result: BundleImportResult,
   ): Promise<Map<string, string>> {
     const map = new Map<string, string>();
     const existing = this.projectService.topics();
     for (const t of topics) {
       const mappedProjectIds = (t.projectIds || [])
-        .map(id => projectMap.get(id))
+        .map((id) => projectMap.get(id))
         .filter((id): id is string => !!id);
 
       const matched = reuse ? this.matchByIdOrName(existing, t.id, t.name) : undefined;
       if (matched) {
         map.set(t.id, matched.id);
         result.reusedTopics++;
-        const missing = mappedProjectIds.filter(id => !(matched.projectIds || []).includes(id));
+        const missing = mappedProjectIds.filter((id) => !(matched.projectIds || []).includes(id));
         for (const projectId of missing) {
           await this.projectService.addProjectToTopic(matched.id, projectId);
         }
@@ -346,12 +414,35 @@ export class BundleService {
         chatParametersId: t.chatParametersId ?? null,
         defaultSystemPrompt: t.defaultSystemPrompt,
         icon: t.icon,
-        projectIds: mappedProjectIds
+        projectIds: mappedProjectIds,
       });
       map.set(t.id, created.id);
       result.createdTopics++;
     }
     return map;
+  }
+
+  private async linkTopicsToProjects(
+    topics: Topic[],
+    topicMap: Map<string, string>,
+    projectMap: Map<string, string>,
+    chatsOnly: boolean,
+  ): Promise<void> {
+    if (chatsOnly) return;
+    for (const t of topics) {
+      const newTopicId = topicMap.get(t.id);
+      if (!newTopicId) continue;
+      const mappedProjectIds = (t.projectIds || [])
+        .map((id) => projectMap.get(id))
+        .filter((id): id is string => !!id);
+      const current = this.projectService.topics().find((x) => x.id === newTopicId);
+      const already = new Set(current?.projectIds || []);
+      for (const projectId of mappedProjectIds) {
+        if (already.has(projectId)) continue;
+        await this.projectService.addProjectToTopic(newTopicId, projectId);
+        already.add(projectId);
+      }
+    }
   }
 
   private fillExistingProjectMap(projectMap: Map<string, string>, bundle: ChatBundle): void {
@@ -374,7 +465,11 @@ export class BundleService {
       return projectMap.get(chat.projectId)!;
     }
     if (chat.projectName) {
-      const existing = this.matchByIdOrName(this.projectService.projects(), chat.projectId, chat.projectName);
+      const existing = this.matchByIdOrName(
+        this.projectService.projects(),
+        chat.projectId,
+        chat.projectName,
+      );
       if (existing) return existing.id;
     }
     if (chat.projectId) {
@@ -415,7 +510,7 @@ export class BundleService {
         modelId: n.modelId || undefined,
         providerId: n.providerId || undefined,
         attachments: n.attachments,
-        chatParametersId: n.chatParametersId ?? null
+        chatParametersId: n.chatParametersId ?? null,
       });
       idMap.set(n.id, createdNode.id);
       created++;
@@ -426,14 +521,14 @@ export class BundleService {
   private matchByIdOrName<T extends { id: string; name: string }>(
     existing: T[],
     id: string | null | undefined,
-    name: string | null | undefined
+    name: string | null | undefined,
   ): T | undefined {
     if (id) {
-      const byId = existing.find(item => item.id === id);
+      const byId = existing.find((item) => item.id === id);
       if (byId) return byId;
     }
     const key = normName(name);
     if (!key) return undefined;
-    return existing.find(item => normName(item.name) === key);
+    return existing.find((item) => normName(item.name) === key);
   }
 }

@@ -1,0 +1,17 @@
+Docker local shell = same two modes as Electron.
+
+  CHAPTERLY_STORAGE=sqlite-all     # default: everything in mounted SQLite
+  CHAPTERLY_STORAGE=chats-idb      # Electron-with-chats-in-IDB
+  CHAPTERLY_STORAGE=chats-params-idb
+  CHAPTERLY_REQUIRE_AUTH=1         # optional; default is skip login like Electron
+
+package.json:
+
+  "docker:dev": "mkdir -p chat-server/data && docker build -f Dockerfile.dev -t chapterly-dev . && docker run --env-file .env --rm --name chapterly-dev -p 8080:8080 -p 9229:9229 -v ./chat-server/data:/app/data -e CHAPTERLY_DOCKER=1 -e CHAPTERLY_RUNTIME=docker-dev -e CHAPTERLY_STORAGE=sqlite-all chapterly-dev"
+
+  "docker:dev:idb": "mkdir -p chat-server/data && docker build -f Dockerfile.dev -t chapterly-dev . && docker run --env-file .env --rm --name chapterly-dev -p 8080:8080 -p 9229:9229 -v ./chat-server/data:/app/data -e CHAPTERLY_DOCKER=1 -e CHAPTERLY_RUNTIME=docker-dev -e CHAPTERLY_STORAGE=chats-idb chapterly-dev"
+
+Electron chats in IDB:
+
+  CHAPTERLY_STORAGE=chats-idb npm run electron
+  (electron/main.js already forwards CHAPTERLY_STORAGE)

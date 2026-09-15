@@ -11,10 +11,11 @@
     "electron": "electron .",
     "test": "ng test",
     "test:server": "npm test --prefix chat-server",
-    "docker:dev": "docker compose up",
     "docker:dev:build": "docker compose up --build",
     "docker:prod": "docker build -t chapterly . && docker run --env-file .env --rm -p 8080:8080 chapterly",
-    "docker:dev": "docker build -f Dockerfile.dev -t chapterly-dev . && docker run --env-file .env --rm --name chapterly-dev -p 8080:8080 -p 9229:9229 chapterly-dev"
+    "docker:dev": "docker build -f Dockerfile.dev -t chapterly-dev . && docker run -v ./chat-server/data:/app/data -e CHAPTERLY_DOCKER=1 -e CHAPTERLY_RUNTIME=docker-dev -e CHAPTERLY_STORAGE=chats-idb --env-file .env --rm --name chapterly-dev -p 8080:8080 -p 9229:9229 chapterly-dev",
+    "docker:drun": "docker run -v ./chat-server/data:/app/data -v /dist/chat/browser:/app/public:ro -e CHAPTERLY_DOCKER=1 -e CHAPTERLY_RUNTIME=docker-dev -e CHAPTERLY_STORAGE=chats-idb --env-file .env --rm --name chapterly-dev -p 8080:8080 -p 9229:9229 chapterly-dev",
+    "docker:local": "docker run -v ./chat-server/data:/app/data -v /dist/chat/browser:/app/public:ro -e CHAPTERLY_DOCKER=1 -e CHAPTERLY_RUNTIME=docker-dev -e CHAPTERLY_STORAGE=sqlite-all --env-file .env --rm --name chapterly-dev -p 8080:8080 -p 9229:9229 chapterly-dev"
   },
   "private": true,
   "packageManager": "npm@10.9.8",

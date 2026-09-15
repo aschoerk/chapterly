@@ -548,6 +548,8 @@ export class ChatService {
   }
 
 
+
+
 // on startup (e.g. inside loadChats / init)
   restoreCurrentChat(): void {
     const saved = localStorage.getItem(LS_CHAT);

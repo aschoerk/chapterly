@@ -1,6 +1,7 @@
 import { Component, computed, inject } from '@angular/core';
 import { Router, RouterLink, RouterLinkActive } from '@angular/router';
 import { AuthService } from '../../core/auth.service';
+import { EnvironmentService } from '../../core/environment.service';
 import { I18nService } from '../../core/i18n/i18n.service';
 
 interface AppNavLink {
@@ -19,6 +20,7 @@ interface AppNavLink {
 })
 export class AppNavComponent {
   readonly auth = inject(AuthService);
+  readonly environment = inject(EnvironmentService);
   readonly i18n = inject(I18nService);
   private readonly router = inject(Router);
 

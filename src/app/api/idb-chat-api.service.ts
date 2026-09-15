@@ -17,6 +17,7 @@ import {
   UpdateModelRequest,
   ToggleModelResponse
 } from './chat-api.types';
+import {newId} from '../core/common/helpers';
 import { ChatApiPort } from './chat-api.port';
 import { ProviderConfig, ModelEntry } from '../models/chat-config';
 import { ChatParameters, ChatParametersDraft } from '../models/chat-parameters';
@@ -109,7 +110,7 @@ export class IdbChatApiService implements ChatApiPort {
   }
 
   private id(): string {
-    return crypto.randomUUID();
+    return newId();
   }
 
   async getProjects(): Promise<Project[]> {

@@ -15,6 +15,7 @@ const usersRoutes = require('./routes/users');
 const workspacesRoutes = require('./routes/workspaces');
 const walletsRoutes = require('./routes/wallets');
 const oauthRoutes = require('./routes/oauth');
+const environmentRoutes = require('./routes/environment');
 const { parseBearer } = require('./oauth');
 const { seedAdmin } = require('./bootstrap');
 // ...
@@ -52,6 +53,7 @@ function createApp() {
 
   // API routes
   app.use('/api', apiRoutes);
+  app.use('/api/environment', environmentRoutes);
   app.use('/api/chats', chatsRoutes);
   app.use('/api/projects', projectsRoutes);
   app.use('/api/personas', personasRoutes);

@@ -3,7 +3,8 @@ export const DE_PAGES = {
     new: '+ Neue Persona',
     search: 'Personas suchen…',
     emptySearch: 'Keine Personas passen zur Suche.',
-    empty: 'Noch keine Personas. Legen Sie eine an, um sie als Figur / Systemstimme in Stories zu nutzen.',
+    empty:
+      'Noch keine Personas. Legen Sie eine an, um sie als Figur / Systemstimme in Stories zu nutzen.',
     setCurrent: 'Als aktuell setzen',
     current: 'Aktuell',
     editTitle: 'Persona bearbeiten',
@@ -28,7 +29,7 @@ export const DE_PAGES = {
     selectVisible: 'Sichtbare auswählen',
     selectedCount: '{{count}} ausgewählt',
     assignToTopic: 'Thema zuweisen…',
-    assignSelected: 'Auswahl zuweisen'
+    assignSelected: 'Auswahl zuweisen',
   },
   topics: {
     new: '+ Neues Thema',
@@ -47,7 +48,7 @@ export const DE_PAGES = {
     noDescription: 'Noch keine Beschreibung',
     linkedCounts: '{{projects}} Umgebung(en) · {{personas}} Persona(s)',
     loadFailed: 'Themen konnten nicht vom Server geladen werden.',
-    unsavedMsg: 'Dieses Thema hat ungespeicherte Änderungen.\\nVerwerfen?'
+    unsavedMsg: 'Dieses Thema hat ungespeicherte Änderungen.\\nVerwerfen?',
   },
   projects: {
     topics: 'Themen',
@@ -66,7 +67,8 @@ export const DE_PAGES = {
     emptyAll: 'Noch keine Umgebungen.',
     createFirst: 'Erste Umgebung anlegen',
     emptyTopic: 'Dieses Thema hat noch keine Umgebungen.',
-    emptyTopicHint: 'Nutzen Sie „Umgebung zu Thema hinzufügen…“ auf einer Karte oder legen Sie eine neue Umgebung an.',
+    emptyTopicHint:
+      'Nutzen Sie „Umgebung zu Thema hinzufügen…“ auf einer Karte oder legen Sie eine neue Umgebung an.',
     editEnvironment: 'Umgebung bearbeiten',
     newEnvironmentTitle: 'Neue Umgebung',
     name: 'Name *',
@@ -102,21 +104,25 @@ export const DE_PAGES = {
     deleteEnvFailed: 'Umgebung konnte nicht gelöscht werden',
     deleteTopicAsk: 'Thema löschen',
     deleteTopicEmpty: 'Thema „{{name}}“ löschen?',
-    deleteTopicWithEnv: 'Thema „{{name}}“ löschen?\\nEs enthält derzeit {{count}} Umgebung(en).\\nDie Umgebungen selbst werden NICHT gelöscht.',
+    deleteTopicWithEnv:
+      'Thema „{{name}}“ löschen?\\nEs enthält derzeit {{count}} Umgebung(en).\\nDie Umgebungen selbst werden NICHT gelöscht.',
     deleteTopicFailed: 'Thema konnte nicht gelöscht werden: {{error}}',
     addFailed: 'Umgebung konnte dem Thema nicht hinzugefügt werden',
-    removeFailed: 'Umgebung konnte nicht aus dem Thema entfernt werden'
+    removeFailed: 'Umgebung konnte nicht aus dem Thema entfernt werden',
   },
   import: {
     export: 'Export',
-    exportHint: 'Schreibt ein JSON-Bündel, das diese Seite wieder importieren kann. Wählbar: Personas, Themen+Projekte (mit oder ohne Geschichten), Projektgeschichten, eine Geschichte, alle Geschichten oder nur Geschichten (Themen/Projekte müssen schon existieren).',
+    exportHint:
+      'Schreibt ein JSON-Bündel, das diese Seite wieder importieren kann. Ein Themen-Export enthält das Thema, die zugeordneten Umgebungen und Personas (Haupt-Thema bleibt erhalten), optional mit Geschichten. Außerdem: Personas, Projektgeschichten, eine Geschichte, alle Geschichten oder nur Geschichten (Themen/Projekte müssen schon existieren).',
     scope: 'Bereich',
     scopePersonas: 'Personas',
-    scopeTopicProject: 'Themen + Projekte',
+    scopeTopicProject: 'Thema (Umgebungen + Personas)',
     scopeProjectChats: 'Geschichten eines Projekts',
     scopeChat: 'Einzelne Geschichte',
     scopeAll: 'Alle Geschichten',
     scopeChatsOnly: 'Nur Geschichten (bestehende Themen/Projekte)',
+    exportTopic: 'Thema',
+    allTopics: 'Alle Themen',
     exportProject: 'Projekt',
     exportChat: 'Geschichte',
     allProjects: 'Alle Projekte',
@@ -126,19 +132,24 @@ export const DE_PAGES = {
     policyReuse: 'Vorhandene Personas/Projekte/Themen wiederverwenden (ID, dann Name)',
     policyCreate: 'Immer neue Kopien anlegen',
     kindBundle: 'Bündel',
-    bundleDetail: 'Personas +{{personas}} / wiederverwendet {{personasReused}}; Projekte +{{projects}} / wiederverwendet {{projectsReused}}; Themen +{{topics}} / wiederverwendet {{topicsReused}}; Geschichten +{{chats}}; Knoten +{{nodes}}',
+    bundleDetail:
+      'Personas +{{personas}} / wiederverwendet {{personasReused}}; Projekte +{{projects}} / wiederverwendet {{projectsReused}}; Themen +{{topics}} / wiederverwendet {{topicsReused}}; Geschichten +{{chats}}; Knoten +{{nodes}}',
     exportEmpty: 'Für diesen Bereich gibt es nichts zu exportieren.',
-    exported: '{{personas}} Persona(s), {{projects}} Projekt(e), {{topics}} Thema/Themen, {{chats}} Geschichte(n) exportiert.',
+    exported:
+      '{{personas}} Persona(s), {{projects}} Projekt(e), {{topics}} Thema/Themen, {{chats}} Geschichte(n) exportiert.',
     download: 'Bündel herunterladen',
     exporting: 'Wird exportiert…',
     dropTitle: 'JSON-Datei(en) hier ablegen',
-    dropHint: 'Chapterly-Bündel → sofort wiederherstellen  |  Copilots → Projekte sofort  |  Sitzungen → Prüfungsliste  |  Grok-Export → eine Sitzung je Gespräch',
+    dropHint:
+      'Chapterly-Bündel → sofort wiederherstellen  |  Copilots → Projekte sofort  |  Sitzungen → Prüfungsliste  |  Grok-Export → eine Sitzung je Gespräch',
     chooseFiles: 'Datei(en) wählen',
     slice: 'Nur ein Byte-Fenster lesen (für mehrere-hundert-MB-Grok-Exporte)',
     offset: 'Offset (Bytes vom Anfang)',
     length: 'Länge (Bytes, leer = Rest der Datei)',
-    sliceHint: 'Offset ist ein Suchstart: der Leser läuft vorwärts zum nächsten „conversation“-Wrapper. Länge ist ein weicher Stopp: ein Gespräch, das im Fenster begann, wird immer bis zur schließenden Klammer gelesen. Liegt der Offset in einem Objekt, wird dieses übersprungen.',
-    snapped: 'Angepasstes Fenster: Bytes {{start}} → {{end}} (Ende ist der Schluss des zuletzt geöffneten Gesprächs).',
+    sliceHint:
+      'Offset ist ein Suchstart: der Leser läuft vorwärts zum nächsten „conversation“-Wrapper. Länge ist ein weicher Stopp: ein Gespräch, das im Fenster begann, wird immer bis zur schließenden Klammer gelesen. Liegt der Offset in einem Objekt, wird dieses übersprungen.',
+    snapped:
+      'Angepasstes Fenster: Bytes {{start}} → {{end}} (Ende ist der Schluss des zuletzt geöffneten Gesprächs).',
     useEnd: 'Ende als nächsten Offset verwenden',
     sessionsTitle: 'Zu importierende Sitzungen',
     turns: '{{count}} Wendungen',
@@ -159,13 +170,14 @@ export const DE_PAGES = {
     reading: '{{name}} wird gelesen ({{size}})…',
     readingConv: 'Gespräch bei {{start}}–{{end}} wird gelesen ({{size}})…',
     extending: 'Gesprächsfenster wird auf Byte {{end}} erweitert (Vorausschau)…',
-    aligning: '{{name}} wird ab Byte {{start}} ausgerichtet…'
+    aligning: '{{name}} wird ab Byte {{start}} ausgerichtet…',
   },
   claims: {
     title: 'Berechtigungen',
     hint: 'Freigaben begrenzen, was ein späteres Zugriffstoken beanspruchen darf. Ein Token: viele Arbeitsbereiche, ein Wallet. Nach einer Änderung muss sich der Benutzer erneut anmelden.',
     session: 'Diese Sitzung',
-    noToken: 'Kein Zugriffstoken. Melden Sie sich zuerst an oder fahren Sie ohne Token fort (Listen können ungefiltert sein).',
+    noToken:
+      'Kein Zugriffstoken. Melden Sie sich zuerst an oder fahren Sie ohne Token fort (Listen können ungefiltert sein).',
     user: 'Benutzer',
     userIdPh: 'oder Benutzer-ID einfügen',
     useId: 'ID verwenden',
@@ -175,15 +187,18 @@ export const DE_PAGES = {
     read: 'lesen',
     write: 'schreiben',
     wallets: 'Wallets',
-    walletsHint: 'Ein Token darf nur ein Wallet binden. Mehrere Freigaben sind erlaubt; die Anmeldung wählt manage, falls vorhanden.',
+    walletsHint:
+      'Ein Token darf nur ein Wallet binden. Mehrere Freigaben sind erlaubt; die Anmeldung wählt manage, falls vorhanden.',
     noWallets: 'Keine Wallets sichtbar.',
     run: 'ausführen',
     manage: 'verwalten',
     loadFailed: 'Benutzer, Arbeitsbereiche oder Wallets konnten nicht geladen werden',
-    wsSaved: 'Arbeitsbereich-Freigabe gespeichert. Der Benutzer muss sich erneut anmelden, um das Token zu erneuern.',
+    wsSaved:
+      'Arbeitsbereich-Freigabe gespeichert. Der Benutzer muss sich erneut anmelden, um das Token zu erneuern.',
     wsFailed: 'Arbeitsbereich-Freigabe konnte nicht aktualisiert werden',
-    wlSaved: 'Wallet-Freigabe gespeichert. Der Benutzer muss sich erneut anmelden, um das Token zu erneuern.',
-    wlFailed: 'Wallet-Freigabe konnte nicht aktualisiert werden'
+    wlSaved:
+      'Wallet-Freigabe gespeichert. Der Benutzer muss sich erneut anmelden, um das Token zu erneuern.',
+    wlFailed: 'Wallet-Freigabe konnte nicht aktualisiert werden',
   },
   avatar: {
     choose: 'Bild wählen…',
@@ -193,7 +208,8 @@ export const DE_PAGES = {
     emojiPh: 'Emoji einfügen oder tippen — Win+. / Strg-Cmd-Leertaste',
     prevGroup: 'Vorherige Gruppe',
     nextGroup: 'Nächste Gruppe',
-    hintDefault: 'Foto oder Emoji verwenden. Bilder werden als Data-URLs gespeichert (unter ca. 800 KB halten).',
+    hintDefault:
+      'Foto oder Emoji verwenden. Bilder werden als Data-URLs gespeichert (unter ca. 800 KB halten).',
     originals: 'Originale & Archetypen',
     fantasy: 'Fantasy & Mythen',
     animals: 'Tiere & Wesen',
@@ -203,6 +219,6 @@ export const DE_PAGES = {
     games: 'Spiele, Kunst & Hobbys',
     places: 'Orte, Gebäude & Reisen',
     food: 'Essen & Feiern',
-    objects: 'Objekte & Symbole'
-  }
+    objects: 'Objekte & Symbole',
+  },
 };

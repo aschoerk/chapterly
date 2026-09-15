@@ -3,6 +3,7 @@ import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import { getServerConfig } from './common/server-config';
 import { isElectron } from './common/electron';
+import { EnvironmentService } from './environment.service';
 
 const TOKEN_KEY = 'chapterly.access_token';
 const REFRESH_KEY = 'chapterly.refresh_token';
@@ -37,8 +38,9 @@ export interface TokenResponse {
 @Injectable({ providedIn: 'root' })
 export class AuthService {
   private readonly http = inject(HttpClient);
+  private readonly environment = inject(EnvironmentService);
 
-  /** When chapterly is launched as an Electron app, no login is used. */
+  /** Electron shell, or Docker running in the same local-shell mode. */
   readonly electron = isElectron();
 
   private readonly tokenSig = signal<string | null>(sessionStorage.getItem(TOKEN_KEY));
@@ -48,6 +50,8 @@ export class AuthService {
   readonly accessToken = this.tokenSig.asReadonly();
   readonly claims = this.claimsSig.asReadonly();
   readonly isLoggedIn = computed(() => this.skipAuth() || !!this.tokenSig());
+  readonly loginName = computed(() => this.environment.loginName());
+  readonly loginKind = computed(() => this.environment.loginKind());
 
   private api(path: string): string {
     return `${getServerConfig().apiBase}${path}`;
@@ -62,7 +66,7 @@ export class AuthService {
     providerBaseUrl?: string | null;
     providerId?: string | null;
   } = {}): Record<string, string> {
-    const token = this.electron ? null : this.accessToken();
+    const token = this.skipAuth() ? null : this.accessToken();
     const bearer = token || opts.apiKey || '';
     const headers: Record<string, string> = {};
     if (bearer) headers['Authorization'] = `Bearer ${bearer}`;
@@ -91,11 +95,21 @@ export class AuthService {
     this.store(token);
     this.skipAuth.set(false);
     sessionStorage.removeItem(SKIP_KEY);
+    await this.syncFromEnvironment();
     return token;
+  }
+
+  async syncFromEnvironment(): Promise<void> {
+    const info = await this.environment.ensureLoaded();
+    if (info.auth.skipLogin) {
+      this.skipAuth.set(true);
+    }
   }
 
   async googleEnabled(): Promise<boolean> {
     try {
+      const env = await this.environment.ensureLoaded();
+      if (env.auth.googleConfigured) return true;
       const info = await firstValueFrom(this.http.get<{ enabled: boolean }>(this.api('/oauth/google')));
       return info.enabled;
     } catch {
@@ -112,6 +126,7 @@ export class AuthService {
     this.clear();
     this.skipAuth.set(true);
     sessionStorage.setItem(SKIP_KEY, '1');
+    void this.syncFromEnvironment();
   }
 
   logout(): void {
@@ -122,6 +137,7 @@ export class AuthService {
     this.clear();
     this.skipAuth.set(false);
     sessionStorage.removeItem(SKIP_KEY);
+    void this.syncFromEnvironment();
   }
 
   private store(token: TokenResponse): void {

@@ -28,7 +28,7 @@ export const EN_PAGES = {
     selectVisible: 'Select visible',
     selectedCount: '{{count}} selected',
     assignToTopic: 'Assign to topic…',
-    assignSelected: 'Assign selected'
+    assignSelected: 'Assign selected',
   },
   topics: {
     new: '+ New Topic',
@@ -47,7 +47,7 @@ export const EN_PAGES = {
     noDescription: 'No description yet',
     linkedCounts: '{{projects}} environment(s) · {{personas}} persona(s)',
     loadFailed: 'Failed to load topics from server.',
-    unsavedMsg: 'This topic has edits that are not saved yet.\\nDiscard them?'
+    unsavedMsg: 'This topic has edits that are not saved yet.\\nDiscard them?',
   },
   projects: {
     topics: 'Topics',
@@ -66,7 +66,8 @@ export const EN_PAGES = {
     emptyAll: 'No environments yet.',
     createFirst: 'Create the first environment',
     emptyTopic: 'This topic has no environments yet.',
-    emptyTopicHint: 'Use “Add environment to topic…” on an environment card, or create a new environment.',
+    emptyTopicHint:
+      'Use “Add environment to topic…” on an environment card, or create a new environment.',
     editEnvironment: 'Edit environment',
     newEnvironmentTitle: 'New environment',
     name: 'Name *',
@@ -102,21 +103,25 @@ export const EN_PAGES = {
     deleteEnvFailed: 'Failed to delete environment',
     deleteTopicAsk: 'Delete topic',
     deleteTopicEmpty: 'Delete topic “{{name}}”?',
-    deleteTopicWithEnv: 'Delete topic “{{name}}”?\\nIt currently contains {{count}} environment(s).\\nEnvironments themselves will NOT be deleted.',
+    deleteTopicWithEnv:
+      'Delete topic “{{name}}”?\\nIt currently contains {{count}} environment(s).\\nEnvironments themselves will NOT be deleted.',
     deleteTopicFailed: 'Could not delete topic: {{error}}',
     addFailed: 'Could not add environment to topic',
-    removeFailed: 'Could not remove environment from topic'
+    removeFailed: 'Could not remove environment from topic',
   },
   import: {
     export: 'Export',
-    exportHint: 'Writes a JSON bundle this page can import again. Choose personas, topics+projects (with or without chats), project chats, a single chat, all chats, or chats only (projects/topics must already exist).',
+    exportHint:
+      'Writes a JSON bundle this page can import again. A topic export includes that topic, its assigned environments and personas (main-topic is kept), optionally with chats. Also: personas, project chats, a single chat, all chats, or chats only (projects/topics must already exist).',
     scope: 'Scope',
     scopePersonas: 'Personas',
-    scopeTopicProject: 'Topics + projects',
+    scopeTopicProject: 'Topic (environments + personas)',
     scopeProjectChats: 'Chats of a project',
     scopeChat: 'Single chat',
     scopeAll: 'All chats',
     scopeChatsOnly: 'Chats only (existing projects/topics)',
+    exportTopic: 'Topic',
+    allTopics: 'All topics',
     exportProject: 'Project',
     exportChat: 'Chat',
     allProjects: 'All projects',
@@ -126,19 +131,24 @@ export const EN_PAGES = {
     policyReuse: 'Reuse existing personas/projects/topics (match id, then name)',
     policyCreate: 'Always create new copies',
     kindBundle: 'Bundle',
-    bundleDetail: 'personas +{{personas}} / reused {{personasReused}}; projects +{{projects}} / reused {{projectsReused}}; topics +{{topics}} / reused {{topicsReused}}; chats +{{chats}}; nodes +{{nodes}}',
+    bundleDetail:
+      'personas +{{personas}} / reused {{personasReused}}; projects +{{projects}} / reused {{projectsReused}}; topics +{{topics}} / reused {{topicsReused}}; chats +{{chats}}; nodes +{{nodes}}',
     exportEmpty: 'Nothing to export for this scope.',
-    exported: 'Exported {{personas}} persona(s), {{projects}} project(s), {{topics}} topic(s), {{chats}} chat(s).',
+    exported:
+      'Exported {{personas}} persona(s), {{projects}} project(s), {{topics}} topic(s), {{chats}} chat(s).',
     download: 'Download bundle',
     exporting: 'Exporting…',
     dropTitle: 'Drop JSON file(s) here',
-    dropHint: 'Chapterly bundle → restore immediately  |  Copilots → Projects immediately  |  Sessions → review list  |  Grok export → one session per conversation',
+    dropHint:
+      'Chapterly bundle → restore immediately  |  Copilots → Projects immediately  |  Sessions → review list  |  Grok export → one session per conversation',
     chooseFiles: 'Choose file(s)',
     slice: 'Read only a byte window (for multi-hundred-MB Grok exports)',
     offset: 'Offset (bytes from start)',
     length: 'Length (bytes, empty = rest of file)',
-    sliceHint: 'Offset is a search start: the reader walks forward to the next "conversation" wrapper. Length is a soft stop: a conversation that started inside the window is always read through its closing brace. If the offset sits inside an object, that object is skipped.',
-    snapped: 'Snapped window: bytes {{start}} → {{end}} (end is the close of the last conversation that was opened).',
+    sliceHint:
+      'Offset is a search start: the reader walks forward to the next "conversation" wrapper. Length is a soft stop: a conversation that started inside the window is always read through its closing brace. If the offset sits inside an object, that object is skipped.',
+    snapped:
+      'Snapped window: bytes {{start}} → {{end}} (end is the close of the last conversation that was opened).',
     useEnd: 'Use end as next offset',
     sessionsTitle: 'Sessions to import',
     turns: '{{count}} turns',
@@ -159,7 +169,7 @@ export const EN_PAGES = {
     reading: 'Reading {{name}} ({{size}})…',
     readingConv: 'Reading conversation at {{start}}–{{end}} ({{size}})…',
     extending: 'Extending conversation window to byte {{end}} (look-ahead)…',
-    aligning: 'Aligning {{name}} from byte {{start}}…'
+    aligning: 'Aligning {{name}} from byte {{start}}…',
   },
   claims: {
     title: 'Claims',
@@ -175,7 +185,8 @@ export const EN_PAGES = {
     read: 'read',
     write: 'write',
     wallets: 'Wallets',
-    walletsHint: 'A token may bind only one wallet. Granting several is allowed; login picks manage if present.',
+    walletsHint:
+      'A token may bind only one wallet. Granting several is allowed; login picks manage if present.',
     noWallets: 'No wallets visible.',
     run: 'run',
     manage: 'manage',
@@ -183,7 +194,7 @@ export const EN_PAGES = {
     wsSaved: 'Workspace grant saved. User must log in again to refresh their token.',
     wsFailed: 'Could not update workspace grant',
     wlSaved: 'Wallet grant saved. User must log in again to refresh their token.',
-    wlFailed: 'Could not update wallet grant'
+    wlFailed: 'Could not update wallet grant',
   },
   avatar: {
     choose: 'Choose image…',
@@ -203,6 +214,6 @@ export const EN_PAGES = {
     games: 'Games, Arts & Hobbies',
     places: 'Places, Buildings & Travel',
     food: 'Food & Celebrations',
-    objects: 'Objects & Symbols'
-  }
+    objects: 'Objects & Symbols',
+  },
 };

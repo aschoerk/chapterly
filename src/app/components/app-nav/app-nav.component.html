@@ -72,8 +72,10 @@
       </a>
     }
   </div>
-  @if (!auth.electron && (auth.accessToken() || auth.skipAuth())) {
+  @if (!auth.skipAuth() && environment.loginName()) {
+    <span class="nav-user" [title]="environment.loginKind()">{{ environment.loginName() }}</span>
+  }
+  @if (!environment.skipLogin() && auth.accessToken()) {
     <button class="nav-link logout" type="button" (click)="logout()">{{ i18n.t('nav.signOut') }}</button>
   }
 </nav>
-

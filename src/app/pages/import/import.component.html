@@ -17,6 +17,18 @@
       </select>
     </label>
 
+    @if (needsTopicPicker()) {
+      <label class="project-select">
+        {{ i18n.t('import.exportTopic') }}
+        <select [ngModel]="exportTopicId()" (ngModelChange)="exportTopicId.set($event)">
+          <option [ngValue]="null">{{ i18n.t('import.allTopics') }}</option>
+          @for (t of topics(); track t.id) {
+            <option [ngValue]="t.id">{{ t.name }}</option>
+          }
+        </select>
+      </label>
+    }
+
     @if (needsProjectPicker()) {
       <label class="project-select">
         {{ i18n.t('import.exportProject') }}
@@ -203,8 +215,8 @@
         <li [class.error]="!!s.error">
           <strong>{{ s.fileName }}</strong>
           – {{ s.kind === 'bundle'
-            ? i18n.t('import.kindBundle')
-            : (s.kind === 'copilots' ? i18n.t('import.kindProjects') : i18n.t('import.kindChat')) }}:
+          ? i18n.t('import.kindBundle')
+          : (s.kind === 'copilots' ? i18n.t('import.kindProjects') : i18n.t('import.kindChat')) }}:
           “{{ s.title }}”
           → {{ s.created }}
           {{ s.kind === 'copilots' ? i18n.t('import.projectsCount') : i18n.t('import.nodesCount') }}

@@ -18,6 +18,7 @@ import { inferMimeType, nodeToMessageContent } from '../../core/llm/llm-message'
 import { formatParametersSummary } from '../../models/chat-parameters';
 import {ProjectService} from '../../core/project.service';
 import { I18nService } from '../../core/i18n/i18n.service';
+import { newId } from '../../core/common/helpers';
 
 @Component({
   selector: 'app-chat-node',
@@ -850,7 +851,7 @@ export class ChatNodeComponent {
       }
       const dataUrl = await this.readAsDataURL(file);
       result.push({
-        id: crypto.randomUUID(),
+        id: newId(),
         name: file.name,
         mimeType: inferMimeType(file.name, file.type),
         size: file.size,

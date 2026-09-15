@@ -24,9 +24,10 @@ export class LoginComponent implements OnInit {
   readonly error = signal<string | null>(null);
   readonly googleEnabled = signal(false);
 
-  ngOnInit(): void {
-    // When started as Electron app there is no login — bounce straight to chat.
-    if (this.auth.electron) {
+  async ngOnInit(): Promise<void> {
+    // Electron and local Docker (sqlite-all or chats in IDB) skip login.
+    await this.auth.syncFromEnvironment();
+    if (this.auth.skipAuth()) {
       void this.router.navigateByUrl('/chat');
       return;
     }

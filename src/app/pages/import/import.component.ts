@@ -10,10 +10,11 @@ import {
   BundleScope,
   BundleService,
   ChatBundle,
-  ImportPolicy
+  ImportPolicy,
 } from '../../core/bundle.service';
 import { Project } from '../../models/chat';
 import { I18nService } from '../../core/i18n/i18n.service';
+import { newId } from '../../core/common/helpers';
 
 export interface ParsedTurn {
   role: 'system' | 'user' | 'assistant' | 'other';
@@ -64,14 +65,14 @@ export interface SliceOptions {
 }
 
 const LARGE_FILE_BYTES = 8 * 1024 * 1024; // 8 MiB — stream instead of JSON.parse
-const STREAM_CHUNK = 1024 * 1024;         // 1 MiB File.slice windows
+const STREAM_CHUNK = 1024 * 1024; // 1 MiB File.slice windows
 
 @Component({
   selector: 'app-import',
   standalone: true,
   imports: [CommonModule, FormsModule],
   templateUrl: './import.component.html',
-  styleUrl: './import.component.css'
+  styleUrl: './import.component.css',
 })
 export class ImportComponent {
   readonly i18n = inject(I18nService);
@@ -96,6 +97,7 @@ export class ImportComponent {
 
   readonly exportScope = signal<BundleScope>('chat');
   readonly exportProjectId = signal<string | null>(null);
+  readonly exportTopicId = signal<string | null>(null);
   readonly exportChatId = signal<string | null>(null);
   readonly includeChats = signal(true);
   readonly importPolicy = signal<ImportPolicy>('reuse');
@@ -107,15 +109,23 @@ export class ImportComponent {
         this.exportChatId.set(this.chatService.currentChatId());
       }
       if (!this.exportProjectId()) {
-        const current = this.chats().find(c => c.id === this.exportChatId());
+        const current = this.chats().find((c) => c.id === this.exportChatId());
         this.exportProjectId.set(current?.projectId ?? this.projects()[0]?.id ?? null);
+      }
+      if (!this.exportTopicId()) {
+        const project = this.projects().find((p) => p.id === this.exportProjectId());
+        this.exportTopicId.set(project?.mainTopicId ?? this.topics()[0]?.id ?? null);
       }
     });
   }
 
   needsProjectPicker(): boolean {
     const scope = this.exportScope();
-    return scope === 'topic-project' || scope === 'project-chats' || scope === 'chats-only';
+    return scope === 'project-chats' || scope === 'chats-only';
+  }
+
+  needsTopicPicker(): boolean {
+    return this.exportScope() === 'topic-project';
   }
 
   needsChatPicker(): boolean {
@@ -131,7 +141,7 @@ export class ImportComponent {
     const all = this.chats();
     const pid = this.exportProjectId();
     if (this.exportScope() === 'chats-only' && pid) {
-      return all.filter(c => c.projectId === pid);
+      return all.filter((c) => c.projectId === pid);
     }
     return all;
   }
@@ -202,7 +212,9 @@ export class ImportComponent {
     const slice = this.sliceOptions();
 
     for (const file of files) {
-      this.progress.set(this.i18n.t('import.reading', { name: file.name, size: this.formatBytes(file.size) }));
+      this.progress.set(
+        this.i18n.t('import.reading', { name: file.name, size: this.formatBytes(file.size) }),
+      );
       try {
         const results = await this.parseFile(file, slice);
         for (const parsed of results) {
@@ -212,10 +224,13 @@ export class ImportComponent {
               fileName: file.name,
               kind: 'copilots',
               title: parsed.title,
-              created
+              created,
             });
           } else if (parsed.kind === 'bundle' && parsed.bundle) {
-            const imported = await this.bundleService.importBundle(parsed.bundle, this.importPolicy());
+            const imported = await this.bundleService.importBundle(
+              parsed.bundle,
+              this.importPolicy(),
+            );
             const created =
               imported.createdPersonas +
               imported.createdProjects +
@@ -228,15 +243,15 @@ export class ImportComponent {
               title: parsed.title,
               created,
               detail: this.describeImport(imported),
-              error: imported.warnings.length ? imported.warnings.join(' ') : undefined
+              error: imported.warnings.length ? imported.warnings.join(' ') : undefined,
             });
           } else {
-              newPending.push({
-                id: crypto.randomUUID(),
-                fileName: file.name,
-                result: parsed,
-                selectedProjectId: this.findBestProjectId(parsed.title)
-              });
+            newPending.push({
+              id: newId(),
+              fileName: file.name,
+              result: parsed,
+              selectedProjectId: this.findBestProjectId(parsed.title),
+            });
           }
         }
       } catch (err: any) {
@@ -245,19 +260,20 @@ export class ImportComponent {
           kind: 'chat',
           title: file.name,
           created: 0,
-          error: err?.message || String(err)
+          error: err?.message || String(err),
         });
       }
     }
 
-    this.pendingSessions.update(list => [...list, ...newPending]);
-    this.summaries.update(list => [...list, ...newSummaries]);
+    this.pendingSessions.update((list) => [...list, ...newPending]);
+    this.summaries.update((list) => [...list, ...newSummaries]);
     this.progress.set('');
     this.isImporting.set(false);
   }
 
   private formatBytes(n: number): string {
-    const fmt = (v: number, d: number) => this.i18n.formatNumber(v, { minimumFractionDigits: d, maximumFractionDigits: d });
+    const fmt = (v: number, d: number) =>
+      this.i18n.formatNumber(v, { minimumFractionDigits: d, maximumFractionDigits: d });
     if (n < 1024) return `${this.i18n.formatNumber(n)} B`;
     if (n < 1024 * 1024) return `${fmt(n / 1024, 1)} KiB`;
     if (n < 1024 * 1024 * 1024) return `${fmt(n / (1024 * 1024), 1)} MiB`;
@@ -276,9 +292,7 @@ export class ImportComponent {
    */
   private async parseFile(file: File, slice: SliceOptions | null): Promise<ParseResult[]> {
     const rawStart = slice ? slice.offset : 0;
-    const rawEnd = slice?.length != null
-      ? Math.min(file.size, rawStart + slice.length)
-      : file.size;
+    const rawEnd = slice?.length != null ? Math.min(file.size, rawStart + slice.length) : file.size;
     if (rawStart >= file.size) {
       throw new Error(`Offset ${rawStart} is past end of file (${file.size} bytes)`);
     }
@@ -304,10 +318,7 @@ export class ImportComponent {
   }
 
   private classifyPeek(peekText: string): 'grok' | 'bundle' | 'array' | 'value' {
-    if (
-      /"conversations"\s*:/.test(peekText) ||
-      /"conversation"\s*:\s*\{/.test(peekText)
-    ) {
+    if (/"conversations"\s*:/.test(peekText) || /"conversation"\s*:\s*\{/.test(peekText)) {
       return 'grok';
     }
     if (
@@ -325,7 +336,7 @@ export class ImportComponent {
     file: File,
     rawStart: number,
     rawEnd: number,
-    kind: 'grok' | 'bundle' | 'array' | 'value'
+    kind: 'grok' | 'bundle' | 'array' | 'value',
   ): Promise<ParseResult[]> {
     if (kind === 'grok') {
       return this.streamGrokConversations(file, rawStart, rawEnd);
@@ -371,7 +382,11 @@ export class ImportComponent {
     if (!sliced) return trimmed;
     if (trimmed.startsWith('{') || trimmed.startsWith('[')) return trimmed;
     // raw objects dumped from the middle of an object/array
-    if (/^"(conversation|responses|chats|projects|topics|personas|messages|mapping|nodes|turns)"/.test(trimmed)) {
+    if (
+      /^"(conversation|responses|chats|projects|topics|personas|messages|mapping|nodes|turns)"/.test(
+        trimmed,
+      )
+    ) {
       return `{${trimmed}}`;
     }
     return trimmed;
@@ -381,7 +396,7 @@ export class ImportComponent {
   private async findNextJsonValueStart(
     file: File,
     from: number,
-    limit = file.size
+    limit = file.size,
   ): Promise<number | null> {
     let pos = Math.max(0, from);
     let inString = false;
@@ -418,7 +433,7 @@ export class ImportComponent {
   private async scanForwardToMatching(
     file: File,
     openOffset: number,
-    initialDepth = 0
+    initialDepth = 0,
   ): Promise<number | null> {
     const head = await this.readSliceBytes(file, openOffset, 1);
     const openByte = head.length ? head[0] : 0x7b;
@@ -462,7 +477,7 @@ export class ImportComponent {
 
   private async readJsonRange(
     file: File,
-    loc: { start: number; end: number }
+    loc: { start: number; end: number },
   ): Promise<any | null> {
     let end = loc.end;
     for (let attempt = 0; attempt < 8; attempt++) {
@@ -484,7 +499,7 @@ export class ImportComponent {
   private async findJsonKey(
     file: File,
     from: number,
-    key: string
+    key: string,
   ): Promise<{ keyStart: number; valueStart: number } | null> {
     const KEY = new TextEncoder().encode(`"${key}"`);
     let pos = Math.max(0, from);
@@ -507,7 +522,10 @@ export class ImportComponent {
           continue;
         }
         if (b === 0x22) {
-          if (this.bytesStartWith(combined, i, KEY) && this.isJsonKeyBytes(combined, i, KEY.length)) {
+          if (
+            this.bytesStartWith(combined, i, KEY) &&
+            this.isJsonKeyBytes(combined, i, KEY.length)
+          ) {
             const keyAbs = base + i;
             const valueStart = await this.skipToJsonValueStart(file, keyAbs + KEY.length);
             if (valueStart == null) {
@@ -533,7 +551,11 @@ export class ImportComponent {
   /** After a `"key"`, require `:` then the first non-space value byte. */
   private isJsonKeyBytes(bytes: Uint8Array, i: number, keyLen: number): boolean {
     let p = i + keyLen;
-    while (p < bytes.length && (bytes[p] === 0x20 || bytes[p] === 0x09 || bytes[p] === 0x0a || bytes[p] === 0x0d)) p++;
+    while (
+      p < bytes.length &&
+      (bytes[p] === 0x20 || bytes[p] === 0x09 || bytes[p] === 0x0a || bytes[p] === 0x0d)
+    )
+      p++;
     return p < bytes.length && bytes[p] === 0x3a;
   }
 
@@ -558,14 +580,19 @@ export class ImportComponent {
     return null;
   }
 
-  private async readNamedJsonValue(file: File, from: number, key: string): Promise<any | undefined> {
+  private async readNamedJsonValue(
+    file: File,
+    from: number,
+    key: string,
+  ): Promise<any | undefined> {
     const loc = await this.findJsonKey(file, from, key);
     if (!loc) return undefined;
     const head = await this.readSliceBytes(file, loc.valueStart, 1);
     const b = head[0];
-    const end = (b === 0x7b || b === 0x5b)
-      ? await this.scanForwardToMatching(file, loc.valueStart)
-      : await this.scanForwardToPrimitiveEnd(file, loc.valueStart);
+    const end =
+      b === 0x7b || b === 0x5b
+        ? await this.scanForwardToMatching(file, loc.valueStart)
+        : await this.scanForwardToPrimitiveEnd(file, loc.valueStart);
     if (end == null) return undefined;
     return this.readJsonRange(file, { start: loc.valueStart, end });
   }
@@ -593,7 +620,15 @@ export class ImportComponent {
           started = true;
           continue;
         }
-        if (b === 0x2c || b === 0x7d || b === 0x5d || b === 0x20 || b === 0x09 || b === 0x0a || b === 0x0d) {
+        if (
+          b === 0x2c ||
+          b === 0x7d ||
+          b === 0x5d ||
+          b === 0x20 ||
+          b === 0x09 ||
+          b === 0x0a ||
+          b === 0x0d
+        ) {
           if (!started && (b === 0x20 || b === 0x09 || b === 0x0a || b === 0x0d)) continue;
           return pos + i;
         }
@@ -604,11 +639,7 @@ export class ImportComponent {
     return started ? file.size : null;
   }
 
-  private async streamArrayValues(
-    file: File,
-    arrayStart: number,
-    rawEnd: number
-  ): Promise<any[]> {
+  private async streamArrayValues(file: File, arrayStart: number, rawEnd: number): Promise<any[]> {
     const arrayEnd = await this.scanForwardToMatching(file, arrayStart);
     const hardEnd = arrayEnd == null ? file.size : arrayEnd;
     const items: any[] = [];
@@ -630,8 +661,10 @@ export class ImportComponent {
 
       this.progress.set(
         this.i18n.t('import.readingConv', {
-          start, end, size: this.formatBytes(end - start)
-        })
+          start,
+          end,
+          size: this.formatBytes(end - start),
+        }),
       );
 
       const item = await this.readJsonRange(file, { start, end });
@@ -652,13 +685,11 @@ export class ImportComponent {
   private async streamTopLevelArray(
     file: File,
     arrayStart: number,
-    rawEnd: number
+    rawEnd: number,
   ): Promise<ParseResult[]> {
     const items = await this.streamArrayValues(file, arrayStart, rawEnd);
     if (!items.length) {
-      throw new Error(
-        `No extractable array items at or after byte ${arrayStart}.`
-      );
+      throw new Error(`No extractable array items at or after byte ${arrayStart}.`);
     }
     if (typeof items[0]?.name === 'string' && typeof items[0]?.prompt === 'string') {
       return [this.parseCopilots(items, [])];
@@ -668,9 +699,7 @@ export class ImportComponent {
       results.push(...this.detectAndParseAll(item));
     }
     if (!results.length) {
-      throw new Error(
-        `No extractable conversation at or after byte ${arrayStart}.`
-      );
+      throw new Error(`No extractable conversation at or after byte ${arrayStart}.`);
     }
     return results;
   }
@@ -678,7 +707,7 @@ export class ImportComponent {
   private async streamJsonValue(
     file: File,
     rawStart: number,
-    rawEnd: number
+    rawEnd: number,
   ): Promise<ParseResult[]> {
     const start = await this.findNextJsonValueStart(file, rawStart);
     if (start == null) {
@@ -692,8 +721,10 @@ export class ImportComponent {
     this.lastAlignedEnd.set(end);
     this.progress.set(
       this.i18n.t('import.readingConv', {
-        start, end, size: this.formatBytes(end - start)
-      })
+        start,
+        end,
+        size: this.formatBytes(end - start),
+      }),
     );
     const data = await this.readJsonRange(file, { start, end });
     if (data == null) {
@@ -702,16 +733,12 @@ export class ImportComponent {
     return this.detectAndParseAll(data);
   }
 
-  private async streamBundle(
-    file: File,
-    rawStart: number,
-    rawEnd: number
-  ): Promise<ParseResult[]> {
+  private async streamBundle(file: File, rawStart: number, rawEnd: number): Promise<ParseResult[]> {
     const projects = (await this.readNamedJsonValue(file, rawStart, 'projects')) || [];
     const topics = (await this.readNamedJsonValue(file, rawStart, 'topics')) || [];
     const personas = (await this.readNamedJsonValue(file, rawStart, 'personas')) || [];
     const scope = (await this.readNamedJsonValue(file, rawStart, 'scope')) || 'all-chats';
-    const includeChats = (await this.readNamedJsonValue(file, rawStart, 'includeChats'));
+    const includeChats = await this.readNamedJsonValue(file, rawStart, 'includeChats');
     const exportedAt = (await this.readNamedJsonValue(file, rawStart, 'exportedAt')) || '';
     const version = (await this.readNamedJsonValue(file, rawStart, 'version')) || 2;
 
@@ -736,7 +763,7 @@ export class ImportComponent {
       projects: Array.isArray(projects) ? projects : [],
       topics: Array.isArray(topics) ? topics : [],
       personas: Array.isArray(personas) ? personas : [],
-      chats
+      chats,
     };
     return [this.parseBundle(bundle)];
   }
@@ -757,13 +784,11 @@ export class ImportComponent {
   private async streamGrokConversations(
     file: File,
     rawStart: number,
-    rawEnd: number
+    rawEnd: number,
   ): Promise<ParseResult[]> {
     const first = await this.findNextConversationObject(file, rawStart);
     if (!first) {
-      throw new Error(
-        `No "conversation" object found at or after byte ${rawStart}.`
-      );
+      throw new Error(`No "conversation" object found at or after byte ${rawStart}.`);
     }
 
     const results: ParseResult[] = [];
@@ -775,17 +800,18 @@ export class ImportComponent {
       // Soft end: do not *open* a new conversation past the requested window.
       if (cursor >= rawEnd && results.length > 0) break;
 
-      const loc = cursor === first.start
-        ? first
-        : await this.findNextConversationObject(file, cursor);
+      const loc =
+        cursor === first.start ? first : await this.findNextConversationObject(file, cursor);
       if (!loc) break;
 
       if (loc.start >= rawEnd && results.length > 0) break;
 
       this.progress.set(
         this.i18n.t('import.readingConv', {
-          start: loc.start, end: loc.end, size: this.formatBytes(loc.end - loc.start)
-        })
+          start: loc.start,
+          end: loc.end,
+          size: this.formatBytes(loc.end - loc.start),
+        }),
       );
 
       const item = await this.readConversationJson(file, loc);
@@ -809,7 +835,7 @@ export class ImportComponent {
 
     if (!results.length) {
       throw new Error(
-        `No extractable conversation between snapped start ${alignedStart} and end ${alignedEnd}.`
+        `No extractable conversation between snapped start ${alignedStart} and end ${alignedEnd}.`,
       );
     }
     return results;
@@ -824,7 +850,7 @@ export class ImportComponent {
    */
   private async findNextConversationObject(
     file: File,
-    from: number
+    from: number,
   ): Promise<{ start: number; end: number } | null> {
     const KEY = ImportComponent.KEY_CONVERSATION;
     let pos = Math.max(0, from);
@@ -894,17 +920,25 @@ export class ImportComponent {
   /** `"conversation"` followed by optional space, `:`, optional space, `{`. */
   private isConversationKeyBytes(bytes: Uint8Array, i: number): boolean {
     let p = i + ImportComponent.KEY_CONVERSATION.length;
-    while (p < bytes.length && (bytes[p] === 0x20 || bytes[p] === 0x09 || bytes[p] === 0x0a || bytes[p] === 0x0d)) p++;
+    while (
+      p < bytes.length &&
+      (bytes[p] === 0x20 || bytes[p] === 0x09 || bytes[p] === 0x0a || bytes[p] === 0x0d)
+    )
+      p++;
     if (p >= bytes.length || bytes[p] !== 0x3a) return false;
     p++;
-    while (p < bytes.length && (bytes[p] === 0x20 || bytes[p] === 0x09 || bytes[p] === 0x0a || bytes[p] === 0x0d)) p++;
+    while (
+      p < bytes.length &&
+      (bytes[p] === 0x20 || bytes[p] === 0x09 || bytes[p] === 0x0a || bytes[p] === 0x0d)
+    )
+      p++;
     return p < bytes.length && bytes[p] === 0x7b;
   }
 
   private async scanBackToWrapperStart(
     file: File,
     keyOffset: number,
-    window = 256 * 1024
+    window = 256 * 1024,
   ): Promise<number | null> {
     const from = Math.max(0, keyOffset - window);
     if (keyOffset <= from) return null;
@@ -945,7 +979,7 @@ export class ImportComponent {
   private async scanForwardToMatchingBrace(
     file: File,
     braceOffset: number,
-    initialDepth = 0
+    initialDepth = 0,
   ): Promise<number | null> {
     let pos = braceOffset;
     let depth = initialDepth;
@@ -990,7 +1024,7 @@ export class ImportComponent {
    */
   private async readConversationJson(
     file: File,
-    loc: { start: number; end: number }
+    loc: { start: number; end: number },
   ): Promise<any | null> {
     let end = loc.end;
     for (let attempt = 0; attempt < 8; attempt++) {
@@ -1003,9 +1037,7 @@ export class ImportComponent {
         const next = await this.scanForwardToMatchingBrace(file, end, 1);
         if (next == null || next <= end) return null;
         end = next;
-        this.progress.set(
-          this.i18n.t('import.extending', { end })
-        );
+        this.progress.set(this.i18n.t('import.extending', { end }));
       }
     }
     return null;
@@ -1034,9 +1066,9 @@ export class ImportComponent {
     rest.sort((a, b) => a.name.localeCompare(b.name, this.i18n.localeId()));
 
     return [
-      ...matching.map(p => ({ id: p.id, label: p.name })),
+      ...matching.map((p) => ({ id: p.id, label: p.name })),
       { id: null, label: this.i18n.t('common.unknown') },
-      ...rest.map(p => ({ id: p.id, label: p.name }))
+      ...rest.map((p) => ({ id: p.id, label: p.name })),
     ];
   }
 
@@ -1050,12 +1082,12 @@ export class ImportComponent {
   // ------------------------------------------------------------------
 
   removeSession(id: string) {
-    this.pendingSessions.update(list => list.filter(s => s.id !== id));
+    this.pendingSessions.update((list) => list.filter((s) => s.id !== id));
   }
 
   setSessionProject(id: string, projectId: string | null) {
-    this.pendingSessions.update(list =>
-      list.map(s => s.id === id ? { ...s, selectedProjectId: projectId } : s)
+    this.pendingSessions.update((list) =>
+      list.map((s) => (s.id === id ? { ...s, selectedProjectId: projectId } : s)),
     );
   }
 
@@ -1075,7 +1107,7 @@ export class ImportComponent {
           fileName: session.fileName,
           kind: 'chat',
           title: session.result.title,
-          created
+          created,
         });
       } catch (err: any) {
         newSummaries.push({
@@ -1083,13 +1115,13 @@ export class ImportComponent {
           kind: 'chat',
           title: session.result.title,
           created: 0,
-          error: err?.message || String(err)
+          error: err?.message || String(err),
         });
       }
     }
 
     this.pendingSessions.set([]);
-    this.summaries.update(s => [...s, ...newSummaries]);
+    this.summaries.update((s) => [...s, ...newSummaries]);
     this.progress.set('');
     this.isImporting.set(false);
   }
@@ -1106,7 +1138,7 @@ export class ImportComponent {
       await this.projectService.createProject({
         name: entry.name,
         greeting: entry.description || '',
-        systemPrompt: entry.prompt
+        systemPrompt: entry.prompt,
       });
       created++;
     }
@@ -1119,7 +1151,7 @@ export class ImportComponent {
       const p = await this.projectService.createProject({
         name: result.title,
         greeting: '',
-        systemPrompt: result.systemPrompt || undefined
+        systemPrompt: result.systemPrompt || undefined,
       });
       finalProjectId = p.id;
     }
@@ -1133,7 +1165,7 @@ export class ImportComponent {
       const sys = await this.chatService.addNode(chat.id, {
         parentId: null,
         role: 'user',
-        content: result.systemPrompt
+        content: result.systemPrompt,
       });
       parentId = sys.id;
       count++;
@@ -1144,7 +1176,7 @@ export class ImportComponent {
       const node = await this.chatService.addNode(chat.id, {
         parentId,
         role: turn.mappedType as 'user' | 'assistant' | 'system',
-        content: turn.content
+        content: turn.content,
       });
       parentId = node.id;
       count++;
@@ -1175,9 +1207,12 @@ export class ImportComponent {
   private detectAndParse(data: any): ParseResult {
     const warnings: string[] = [];
 
-    if (Array.isArray(data) && data.length > 0 &&
+    if (
+      Array.isArray(data) &&
+      data.length > 0 &&
       typeof data[0]?.name === 'string' &&
-      typeof data[0]?.prompt === 'string') {
+      typeof data[0]?.prompt === 'string'
+    ) {
       return this.parseCopilots(data, warnings);
     }
 
@@ -1217,12 +1252,14 @@ export class ImportComponent {
     return this.parseFallback(data, warnings);
   }
 
-
-
-  private mapRole(role: string): { role: ParsedTurn['role']; mappedType: ParsedTurn['mappedType'] } {
+  private mapRole(role: string): {
+    role: ParsedTurn['role'];
+    mappedType: ParsedTurn['mappedType'];
+  } {
     const r = (role || '').toLowerCase().trim();
     if (r === 'user' || r === 'human' || r === 'query') return { role: 'user', mappedType: 'user' };
-    if (r === 'assistant' || r === 'ai' || r === 'bot' || r === 'model') return { role: 'assistant', mappedType: 'assistant' };
+    if (r === 'assistant' || r === 'ai' || r === 'bot' || r === 'model')
+      return { role: 'assistant', mappedType: 'assistant' };
     if (r === 'system') return { role: 'system', mappedType: 'system' };
     return { role: 'other', mappedType: 'ignored' };
   }
@@ -1234,7 +1271,7 @@ export class ImportComponent {
         copilots.push({
           name: String(item.name).trim(),
           prompt: String(item.prompt),
-          description: (item.description || '').trim() || undefined
+          description: (item.description || '').trim() || undefined,
         });
       }
     }
@@ -1245,7 +1282,7 @@ export class ImportComponent {
       format: 'Copilots',
       warnings,
       kind: 'copilots',
-      copilots
+      copilots,
     };
   }
 
@@ -1261,14 +1298,16 @@ export class ImportComponent {
     }
     if (!results.length) {
       warnings.push('Grok export contained an empty conversations array.');
-      return [{
-        title: 'Grok Export',
-        systemPrompt: null,
-        turns: [],
-        format: 'Grok Export',
-        warnings,
-        kind: 'chat'
-      }];
+      return [
+        {
+          title: 'Grok Export',
+          systemPrompt: null,
+          turns: [],
+          format: 'Grok Export',
+          warnings,
+          kind: 'chat',
+        },
+      ];
     }
     return results;
   }
@@ -1281,8 +1320,7 @@ export class ImportComponent {
       'Imported Grok Conversation';
 
     const systemPrompt =
-      (typeof meta.system_prompt === 'string' && meta.system_prompt.trim()) ||
-      null;
+      (typeof meta.system_prompt === 'string' && meta.system_prompt.trim()) || null;
 
     const responses = Array.isArray(item?.responses) ? item.responses : [];
     const turns: ParsedTurn[] = [];
@@ -1309,7 +1347,7 @@ export class ImportComponent {
         mappedType,
         content,
         originalIndex: i,
-        unknownBlocks: this.collectUnknownBlocks(resp)
+        unknownBlocks: this.collectUnknownBlocks(resp),
       });
     }
 
@@ -1323,7 +1361,7 @@ export class ImportComponent {
       turns,
       format: 'Grok Export',
       warnings,
-      kind: 'chat'
+      kind: 'chat',
     };
   }
 
@@ -1446,7 +1484,7 @@ export class ImportComponent {
         mappedType,
         content: text.trim(),
         originalIndex: i,
-        unknownBlocks: []
+        unknownBlocks: [],
       });
     }
 
@@ -1456,7 +1494,7 @@ export class ImportComponent {
       turns,
       format: 'Grok Session',
       warnings,
-      kind: 'chat'
+      kind: 'chat',
     };
   }
 
@@ -1482,7 +1520,7 @@ export class ImportComponent {
         mappedType,
         content,
         originalIndex: i,
-        unknownBlocks: []
+        unknownBlocks: [],
       });
     }
 
@@ -1504,7 +1542,10 @@ export class ImportComponent {
       if (!msg) continue;
       const { role, mappedType } = this.mapRole(msg.author?.role || msg.role || 'other');
       const parts = msg.content?.parts || [];
-      const content = parts.filter((p: any) => typeof p === 'string').join('\n').trim();
+      const content = parts
+        .filter((p: any) => typeof p === 'string')
+        .join('\n')
+        .trim();
       if (!content) continue;
 
       if (role === 'system') {
@@ -1539,7 +1580,7 @@ export class ImportComponent {
         mappedType,
         content,
         originalIndex: i,
-        unknownBlocks: []
+        unknownBlocks: [],
       });
     }
 
@@ -1547,8 +1588,13 @@ export class ImportComponent {
   }
 
   private parseFallback(data: any, warnings: string[]): ParseResult {
-    const candidates = [data?.messages, data?.conversation, data?.history, data?.data, data?.responses]
-      .filter(Array.isArray);
+    const candidates = [
+      data?.messages,
+      data?.conversation,
+      data?.history,
+      data?.data,
+      data?.responses,
+    ].filter(Array.isArray);
     if (candidates.length) {
       return this.parseSimpleMessages({ messages: candidates[0], name: 'Imported Chat' }, warnings);
     }
@@ -1558,7 +1604,7 @@ export class ImportComponent {
       turns: [],
       format: 'Unknown',
       warnings: [...warnings, 'Could not extract any messages.'],
-      kind: 'chat'
+      kind: 'chat',
     };
   }
 
@@ -1587,7 +1633,6 @@ export class ImportComponent {
     await this.router.navigate(['/chat']);
   }
 
-
   private parseBundle(data: ChatBundle): ParseResult {
     return {
       title: this.bundleService.bundleTitle(data),
@@ -1596,7 +1641,7 @@ export class ImportComponent {
       format: BUNDLE_FORMAT,
       warnings: [],
       kind: 'bundle',
-      bundle: data
+      bundle: data,
     };
   }
 
@@ -1619,7 +1664,7 @@ export class ImportComponent {
       topics: imported.createdTopics,
       topicsReused: imported.reusedTopics,
       chats: imported.createdChats,
-      nodes: imported.createdNodes
+      nodes: imported.createdNodes,
     });
   }
 
@@ -1633,10 +1678,12 @@ export class ImportComponent {
         scope,
         includeChats: scope === 'topic-project' ? this.includeChats() : scope !== 'personas',
         projectId: this.needsProjectPicker() ? this.exportProjectId() : null,
-        chatId: scope === 'chat' || (scope === 'chats-only' && this.exportChatId())
-          ? this.exportChatId()
-          : null,
-        onProgress: (message) => this.progress.set(message)
+        topicId: this.needsTopicPicker() ? this.exportTopicId() : null,
+        chatId:
+          scope === 'chat' || (scope === 'chats-only' && this.exportChatId())
+            ? this.exportChatId()
+            : null,
+        onProgress: (message) => this.progress.set(message),
       });
 
       if (
@@ -1654,17 +1701,18 @@ export class ImportComponent {
       a.download = `chapterly-bundle-${scope}-${new Date().toISOString().slice(0, 10)}.json`;
       a.click();
       URL.revokeObjectURL(a.href);
-      this.progress.set(this.i18n.t('import.exported', {
-        personas: bundle.personas.length,
-        projects: bundle.projects.length,
-        topics: bundle.topics.length,
-        chats: bundle.chats.length
-      }));
+      this.progress.set(
+        this.i18n.t('import.exported', {
+          personas: bundle.personas.length,
+          projects: bundle.projects.length,
+          topics: bundle.topics.length,
+          chats: bundle.chats.length,
+        }),
+      );
     } catch (err: any) {
       this.globalError.set(err?.message || String(err));
     } finally {
       this.isExporting.set(false);
     }
   }
-
 }
