@@ -45,7 +45,7 @@ export class AuthService {
 
   private readonly tokenSig = signal<string | null>(sessionStorage.getItem(TOKEN_KEY));
   private readonly claimsSig = signal<TokenClaims | null>(readClaims());
-  readonly skipAuth = signal(this.electron || sessionStorage.getItem(SKIP_KEY) === '1');
+  readonly skipAuth = signal(sessionStorage.getItem(SKIP_KEY) === '1');
 
   readonly accessToken = this.tokenSig.asReadonly();
   readonly claims = this.claimsSig.asReadonly();
@@ -61,11 +61,13 @@ export class AuthService {
    * Headers for /proxy. A Chapterly access token wins over a provider API key
    * so the server can resolve the wallet. fetch() bypasses the HTTP interceptor.
    */
-  proxyAuthHeaders(opts: {
-    apiKey?: string | null;
-    providerBaseUrl?: string | null;
-    providerId?: string | null;
-  } = {}): Record<string, string> {
+  proxyAuthHeaders(
+    opts: {
+      apiKey?: string | null;
+      providerBaseUrl?: string | null;
+      providerId?: string | null;
+    } = {},
+  ): Record<string, string> {
     const token = this.skipAuth() ? null : this.accessToken();
     const bearer = token || opts.apiKey || '';
     const headers: Record<string, string> = {};
@@ -79,8 +81,8 @@ export class AuthService {
     const authorize = await firstValueFrom(
       this.http.post<{ code: string; claims: TokenClaims; user_id: string }>(
         this.api('/oauth/dev/authorize'),
-        { username, password }
-      )
+        { username, password },
+      ),
     );
     return this.exchangeCode(authorize.code);
   }
@@ -89,8 +91,8 @@ export class AuthService {
     const token = await firstValueFrom(
       this.http.post<TokenResponse>(this.api('/oauth/token'), {
         grant_type: 'authorization_code',
-        code
-      })
+        code,
+      }),
     );
     this.store(token);
     this.skipAuth.set(false);
@@ -99,10 +101,48 @@ export class AuthService {
     return token;
   }
 
+  readonly ready = signal(false);
+
+  captureRedirectTokens(): boolean {
+    if (typeof window === 'undefined') return false;
+    const hash = window.location.hash || '';
+    const qIndex = hash.indexOf('?');
+    if (qIndex < 0) return false;
+    const q = new URLSearchParams(hash.slice(qIndex + 1));
+    const access = q.get('access_token');
+    if (!access) return false;
+
+    this.store({
+      access_token: access,
+      refresh_token: q.get('refresh_token') || undefined,
+    });
+    this.skipAuth.set(false);
+    sessionStorage.removeItem(SKIP_KEY);
+
+    q.delete('access_token');
+    q.delete('refresh_token');
+    const path = hash.slice(0, qIndex);
+    const rest = q.toString();
+    const next = rest ? `${path}?${rest}` : path;
+    history.replaceState(null, '', `${window.location.pathname}${window.location.search}${next}`);
+    return true;
+  }
+
   async syncFromEnvironment(): Promise<void> {
-    const info = await this.environment.ensureLoaded();
-    if (info.auth.skipLogin) {
+    try {
+      this.captureRedirectTokens?.();
+      const info = await this.environment.ensureLoaded();
+      if (info.auth.skipLogin) {
+        this.skipAuth.set(true);
+      } else if (!this.accessToken()) {
+        this.skipAuth.set(false);
+        sessionStorage.removeItem('chapterly.skip_auth');
+      }
+    } catch {
+      // env call failed — do not leave the shell blank
       this.skipAuth.set(true);
+    } finally {
+      this.ready.set(true);
     }
   }
 
@@ -110,7 +150,9 @@ export class AuthService {
     try {
       const env = await this.environment.ensureLoaded();
       if (env.auth.googleConfigured) return true;
-      const info = await firstValueFrom(this.http.get<{ enabled: boolean }>(this.api('/oauth/google')));
+      const info = await firstValueFrom(
+        this.http.get<{ enabled: boolean }>(this.api('/oauth/google')),
+      );
       return info.enabled;
     } catch {
       return false;
@@ -132,7 +174,9 @@ export class AuthService {
   logout(): void {
     const raw = this.tokenSig();
     if (raw) {
-      this.http.post(this.api('/oauth/revoke'), { token: raw }).subscribe({ error: () => undefined });
+      this.http
+        .post(this.api('/oauth/revoke'), { token: raw })
+        .subscribe({ error: () => undefined });
     }
     this.clear();
     this.skipAuth.set(false);

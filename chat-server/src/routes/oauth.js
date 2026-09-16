@@ -281,6 +281,22 @@ router.get('/google/start', (req, res) => {
   res.redirect(started.url);
 });
 
+
+function spaOrigin() {
+  return process.env.CHAPTERLY_SPA_ORIGIN || 'http://localhost:4200';
+}
+
+function spaLogin() {
+  return `${spaOrigin()}/#/login`;
+}
+
+function spaChatFrom(returnTo) {
+  const base = returnTo || `${spaOrigin()}/#/chat`;
+  if (base.includes('#/login')) return base.replace('#/login', '#/chat');
+  if (base.includes('#/')) return base;
+  return `${base.replace(/\/$/, '')}/#/chat`;
+}
+
 /**
  * @openapi
  * /api/oauth/google/callback:
@@ -290,32 +306,37 @@ router.get('/google/start', (req, res) => {
  */
 router.get('/google/callback', async (req, res) => {
   if (req.query.error) {
-    const started = { returnTo: null };
-    const fallback = appendHashParams(
-      `${process.env.CHAPTERLY_SPA_ORIGIN || 'http://localhost:4200'}/#/login`,
-      { error: String(req.query.error) }
-    );
-    return res.redirect(fallback);
+    return res.redirect(appendHashParams(spaLogin(), { error: String(req.query.error) }));
   }
 
   try {
     const result = await finishGoogleLogin({
       code: req.query.code,
-      state: req.query.state
+      state: req.query.state,
     });
-    const returnTo = result.returnTo
-      || `${process.env.CHAPTERLY_SPA_ORIGIN || 'http://localhost:4200'}/#/login`;
+    const returnTo = result.returnTo || spaLogin();
     if (result.error) {
-      return res.redirect(appendHashParams(returnTo, { error: result.error }));
+      return res.redirect(
+        appendHashParams(returnTo.includes('#/login') ? returnTo : spaLogin(), {
+          error: result.error,
+        }),
+      );
     }
-    return res.redirect(appendHashParams(returnTo, { code: result.code }));
+
+    const issued = issueTokensFromAuthorizationCode(result.code);
+    if (issued.error) {
+      return res.redirect(appendHashParams(spaLogin(), { error: issued.error }));
+    }
+
+    return res.redirect(
+      appendHashParams(spaChatFrom(returnTo), {
+        access_token: issued.token.access_token,
+        refresh_token: issued.token.refresh_token || undefined,
+      }),
+    );
   } catch (err) {
     console.error('Google callback failed:', err.message);
-    const fallback = appendHashParams(
-      `${process.env.CHAPTERLY_SPA_ORIGIN || 'http://localhost:4200'}/#/login`,
-      { error: 'google_login_failed' }
-    );
-    return res.redirect(fallback);
+    return res.redirect(appendHashParams(spaLogin(), { error: 'google_login_failed' }));
   }
 });
 

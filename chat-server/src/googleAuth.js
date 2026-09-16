@@ -82,8 +82,8 @@ function startLogin(returnTo) {
   if (!isConfigured()) return { error: 'Google login is not configured', status: 503 };
   const cfg = googleConfig();
   gcPending();
-  const state = crypto.randomBytes(24).toString();
-  const nonce = crypto.randomBytes(24).toString();
+  const state = crypto.randomBytes(24).toString('base64url');
+  const nonce = crypto.randomBytes(24).toString('base64url');
   pending.set(state, {
     nonce,
     returnTo: allowedReturnTo(returnTo, cfg.spaOrigin),
@@ -166,7 +166,7 @@ async function upsertGoogleUser({ subject, email, name }) {
     const id = uuidv4();
     const now = new Date().toISOString();
     const username = uniqueUsername(email, subject);
-    const passwordHash = await hashPassword(crypto.randomBytes(32).toString());
+    const passwordHash = await hashPassword(crypto.randomBytes(32).toString('hex'));
     db.prepare(`
       INSERT INTO users (id, username, email, phone_number, password_hash, is_admin, created_at, updated_at)
       VALUES (?, ?, ?, NULL, ?, 0, ?, ?)

@@ -245,7 +245,8 @@ function normalizeContingent(input) {
 
 function normalizeTopicClaim(raw) {
   if (!raw || typeof raw !== 'object') return null;
-  const workspaceId = raw.workspace_id || raw.client_id || raw.id;
+  const workspaceId =
+    raw.workspaceId || raw.workspace_id || raw.client_id || raw.clientId || raw.id;
   if (!workspaceId) return null;
   let access = raw.access || raw.role;
   if (!access && Array.isArray(raw.scopes)) access = topicAccessFromScopes(raw.scopes);

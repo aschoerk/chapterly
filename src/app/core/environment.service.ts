@@ -107,16 +107,24 @@ export class EnvironmentService {
   private async fetch(): Promise<EnvironmentInfo> {
     try {
       return await firstValueFrom(
-        this.http.get<EnvironmentInfo>(`${getServerConfig().apiBase}/environment`)
+        this.http.get<EnvironmentInfo>(`${getServerConfig().apiBase}/environment`),
       );
     } catch {
-      if (isElectron()) return fallbackLocal;
       return {
-        ...fallbackLocal,
         runtime: 'docker-dev',
         electron: false,
         docker: true,
-        localShell: true
+        localShell: true,
+        partlySqlite: false,
+        storage: { profile: 'sqlite-all', sqlite: [], idb: [] },
+        auth: {
+          login: 'direct',
+          username: null,
+          userId: null,
+          googleConfigured: false,
+          required: true,
+          skipLogin: false,
+        },
       };
     }
   }

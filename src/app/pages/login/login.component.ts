@@ -31,6 +31,20 @@ export class LoginComponent implements OnInit {
       void this.router.navigateByUrl('/chat');
       return;
     }
+    if (this.auth.captureRedirectTokens()) {
+      void this.router.navigateByUrl('/chat');
+      return;
+    }
+    this.route.queryParamMap.subscribe((q) => {
+      const oauthError = q.get('error');
+      if (oauthError) this.error.set(oauthError);
+      if (q.get('access_token') && this.auth.captureRedirectTokens()) {
+        void this.router.navigateByUrl('/chat');
+        return;
+      }
+      const code = q.get('code');
+      if (code) void this.finishGoogle(code);
+    });
     void this.auth.googleEnabled().then((on: boolean) => this.googleEnabled.set(on));
     const code = this.route.snapshot.queryParamMap.get('code');
     const oauthError = this.route.snapshot.queryParamMap.get('error');
