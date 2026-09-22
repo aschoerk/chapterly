@@ -37,6 +37,29 @@
           }
         }
       }
+    },
+    {
+      "label": "chapterly-sqlite: docker compose up",
+      "type": "shell",
+      "command": "docker compose -f docker-compose.chapterly-sqlite.yml up",
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      }
+    },
+    {
+      "label": "chapterly-sqlite: docker compose up -d",
+      "type": "shell",
+      "command": "docker compose -f docker-compose.chapterly-sqlite.yml up -d",
+      "problemMatcher": []
+    },
+    {
+      "label": "chapterly-sqlite: docker compose down",
+      "type": "shell",
+      "command": "docker compose -f docker-compose.chapterly-sqlite.yml down",
+      "problemMatcher": []
     }
+
   ]
 }

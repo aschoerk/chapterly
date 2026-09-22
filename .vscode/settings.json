@@ -1,0 +1,17 @@
+{
+    "sqltools.useNodeRuntime": true,
+    "sqltools.connections": [
+        {
+            "previewLimit": 50,
+            "driver": "SQLite",
+            "database": "${workspaceFolder:chapterly}/chapterly-api-server/data/chapterly.sqlite",
+            "name": "chaptery"
+        },
+        {
+            "previewLimit": 50,
+            "driver": "SQLite",
+            "database": "${workspaceFolder:chapterly}/chat-server-js/data/chat.db",
+            "name": "chat"
+        }
+    ]
+}

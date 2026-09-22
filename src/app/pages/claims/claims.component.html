@@ -13,11 +13,7 @@
 
   <section class="section">
     <h2>{{ i18n.t('claims.session') }}</h2>
-    @if (auth.accessToken()) {
-      <pre class="claims-json">{{ tokenClaims() | json }}</pre>
-    } @else {
       <p class="hint">{{ i18n.t('claims.noToken') }}</p>
-    }
   </section>
 
   <section class="section">

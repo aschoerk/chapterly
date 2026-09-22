@@ -1,6 +1,6 @@
 # Production image for Cloud Run: SPA + proxy in one process.
 FROM node:22-trixie AS web
-WORKDIR /src
+WORKDIR /angular
 COPY package.json package-lock.json ./
 RUN npm ci
 COPY angular.json tsconfig.json tsconfig.app.json ./
@@ -13,9 +13,9 @@ WORKDIR /app
 RUN apt-get update \
   && apt-get install -y --no-install-recommends python3 make g++ \
   && rm -rf /var/lib/apt/lists/*
-COPY chat-server/package.json chat-server/package-lock.json ./
+COPY chat-server-js/package.json chat-server-js/package-lock.json ./
 RUN npm ci --omit=dev
-COPY chat-server/ ./
+COPY chat-server-js/ ./
 COPY --from=web /out/browser ./public
 ENV NODE_ENV=production
 
