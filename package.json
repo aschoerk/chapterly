@@ -6,9 +6,10 @@
   "scripts": {
     "start": "ng serve",
     "build": "ng build --output-path=electron/renderer",
-    "electron:dev": "concurrently -k \"ng serve\" \"wait-on http://localhost:4200 && electron .\"",
-    "electron:build": "npm run build && electron-builder",
-    "electron": "electron .",
+    "build:server": "npm run build --prefix chapterly-api-server",
+    "electron:dev": "npm run build:server && concurrently -k \"ng serve\" \"wait-on http://localhost:4200 && electron .\"",
+    "electron:build": "npm run build:server && npm run build && electron-builder",
+    "electron": "npm run build:server && electron .",
     "test": "ng test",
     "test:server": "npm test --prefix chapterly-api-server",
     "docker:dev:build": "docker build -f Dockerfile.dev -t chapterly-dev .",
