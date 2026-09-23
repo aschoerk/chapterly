@@ -252,6 +252,12 @@ export const DE = {
     hintThinkingLevelBody: 'Entspricht OpenAI reasoning_effort: none, minimal, low, medium, high. Wird genutzt, wenn Denken aktiv ist. none schaltet Reasoning aus. Leer erbt die Katalogvorgabe des Modells, falls vorhanden.'
   },
   config: {
+    nav: {
+      label: 'Einstellungen',
+      appearance: 'Darstellung',
+      providers: 'Anbieter / Modelle',
+      tasks: 'Generierungsaufgaben'
+    },
     appearance: {
       title: 'Darstellung',
       hint: 'Das Farbschema wird in diesem Browser gespeichert. „System“ folgt der Hell-/Dunkel-Einstellung des Betriebssystems.',
@@ -341,6 +347,33 @@ export const DE = {
       audio: 'Audio',
       video: 'Video',
       file: 'Datei'
+    },
+    generation: {
+      title: 'Generierungsaufgaben',
+      hint: 'Wählen Sie, welcher Anbieter/das Modell und welcher Prompt für jede automatisierte Aufgabe verwendet werden. Lassen Sie eine Aufgabe leer, um auf das Standardmodell der aktiven Umgebung/des aktuellen Themas zurückzugreifen.',
+      inherit: '— erben / nicht gesetzt —',
+      reset: 'Zurücksetzen',
+      provider: 'Anbieter',
+      model: 'Modell',
+      modelPh: 'Modell wählen oder ID eingeben',
+      noModels: 'Keine aktivierten Modelle für diesen Anbieter. Aktivieren Sie welche in der obigen Liste.',
+      prompt: 'Prompt',
+      promptPh: 'Optionaler Prompt-Vorlagentext für diese Aufgabe',
+      emptyProviders: 'Fügen Sie einen Anbieter hinzu und aktivieren Sie Modelle, um Generierungsaufgaben zu konfigurieren.',
+      tasks: {
+        title: 'Titel',
+        headings: 'Überschriften',
+        overview: 'Überblicke',
+        'image-create': 'Bilderzeugung',
+        'image-interpret': 'Bildinterpretation'
+      },
+      hints: {
+        title: 'Wird zum Vorschlagen oder Erzeugen von Titeln verwendet. Das Modell muss Klartext ausgeben.',
+        headings: 'Wird zur Erzeugung von Kapitel-/Abschnittsüberschriften verwendet. Das Modell muss Klartext ausgeben.',
+        overview: 'Wird zur Erstellung von Zusammenfassungen/Überblicken verwendet. Das Modell muss Klartext ausgeben.',
+        'image-create': 'Wird zur Erzeugung von Bildern aus einer Beschreibung verwendet. Das Modell muss Bildausgabe unterstützen.',
+        'image-interpret': 'Wird zur Beschreibung/Interpretation von Bildern verwendet. Das Modell muss Bildeingabe unterstützen.'
+      }
     }
   }
 };

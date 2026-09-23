@@ -252,6 +252,12 @@ export const EN = {
     hintThinkingLevelBody: 'Maps to OpenAI reasoning_effort: none, minimal, low, medium, high. Used when thinking is on. none turns reasoning off. Empty inherits the model catalog default if any.'
   },
   config: {
+    nav: {
+      label: 'Settings',
+      appearance: 'Appearance',
+      providers: 'Providers / Models',
+      tasks: 'Generation Tasks'
+    },
     appearance: {
       title: 'Appearance',
       hint: 'Theme is stored in this browser. System follows the OS light/dark setting.',
@@ -341,6 +347,33 @@ export const EN = {
       audio: 'Audio',
       video: 'Video',
       file: 'File'
+    },
+    generation: {
+      title: 'Generation tasks',
+      hint: 'Choose which provider/model and prompt are used for each automated task. Leave a task empty to fall back to the default model of the active environment/topic.',
+      inherit: '— inherit / not set —',
+      reset: 'Reset',
+      provider: 'Provider',
+      model: 'Model',
+      modelPh: 'Select a model or type its ID',
+      noModels: 'No enabled models for this provider. Enable some in the list above.',
+      prompt: 'Prompt',
+      promptPh: 'Optional prompt template for this task',
+      emptyProviders: 'Add a provider and enable models to configure generation tasks.',
+      tasks: {
+        title: 'Titles',
+        headings: 'Headings',
+        overview: 'Overviews',
+        'image-create': 'Image creation',
+        'image-interpret': 'Image interpretation'
+      },
+      hints: {
+        title: 'Used to suggest or generate titles. Model must output plain text.',
+        headings: 'Used to generate chapter / section headings. Model must output plain text.',
+        overview: 'Used to create summaries / overviews. Model must output plain text.',
+        'image-create': 'Used to generate images from a description. Model must accept image output.',
+        'image-interpret': 'Used to describe / interpret images. Model must accept image input.'
+      }
     }
   }
 };

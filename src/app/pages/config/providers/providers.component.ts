@@ -1,27 +1,23 @@
 import { Component, inject, signal, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { SettingsService } from '../../core/settings.service';
-import { ProviderConfig, ModelEntry, ModelArchitecture } from '../../models/chat-config';
-import { Router } from '@angular/router';
-import { ThemeService } from '../../core/theme.service';
-import { I18nService } from '../../core/i18n/i18n.service';
-import { ChatParametersService } from '../../core/chat-parameters.service';
-import { ChatParametersEditorComponent } from '../../components/chat-parameters-editor/chat-parameters-editor.component';
-import { ChatParametersDraft, ResolvedChatParameters, draftFromParameters, emptyParametersDraft } from '../../models/chat-parameters';
+import { SettingsService } from '../../../core/settings.service';
+import { ProviderConfig, ModelEntry, ModelArchitecture } from '../../../models/chat-config';
+import { I18nService } from '../../../core/i18n/i18n.service';
+import { ChatParametersService } from '../../../core/chat-parameters.service';
+import { ChatParametersEditorComponent } from '../../../components/chat-parameters-editor/chat-parameters-editor.component';
+import { ChatParametersDraft, ResolvedChatParameters, draftFromParameters, emptyParametersDraft } from '../../../models/chat-parameters';
 
 @Component({
-  selector: 'app-config',
+  selector: 'app-config-providers',
   standalone: true,
   imports: [CommonModule, FormsModule, ChatParametersEditorComponent],
-  templateUrl: './config.component.html',
-  styleUrl: './config.component.css'
+  templateUrl: './providers.component.html',
+  styleUrl: '../config-shared.css'
 })
-export class ConfigComponent {
+export class ProvidersComponent {
   private readonly settings = inject(SettingsService);
   private readonly parameters = inject(ChatParametersService);
-  private readonly router = inject(Router);
-  readonly theme = inject(ThemeService);
   readonly i18n = inject(I18nService);
 
   // Signals from service
@@ -132,7 +128,6 @@ export class ConfigComponent {
     this.showDisabledOnly.set(value);
     if (value) this.showEnabledOnly.set(false);
   }
-
 
   // ---------- Provider actions ----------
   openAddProvider() {
@@ -344,23 +339,16 @@ export class ConfigComponent {
     return this.providers().find(p => p.id === providerId)?.name ?? this.i18n.t('config.models.unknownProvider');
   }
 
-  async goToChat() {
-    await this.router.navigate(['/chat']);
-  }
-
   // ---------- Architecture helper methods ----------
 
-  // Check if a modality is selected for input
   isInputModalitySelected(modality: string): boolean {
     return this.presetArchitecture.input_modalities.includes(modality);
   }
 
-  // Check if a modality is selected for output
   isOutputModalitySelected(modality: string): boolean {
     return this.presetArchitecture.output_modalities.includes(modality);
   }
 
-  // Toggle input modality selection
   toggleInputModality(modality: string): void {
     const current = this.presetArchitecture.input_modalities;
     if (current.includes(modality)) {
@@ -370,7 +358,6 @@ export class ConfigComponent {
     }
   }
 
-  // Toggle output modality selection
   toggleOutputModality(modality: string): void {
     const current = this.presetArchitecture.output_modalities;
     if (current.includes(modality)) {
@@ -380,14 +367,12 @@ export class ConfigComponent {
     }
   }
 
-  // Create modality string like "text+image->text"
   createModalityString(inputs: string[], outputs: string[]): string {
     const inputStr = inputs.length > 0 ? inputs.join('+') : 'none';
     const outputStr = outputs.length > 0 ? outputs.join('+') : 'none';
     return `${inputStr}->${outputStr}`;
   }
 
-  // Format architecture for display
   formatArchitecture(architecture?: ModelArchitecture): string {
     if (!architecture) return this.i18n.t('config.models.architectureUnset');
     return architecture.modality ||

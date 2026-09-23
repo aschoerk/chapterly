@@ -1,0 +1,41 @@
+<div>
+  <section class="section">
+    <div class="section-header">
+      <h2>{{ i18n.t('config.appearance.title') }}</h2>
+    </div>
+    <p class="hint">{{ i18n.t('config.appearance.hint') }}</p>
+    <div class="theme-picker">
+      <label class="theme-option" [class.on]="theme.preference() === 'light'">
+        <input type="radio" name="theme" value="light"
+               [checked]="theme.preference() === 'light'"
+               (change)="theme.setPreference('light')" />
+        {{ i18n.t('config.appearance.themeLight') }}
+      </label>
+      <label class="theme-option" [class.on]="theme.preference() === 'dark'">
+        <input type="radio" name="theme" value="dark"
+               [checked]="theme.preference() === 'dark'"
+               (change)="theme.setPreference('dark')" />
+        {{ i18n.t('config.appearance.themeDark') }}
+      </label>
+      <label class="theme-option" [class.on]="theme.preference() === 'system'">
+        <input type="radio" name="theme" value="system"
+               [checked]="theme.preference() === 'system'"
+               (change)="theme.setPreference('system')" />
+        {{ i18n.t('config.appearance.themeSystem') }}
+      </label>
+      <span class="theme-resolved">{{ i18n.t('config.appearance.themeActive', { theme: i18n.t('config.theme.' + theme.resolved()) }) }}</span>
+    </div>
+
+    <p class="hint lang-hint">{{ i18n.t('config.appearance.languageHint') }}</p>
+    <div class="theme-picker">
+      @for (opt of i18n.locales; track opt.id) {
+        <label class="theme-option" [class.on]="i18n.locale() === opt.id">
+          <input type="radio" name="locale" [value]="opt.id"
+                 [checked]="i18n.locale() === opt.id"
+                 (change)="i18n.setLocale(opt.id)" />
+          {{ opt.label }}
+        </label>
+      }
+    </div>
+  </section>
+</div>

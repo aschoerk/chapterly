@@ -1,11 +1,4 @@
-.config-page {
-  color: var(--text);
-  background: var(--bg-page);
-  max-width: 960px;
-  margin: 0 auto;
-  padding: 1.5rem;
-  font-family: system-ui, sans-serif;
-}
+/* Shared styles for the /config subpages (Appearance, Providers/Models, Generation Tasks). */
 
 .page-header {
   display: flex;
@@ -29,6 +22,12 @@
   justify-content: space-between;
   align-items: center;
   margin-bottom: 1rem;
+}
+
+.hint {
+  margin: 0 0 0.75rem;
+  color: var(--color-text-secondary, #666);
+  font-size: 0.85rem;
 }
 
 .card {
@@ -85,7 +84,6 @@
   color: #fff;
   border-color: var(--color-primary, #2563eb);
 }
-
 
 .btn.primary {
   background: var(--color-primary, #2563eb);
@@ -205,6 +203,8 @@
   width: 100%;
   max-width: 420px;
   box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
+  max-height: min(90vh, 760px);
+  overflow: auto;
 }
 
 .modal h3 {
@@ -262,13 +262,6 @@
   font-size: 0.75rem;
 }
 
-
-
-.modal {
-  max-height: min(90vh, 760px);
-  overflow: auto;
-}
-
 .modalities-compact {
   display: flex;
   flex-direction: column;
@@ -313,7 +306,6 @@
   color: #fff;
 }
 
-
 .theme-picker {
   display: flex;
   flex-wrap: wrap;
@@ -338,7 +330,57 @@
   color: var(--text-active, #1e40af);
 }
 
-.theme-resolved {
-  font-size: 0.75rem;
+/* Generation tasks */
+.gen-task-card {
+  padding: 1rem 1.1rem;
+}
+
+.gen-hint {
+  margin: 0 0 0.75rem;
+  font-size: 0.85rem;
+  color: var(--color-text-secondary, #555);
+}
+
+.gen-fields {
+  display: grid;
+  grid-template-columns: minmax(150px, 1fr) minmax(220px, 1.6fr) 2fr;
+  gap: 0.9rem;
+  align-items: start;
+}
+
+.gen-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text, #333);
+}
+
+.gen-field select,
+.gen-field input,
+.gen-field textarea {
+  width: 100%;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--color-input-border, #ccc);
+  border-radius: 6px;
+  box-sizing: border-box;
+  font-size: 0.875rem;
+}
+
+.gen-field textarea {
+  font-family: inherit;
+  resize: vertical;
+  line-height: 1.4;
+}
+
+.gen-empty {
   color: var(--color-text-muted, #888);
+  font-weight: normal;
+}
+
+@media (max-width: 760px) {
+  .gen-fields {
+    grid-template-columns: 1fr;
+  }
 }

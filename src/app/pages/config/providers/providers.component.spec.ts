@@ -4,41 +4,20 @@ import { provideZonelessChangeDetection } from '@angular/core';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { provideRouter } from '@angular/router';
-import { ConfigComponent } from './config.component';
-import { CHAT_API } from '../../api/chat-api.token';
-import { SettingsService } from '../../core/settings.service';
-import { ThemeService } from '../../core/theme.service';
-import { I18nService } from '../../core/i18n/i18n.service';
-import {InMemoryChatApi} from '../../../../test-helpers/in-memory-chat-api';
+import { ProvidersComponent } from './providers.component';
+import { CHAT_API } from '../../../api/chat-api.token';
+import { SettingsService } from '../../../core/settings.service';
+import { I18nService } from '../../../core/i18n/i18n.service';
+import { InMemoryChatApi } from '../../../../../test-helpers/in-memory-chat-api';
 
-
-
-describe('ConfigComponent', () => {
-  let fixture: ComponentFixture<ConfigComponent>;
-  let component: ConfigComponent;
+describe('ProvidersComponent', () => {
+  let fixture: ComponentFixture<ProvidersComponent>;
+  let component: ProvidersComponent;
   let api: InMemoryChatApi;
   let settings: SettingsService;
   let http: HttpTestingController;
 
-  function stubMatchMedia(matches = false) {
-    Object.defineProperty(window, 'matchMedia', {
-      writable: true,
-      configurable: true,
-      value: vi.fn().mockImplementation((query: string) => ({
-        matches,
-        media: query,
-        onchange: null,
-        addListener: vi.fn(),
-        removeListener: vi.fn(),
-        addEventListener: vi.fn(),
-        removeEventListener: vi.fn(),
-        dispatchEvent: vi.fn()
-      }))
-    });
-  }
-
   beforeEach(async () => {
-    stubMatchMedia(false);
     api = new InMemoryChatApi();
     localStorage.removeItem('chat.theme');
     localStorage.removeItem('chat.view.locale');
@@ -47,7 +26,7 @@ describe('ConfigComponent', () => {
     vi.spyOn(window, 'confirm').mockReturnValue(true);
 
     await TestBed.configureTestingModule({
-      imports: [ConfigComponent],
+      imports: [ProvidersComponent],
       providers: [
         provideZonelessChangeDetection(),
         provideRouter([]),
@@ -61,7 +40,7 @@ describe('ConfigComponent', () => {
     http = TestBed.inject(HttpTestingController);
     TestBed.inject(I18nService).setLocale('en');
 
-    fixture = TestBed.createComponent(ConfigComponent);
+    fixture = TestBed.createComponent(ProvidersComponent);
     component = fixture.componentInstance;
     component.i18n.setLocale('en');
     await settings.loadAll();
@@ -82,13 +61,12 @@ describe('ConfigComponent', () => {
     expect(text).toContain('No providers configured yet.');
   });
 
-  it('switches settings chrome to German without touching story content', () => {
+  it('switches providers chrome to German', () => {
     component.i18n.setLocale('de');
     fixture.detectChanges();
     const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
-    expect(text).toContain('Darstellung');
     expect(text).toContain('Noch keine Anbieter eingerichtet.');
-    expect(text).toContain('Stories, Eingaben und Modellantworten bleiben unverändert.');
+    expect(text).toContain('Verfügbare Modelle / Voreinstellungen');
   });
 
   it('refuses to save a provider without an API key', () => {
@@ -218,16 +196,6 @@ describe('ConfigComponent', () => {
 
     await component.toggleEnabled(model.id);
     expect(settings.models()[0].enabled).toBe(false);
-  });
-
-  it('stores the theme preference without touching the server', () => {
-    const theme = TestBed.inject(ThemeService);
-    component.theme.setPreference('dark');
-
-    expect(theme.preference()).toBe('dark');
-    expect(theme.resolved()).toBe('dark');
-    expect(localStorage.getItem('chat.theme')).toBe('dark');
-    expect(document.documentElement.dataset['theme']).toBe('dark');
   });
 
   it('tests a provider via the proxy HttpClient mock, not the chat-server', async () => {

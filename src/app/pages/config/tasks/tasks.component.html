@@ -1,0 +1,71 @@
+<div>
+  <!-- ==================== GENERATION TASKS ==================== -->
+  <section class="section">
+    <div class="section-header">
+      <h2>{{ i18n.t('config.generation.title') }}</h2>
+    </div>
+    <p class="hint">{{ i18n.t('config.generation.hint') }}</p>
+
+    @for (task of generationTasks; track task) {
+      @if (generationConfig(task); as cfg) {
+        <div class="card gen-task-card">
+          <div class="card-header">
+            <strong>{{ generationTaskLabel(task) }}</strong>
+            <button
+              class="btn small"
+              [disabled]="!cfg.providerId && !cfg.modelId && !cfg.prompt"
+              (click)="resetTask(task)">
+              {{ i18n.t('config.generation.reset') }}
+            </button>
+          </div>
+          <p class="gen-hint">{{ generationHint(task) }}</p>
+          <div class="gen-fields">
+            <label class="gen-field">
+              <span>{{ i18n.t('config.generation.provider') }}</span>
+              <select
+                [ngModel]="cfg.providerId"
+                (ngModelChange)="onTaskProviderChange($event, task)">
+                <option value="">{{ i18n.t('config.generation.inherit') }}</option>
+                @for (provider of providers(); track provider.id) {
+                  <option [value]="provider.id">{{ provider.name }}</option>
+                }
+              </select>
+            </label>
+
+            <label class="gen-field">
+              <span>{{ i18n.t('config.generation.model') }}</span>
+              <input
+                [attr.list]="'gen-models-' + task"
+                [ngModel]="cfg.modelId"
+                [placeholder]="i18n.t('config.generation.modelPh')"
+                (ngModelChange)="onTaskModelChange($event, task)"
+              />
+              <datalist id="gen-models-{{ task }}">
+                @for (m of modelsForTask(task); track m.id) {
+                  <option [value]="m.modelId">{{ m.displayName }} · {{ m.modelId }}</option>
+                }
+              </datalist>
+              @if (modelsForTask(task).length === 0) {
+                <small class="gen-empty">{{ i18n.t('config.generation.noModels') }}</small>
+              }
+            </label>
+
+            <label class="gen-field gen-prompt">
+              <span>{{ i18n.t('config.generation.prompt') }}</span>
+              <textarea
+                rows="2"
+                [ngModel]="cfg.prompt"
+                [placeholder]="i18n.t('config.generation.promptPh')"
+                (ngModelChange)="onTaskPromptChange($event, task)"
+              ></textarea>
+            </label>
+          </div>
+        </div>
+      }
+    }
+
+    @if (providers().length === 0) {
+      <p class="empty">{{ i18n.t('config.generation.emptyProviders') }}</p>
+    }
+  </section>
+</div>

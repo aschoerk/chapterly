@@ -1,0 +1,18 @@
+<div class="config-shell">
+  <aside class="config-sidebar">
+    <nav class="config-nav" [attr.aria-label]="i18n.t('config.nav.label')">
+      @for (tab of tabs; track tab.path) {
+        <a
+          class="config-nav-item"
+          [routerLink]="tab.path"
+          routerLinkActive="active"
+          [routerLinkActiveOptions]="{ exact: true }">
+          {{ i18n.t(tab.labelKey) }}
+        </a>
+      }
+    </nav>
+  </aside>
+  <main class="config-content">
+    <router-outlet />
+  </main>
+</div>
