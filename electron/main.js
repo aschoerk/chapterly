@@ -43,6 +43,12 @@ async function startServer() {
   // process that reads process.env.PORT (store, server, SPA query param) agrees.
   process.env.PORT = String(port);
 
+  // Electron owns where the DB lives — it must survive app upgrades,
+  // so use userData (the per-user config dir), not the install dir.
+  const dbFile = path.join(app.getPath('userData'), 'data', 'chapterly.sqlite');
+  process.env.SQLITE_PATH = dbFile;
+  fs.mkdirSync(path.dirname(dbFile), { recursive: true });
+
   const serverDist = path.join(__dirname, '..', 'chapterly-api-server', 'dist', 'http', 'create-app.js');
   const factoryDist = path.join(__dirname, '..', 'chapterly-api-server', 'dist', 'persistence', 'factory.js');
 

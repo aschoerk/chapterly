@@ -3,6 +3,8 @@ import path from 'node:path';
 import type { PersistenceKind, PersistencePort } from '../domain/chat-api.port.js';
 import { MemoryPersistence } from './memory/memory-persistence.js';
 import { SnapshotPersistence } from './snapshot-store.js';
+import { createRequire } from 'node:module';
+const require = createRequire(import.meta.url);
 
 function env(name: string): string | undefined {
   const value = process.env[name];
@@ -22,14 +24,6 @@ export function detectPersistenceKind(): PersistenceKind {
 function sqlitePath(): string {
   const explicit = env('SQLITE_PATH');
   if (explicit) return explicit;
-  if (process.versions.electron) {
-    try {
-      const electron = require('electron') as { app: { getPath: (name: string) => string } };
-      return path.join(electron.app.getPath('userData'), 'data', 'chapterly.sqlite');
-    } catch {
-      // fall through
-    }
-  }
   return path.join(process.cwd(), 'data', 'chapterly.sqlite');
 }
 
@@ -50,6 +44,7 @@ export async function createPersistence(): Promise<PersistencePort> {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const { SqlitePersistence } = await import('./sqlite/sqlite-persistence.js');
   const store = new SqlitePersistence(file);
+  console.log(`Using SQLite persistence at ${file}`);
   await store.init();
   return store;
 }
