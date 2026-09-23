@@ -47,6 +47,7 @@ class InMemoryChatApi implements Pick<
   | 'getModels' | 'createModel' | 'updateModel' | 'deleteModel' | 'toggleModelEnabled'
   | 'getChatParameters' | 'getChatParameter' | 'createChatParameters'
   | 'updateChatParameters' | 'deleteChatParameters'
+  | 'searchChatIds'
 > {
   chats: Chat[] = [];
   nodes: ChatNode[] = [];
@@ -121,6 +122,22 @@ class InMemoryChatApi implements Pick<
     const row = this.must(this.chats, id, 'Chat');
     Object.assign(row, data, { updated_at: new Date().toISOString() });
     return { ...row };
+  }
+
+  /** Chat ids whose title or any node content matches q (server-LIKE semantics). */
+  async searchChatIds(q: string): Promise<string[]> {
+    const needle = (q || '').toLowerCase();
+    const hits: string[] = [];
+    for (const chat of this.chats) {
+      if ((chat.title || '').toLowerCase().includes(needle)) {
+        hits.push(chat.id);
+        continue;
+      }
+      if (this.nodes.some(n => n.chatId === chat.id && (n.content || '').toLowerCase().includes(needle))) {
+        hits.push(chat.id);
+      }
+    }
+    return hits;
   }
 
   // ---------- Nodes ----------

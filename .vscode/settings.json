@@ -13,5 +13,6 @@
             "database": "${workspaceFolder:chapterly}/chat-server-js/data/chat.db",
             "name": "chat"
         }
-    ]
+    ],
+    "chat.agent.maxRequests": 100
 }
