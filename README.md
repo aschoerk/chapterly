@@ -188,6 +188,7 @@ To build the installer yourself on Windows:
 
 ```bash
 npm install
+npm install --prefix chapterly-api-server # bundled API server dependencies
 npm run electron:build
 ```
 
@@ -208,6 +209,7 @@ The `.exe` installer is written to the `dist/` folder.
 git clone https://github.com/aschoerk/chapterly.git
 cd chapterly
 npm install
+npm install --prefix chapterly-api-server # bundled API server dependencies
 ```
 
 ### Run in development mode
@@ -227,6 +229,10 @@ This starts:
 ```bash
 npm run electron:build
 ```
+
+> The bundled API server (`chapterly-api-server`) is a separate npm package.
+> Install its dependencies once before building if you have not already
+> (`npm install --prefix chapterly-api-server`).
 
 The resulting AppImage can be found in the `dist/` folder.
 
