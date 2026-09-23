@@ -47,3 +47,14 @@ Thumbs.db
 /.env
 /src/assets/proxy-config.json
 /openrouter-proxy/logs/
+/openrouter-proxy/node_modules/*
+/chat-server-js/data/*
+/chat-server-js/node_modules/*
+/chat-server-js/dist/*
+/chapterly-api-server/data/*
+/chapterly-api-server/node_modules/*
+/chapterly-api-server/dist/*
+.env.chapterly-sqlite
+electron/renderer/browser/main-QLIOCCAN.js
+electron/renderer/browser/styles-Z42P5B2C.css
+electron/renderer/browser/index.html

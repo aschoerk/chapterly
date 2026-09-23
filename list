@@ -1,0 +1,12 @@
+[ {
+  "description": "node.js instance",
+  "devtoolsFrontendUrl": "devtools://devtools/bundled/js_app.html?experiments=true&v8only=true&ws=127.0.0.1:9229/d8442344-5ad1-405c-914a-840864196552",
+  "devtoolsFrontendUrlCompat": "devtools://devtools/bundled/inspector.html?experiments=true&v8only=true&ws=127.0.0.1:9229/d8442344-5ad1-405c-914a-840864196552",
+  "faviconUrl": "https://nodejs.org/static/images/favicons/favicon.ico",
+  "id": "d8442344-5ad1-405c-914a-840864196552",
+  "title": "dist/server.js",
+  "type": "node",
+  "url": "file:///app/dist/server.js",
+  "webSocketDebuggerUrl": "ws://127.0.0.1:9229/d8442344-5ad1-405c-914a-840864196552"
+} ]
+

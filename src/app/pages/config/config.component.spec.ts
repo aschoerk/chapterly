@@ -111,7 +111,7 @@ describe('ConfigComponent', () => {
       enabled: true
     };
     component.saveProvider();
-    fixture.whenStable();
+    await fixture.whenStable();
     fixture.detectChanges();
 
     expect(api.providers.length).toBe(1);

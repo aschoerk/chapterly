@@ -8,17 +8,16 @@ import { TopicsComponent } from './pages/topics/topics.component';
 import { ChatReaderComponent } from './pages/chat-reader/chat-reader.component';
 import { LoginComponent } from './pages/login/login.component';
 import { ClaimsComponent } from './pages/claims/claims.component';
-import { authGuard } from './core/auth.guard';
 
 export const routes: Routes = [
-  { path: 'login', component: LoginComponent },
-  { path: 'claims', component: ClaimsComponent, canActivate: [authGuard] },
-  { path: 'config', component: ConfigComponent, canActivate: [authGuard] },
-  { path: 'chat', component: ChatComponent, canActivate: [authGuard] },
-  { path: 'read', component: ChatReaderComponent, canActivate: [authGuard] },
-  { path: 'personas', component: PersonasComponent, canActivate: [authGuard] },
-  { path: 'topics', component: TopicsComponent, canActivate: [authGuard] },
-  { path: 'import', component: ImportComponent, canActivate: [authGuard] },
-  { path: 'projects', component: ProjectsComponent, canActivate: [authGuard] },
+  // { path: 'login', component: LoginComponent },
+  // { path: 'claims', component: ClaimsComponent, canActivate: [authGuard] },
+  { path: 'config', component: ConfigComponent},
+  { path: 'chat', component: ChatComponent},
+  { path: 'read', component: ChatReaderComponent},
+  { path: 'personas', component: PersonasComponent},
+  { path: 'topics', component: TopicsComponent},
+  { path: 'import', component: ImportComponent},
+  { path: 'projects', component: ProjectsComponent},
   { path: '', redirectTo: 'chat', pathMatch: 'full' }
 ];

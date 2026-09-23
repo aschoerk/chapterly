@@ -3,6 +3,7 @@ import { describe, expect, it, beforeEach } from 'vitest';
 import { ConfirmService, type ConfirmRequest } from './confirm.service';
 import { NodeEditSession } from './node-edit-session';
 import { NodeAttachment } from '../models/chat';
+import { makeAttachment } from '../../../test-helpers/factories';
 
 type BeginArgs = {
   chatId: string;
@@ -11,16 +12,7 @@ type BeginArgs = {
   attachments: NodeAttachment[];
 };
 
-function attachment(
-  partial: Partial<NodeAttachment> & Pick<NodeAttachment, 'id' | 'name'>
-): NodeAttachment {
-  return {
-    mimeType: 'text/plain',
-    size: 4,
-    dataUrl: 'data:text/plain;base64,dGVzdA==',
-    ...partial
-  };
-}
+const attachment = makeAttachment;
 
 function target(partial: Partial<BeginArgs> = {}): BeginArgs {
   return {

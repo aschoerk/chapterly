@@ -2,7 +2,6 @@ import { Component, OnInit, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
-import { AuthService } from '../../core/auth.service';
 import { I18nService } from '../../core/i18n/i18n.service';
 
 @Component({
@@ -13,7 +12,6 @@ import { I18nService } from '../../core/i18n/i18n.service';
   styleUrl: './login.component.css'
 })
 export class LoginComponent implements OnInit {
-  private readonly auth = inject(AuthService);
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
   readonly i18n = inject(I18nService);
@@ -25,46 +23,15 @@ export class LoginComponent implements OnInit {
   readonly googleEnabled = signal(false);
 
   async ngOnInit(): Promise<void> {
-    // Electron and local Docker (sqlite-all or chats in IDB) skip login.
-    await this.auth.syncFromEnvironment();
-    if (this.auth.skipAuth()) {
-      void this.router.navigateByUrl('/chat');
-      return;
-    }
-    if (this.auth.captureRedirectTokens()) {
-      void this.router.navigateByUrl('/chat');
-      return;
-    }
-    this.route.queryParamMap.subscribe((q) => {
-      const oauthError = q.get('error');
-      if (oauthError) this.error.set(oauthError);
-      if (q.get('access_token') && this.auth.captureRedirectTokens()) {
-        void this.router.navigateByUrl('/chat');
-        return;
-      }
-      const code = q.get('code');
-      if (code) void this.finishGoogle(code);
-    });
-    void this.auth.googleEnabled().then((on: boolean) => this.googleEnabled.set(on));
-    const code = this.route.snapshot.queryParamMap.get('code');
-    const oauthError = this.route.snapshot.queryParamMap.get('error');
-    if (oauthError) {
-      this.error.set(oauthError);
-    }
-    if (code) {
-      void this.finishGoogle(code);
-    }
   }
 
   google(): void {
-    this.auth.startGoogleLogin();
   }
 
   private async finishGoogle(code: string): Promise<void> {
     this.error.set(null);
     this.busy.set(true);
     try {
-      await this.auth.exchangeCode(code);
       await this.router.navigateByUrl('/chat');
     } catch (err: unknown) {
       const http = err as { error?: { error?: string }; status?: number };
@@ -78,7 +45,6 @@ export class LoginComponent implements OnInit {
     this.error.set(null);
     this.busy.set(true);
     try {
-      await this.auth.login(this.username.trim(), this.password);
       await this.router.navigateByUrl('/chat');
     } catch (err: unknown) {
       const http = err as { error?: { error?: string }; status?: number };
@@ -89,7 +55,6 @@ export class LoginComponent implements OnInit {
   }
 
   skip(): void {
-    this.auth.continueWithoutToken();
     void this.router.navigateByUrl('/chat');
   }
 }

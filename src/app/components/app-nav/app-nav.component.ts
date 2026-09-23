@@ -1,6 +1,5 @@
 import { Component, computed, inject } from '@angular/core';
 import { Router, RouterLink, RouterLinkActive } from '@angular/router';
-import { AuthService } from '../../core/auth.service';
 import { EnvironmentService } from '../../core/environment.service';
 import { I18nService } from '../../core/i18n/i18n.service';
 
@@ -19,7 +18,6 @@ interface AppNavLink {
   styleUrl: './app-nav.component.css'
 })
 export class AppNavComponent {
-  readonly auth = inject(AuthService);
   readonly environment = inject(EnvironmentService);
   readonly i18n = inject(I18nService);
   private readonly router = inject(Router);
@@ -40,7 +38,6 @@ export class AppNavComponent {
   });
 
   logout(): void {
-    this.auth.logout();
     void this.router.navigateByUrl('/login');
   }
 }

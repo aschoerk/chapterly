@@ -2,7 +2,6 @@ import { ChatMessage, ChatNode } from '../../models/chat';
 import { ModelEntry } from '../../models/chat-config';
 import { getServerConfig } from '../common/server-config';
 import { inject, Injectable } from '@angular/core';
-import { AuthService } from '../auth.service';
 import { ChatService } from '../chat.service';
 import { ChatParametersService } from '../chat-parameters.service';
 import { normalizeChatMessages } from './llm-message';
@@ -17,7 +16,6 @@ export class LlmService {
   private readonly chatService = inject(ChatService);
   private readonly projectService = inject(ProjectService);
   private readonly parameters = inject(ChatParametersService);
-  private readonly auth = inject(AuthService);
 
   async askLlm(
     providerBaseUrl: string,
@@ -46,12 +44,9 @@ export class LlmService {
     const response =    await fetch(`${config.proxyBase}/chat/completions`, {
       method: 'POST',
       headers: {
-        ...this.auth.proxyAuthHeaders({
-          apiKey,
-          providerBaseUrl,
-          providerId
-        }),
+        Authorization: `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
+        'x-target-base': providerBaseUrl,
         'HTTP-Referer': 'https://chat-client.local',
         'X-Title': 'Chapterly'
       },

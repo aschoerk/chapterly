@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu } = require('electron');
+const { app, BrowserWindow, Menu, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const net = require('net');
@@ -28,19 +28,47 @@ function findFreePort(startPort = 3847) {
 }
 
 /**
- * Starts the chat-server on a free port.
+ * Starts the chapterly-api-server on a free port.
+ *
+ * The server is written in TypeScript and shipped as compiled ESM in
+ * chapterly-api-server/dist (see Dockerfile.dev, which runs `node dist/server.js`).
+ * We run it in-process: createPersistence() picks the sqlite store (kept under
+ * the Electron userData dir), then createApp(store) serves the REST API and,
+ * if present, the built Angular SPA.
  */
 async function startServer() {
   const port = await findFreePort(3847);
 
-  // Important: set the port before requiring the server
+  // Important: set the port before the server is created so every part of the
+  // process that reads process.env.PORT (store, server, SPA query param) agrees.
   process.env.PORT = String(port);
 
-  const { createApp } = require('../chat-server/src/app');
-  const expressApp = createApp();
+  // Electron owns where the DB lives — it must survive app upgrades,
+  // so use userData (the per-user config dir), not the install dir.
+  const dbFile = path.join(app.getPath('userData'), 'data', 'chapterly.sqlite');
+  process.env.SQLITE_PATH = dbFile;
+  fs.mkdirSync(path.dirname(dbFile), { recursive: true });
+
+  const serverDist = path.join(__dirname, '..', 'chapterly-api-server', 'dist', 'http', 'create-app.js');
+  const factoryDist = path.join(__dirname, '..', 'chapterly-api-server', 'dist', 'persistence', 'factory.js');
+
+  if (!fs.existsSync(serverDist) || !fs.existsSync(factoryDist)) {
+    throw new Error(
+      'chapterly-api-server/dist is missing or incomplete.\n' +
+      'Build it first with:  cd chapterly-api-server && npm run build'
+    );
+  }
+
+  // chapterly-api-server is an ES module ("type": "module") — load it with a
+  // dynamic import instead of require().
+  const { createPersistence } = await import(`file://${factoryDist}`);
+  const { createApp } = await import(`file://${serverDist}`);
+
+  const store = await createPersistence();
+  const expressApp = createApp(store);
 
   const server = expressApp.listen(port, '127.0.0.1', () => {
-    console.log(`✅ Chat server running on http://localhost:${port} (started by Electron)`);
+    console.log(`✅ chapterly-api-server running on http://localhost:${port} (${store.kind}) (started by Electron)`);
   });
 
   return { port, server };
@@ -50,8 +78,20 @@ async function startServer() {
  * Creates the main application window.
  */
 async function createWindow() {
-  const { port, server } = await startServer();
-  serverInstance = server;
+  let port;
+  try {
+    const started = await startServer();
+    port = started.port;
+    serverInstance = started.server;
+  } catch (err) {
+    console.error('❌ Failed to start chapterly-api-server:', err);
+    dialog.showErrorBox(
+      'Chapterly',
+      `Could not start the local API server:\n\n${err.message}`
+    );
+    app.quit();
+    return;
+  }
 
   // In-app nav already has Stories / Read / … — hide the native File/Window menu
   // that otherwise sits on top of the Chapterly header.
@@ -138,7 +178,7 @@ function cleanup() {
   if (serverInstance) {
     try {
       serverInstance.close();
-      console.log('Chat server closed');
+      console.log('chapterly-api-server closed');
     } catch (e) {
       console.warn('Error closing server:', e);
     }

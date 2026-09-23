@@ -14,56 +14,36 @@ import {
   Project,
   Topic
 } from '../../models/chat';
+import {
+  makeNode,
+  makePersona,
+  makeProject,
+  makeTopic
+} from '../../../../test-helpers/factories';
 
 const NOW = '2026-09-03T00:00:00.000Z';
 
-function topic(partial: Partial<Topic> & Pick<Topic, 'id' | 'name'>): Topic {
-  return {
-    description: '',
-    defaultModelId: null,
-    defaultSystemPrompt: '',
-    icon: '',
-    projectIds: [],
-    createdAt: NOW,
-    updatedAt: NOW,
-    ...partial
-  };
+// Deterministic wrappers over the shared test-helpers factories: llm-context
+// freezes timestamps at NOW so its serialization assertions are stable.
+function topic(partial: Partial<Topic> = {}): Topic {
+  return makeTopic({ createdAt: NOW, updatedAt: NOW, ...partial });
 }
 
-function project(partial: Partial<Project> & Pick<Project, 'id' | 'name'>): Project {
-  return {
-    greeting: '',
-    systemPrompt: '',
-    defaultModelId: null,
-    avatar: '',
-    personaIds: [],
-    createdAt: NOW,
-    updatedAt: NOW,
-    ...partial
-  };
+function project(partial: Partial<Project> = {}): Project {
+  return makeProject({ createdAt: NOW, updatedAt: NOW, ...partial });
 }
 
-function persona(partial: Partial<Persona> & Pick<Persona, 'id' | 'name'>): Persona {
-  return {
-    shortName: partial.name.slice(0, 2),
-    description: '',
-    avatar: '',
+function persona(partial: Partial<Persona> = {}): Persona {
+  return makePersona({
     createdAt: NOW,
     updatedAt: NOW,
+    shortName: partial.name?.slice(0, 2),
     ...partial
-  };
+  });
 }
 
 function node(partial: Partial<ChatNode> & Pick<ChatNode, 'id' | 'role'>): ChatNode {
-  return {
-    chatId: 'chat-1',
-    parentId: null,
-    content: '',
-    version: 1,
-    isCurrent: true,
-    createdAt: NOW,
-    ...partial
-  };
+  return makeNode({ createdAt: NOW, updatedAt: NOW, ...partial });
 }
 
 function seed(input: Partial<SeedEnvironmentInput> & Pick<SeedEnvironmentInput, 'project'>): ReturnType<typeof buildSeedNodeDrafts> {

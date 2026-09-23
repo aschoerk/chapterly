@@ -3,7 +3,6 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
-import { AuthService, TokenClaims } from '../../core/auth.service';
 import { getServerConfig } from '../../core/common/server-config';
 import { I18nService } from '../../core/i18n/i18n.service';
 
@@ -37,7 +36,6 @@ interface GrantRow {
 })
 export class ClaimsComponent {
   private readonly http = inject(HttpClient);
-  readonly auth = inject(AuthService);
   readonly i18n = inject(I18nService);
 
   readonly users = signal<UserRow[]>([]);
@@ -58,8 +56,8 @@ export class ClaimsComponent {
     return `${getServerConfig().apiBase}${path}`;
   }
 
-  tokenClaims(): TokenClaims | null {
-    return this.auth.claims();
+  tokenClaims(): null {
+    return null;
   }
 
   async reload(): Promise<void> {

@@ -10,7 +10,6 @@ import { ChatNode, NodeAttachment, ChatMessage } from '../../models/chat';
 import { MarkdownService } from '../../core/markdown.service';
 import {ModelEntry} from '../../models/chat-config';
 import {NodeEditSession} from '../../core/node-edit-session';
-import {ConfirmDialogComponent} from '../confirm-dialog/confirm-dialog.component';
 import {ConfirmService} from '../../core/confirm.service';
 import {LlmService} from '../../core/llm/llm.service';
 import { ChatParametersService } from '../../core/chat-parameters.service';

@@ -1,0 +1,33 @@
+# Equivalent of IntelliJ run config: chapterly-sqlite
+# Usage (repo root):
+#   docker compose -f docker-compose.chapterly-sqlite.yml up
+#
+# Build the image first if needed:
+#   docker build -t chapterly-dev:latest -f path/to/Dockerfile .
+
+services:
+  chapterly-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    image: chapterly-dev:latest
+    container_name: chapterly-dev
+    env_file:
+      - .env.chapterly-sqlite
+    environment:
+      CHAPTERLY_DOCKER: "1"
+      CHAPTERLY_RUNTIME: docker-dev
+      NODE_OPTIONS: --inspect-wait=0.0.0.0:9229
+      PORT: "8080"
+    ports:
+      - "8080:8080"
+      - "9229:9229"
+    volumes:
+      - ./chapterly-api-server/data:/app/data
+      - ./dist/chat/browser:/app/public
+      - ./chapterly-api-server/dist:/app/dist
+      - ./chapterly-api-server/src:/app/src
+    # Keep container running even if the process waits on the debugger
+    stdin_open: true
+    tty: true
+    restart: "no"

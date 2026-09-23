@@ -3,6 +3,13 @@
   "version": "0.2.0",
   "configurations": [
     {
+      "name": "Launch Integrated Browser",
+      "request": "launch",
+      "type": "editor-browser",
+      "url": "http://localhost:4200",
+      "webRoot": "${workspaceFolder}"
+    },
+    {
       "name": "ng serve",
       "type": "chrome",
       "request": "launch",
@@ -15,6 +22,34 @@
       "request": "launch",
       "preLaunchTask": "npm: test",
       "url": "http://localhost:9876/debug.html"
+    },
+    {
+      "name": "Docker: attach chapterly-dev",
+      "type": "node",
+      "request": "attach",
+      "address": "localhost",
+      "port": 9229,
+      "restart": true,
+      "protocol": "inspector",
+      "sourceMaps": true,
+      "skipFiles": ["<node_internals>/**", "**/node_modules/**"],
+      "localRoot": "${workspaceFolder}/chapterly-api-server",
+      "remoteRoot": "/app",
+      "sourceMapPathOverrides": {
+        "/app/src/*": "${workspaceFolder}/chapterly-api-server/src/*",
+        "../src/*": "${workspaceFolder}/chapterly-api-server/src/*"
+      }
+    },
+     {
+      "name": "Attach Chapterly (Docker inspect 9229)",
+      "type": "node",
+      "request": "attach",
+      "address": "127.0.0.1",
+      "port": 9229,
+      "restart": true,
+      "localRoot": "${workspaceFolder}/chapterly-api-server",
+      "remoteRoot": "/app",
+      "skipFiles": ["<node_internals>/**"]
     }
   ]
 }

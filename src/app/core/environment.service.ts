@@ -77,6 +77,7 @@ export class EnvironmentService {
   readonly loginKind = computed(() => this.infoSig()?.auth.login ?? 'none');
   readonly skipLogin = computed(() => {
     const info = this.infoSig();
+    if (isElectron() || !!info?.localShell || !!info?.electron || !!info?.docker) return true;
     if (info?.auth.skipLogin != null) return info.auth.skipLogin;
     return isElectron() || !!info?.localShell || !!info?.electron || !!info?.docker;
   });
