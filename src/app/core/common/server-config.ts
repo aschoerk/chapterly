@@ -18,14 +18,20 @@ export function getServerConfig(): ServerConfig {
   const port = getServerPort();
   const fallback = `http://localhost:${port}`;
 
+  // Packaged Electron loads the SPA straight from disk (file:// …), where
+  // window.location.origin is the string "null" (or empty) — not usable as an
+  // API base. The local API server always answers on 127.0.0.1:<port>, so use
+  // the port-based fallback unless the page is served from a real http origin.
+  const base = localDev || !/^https?:/.test(origin) ? fallback : origin;
+
   // IndexedDB content only after a Google / OAuth access token exists.
   // Electron and skip/password stay on the local chat-server.
   const hasToken = typeof sessionStorage !== 'undefined'
     && !!sessionStorage.getItem('chapterly.access_token');
 
   return {
-    apiBase: `${localDev ? fallback : origin}/api`,
-    proxyBase: `${localDev ? fallback : origin}/proxy`,
+    apiBase: `${base}/api`,
+    proxyBase: `${base}/proxy`,
     mode: isElectron() && !hasToken ? "local" : "cloud"
   };
 }

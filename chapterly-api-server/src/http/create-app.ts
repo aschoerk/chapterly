@@ -23,7 +23,10 @@ export function createApp(store: PersistencePort) {
   const app = express();
   const spaRoot = publicDir();
 
-  app.use(cors({ origin: ['http://localhost:4200'] }));
+  // 'null' is the Origin the browser sends when the SPA is loaded from a
+  // file:// URL (packaged Electron). Allow it so the desktop app can reach the
+  // localhost API without being blocked by CORS.
+  app.use(cors({ origin: ['http://localhost:4200', 'null'] }));
   app.use(express.json({ limit: '10mb' }));
 
   app.get('/api/health', (_req, res) => {
