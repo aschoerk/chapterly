@@ -85,6 +85,21 @@
               {{ i18n.t('chat.params') }}
             </button>
             <span class="params-summary">{{ chatParamsSummary() }}</span>
+            <button class="btn small" type="button" [disabled]="isGeneratingStructure()"
+                    (click)="generateTitle()"
+                    [title]="i18n.t('chat.titleTitle')">
+              {{ isGeneratingStructure() && pendingStructure() === 'title' ? i18n.t('chat.generating') : i18n.t('chat.title') }}
+            </button>
+            <button class="btn small" type="button" [disabled]="isGeneratingStructure()"
+                    (click)="generateSummary()"
+                    [title]="i18n.t('chat.summaryTitle')">
+              {{ isGeneratingStructure() && pendingStructure() === 'overview' ? i18n.t('chat.generating') : i18n.t('chat.summary') }}
+            </button>
+            <button class="btn small" type="button" [disabled]="isGeneratingStructure()"
+                    (click)="generateHeadings()"
+                    [title]="i18n.t('chat.headingsTitle')">
+              {{ isGeneratingStructure() && pendingStructure() === 'headings' ? i18n.t('chat.generating') : i18n.t('chat.headings') }}
+            </button>
           </div>
           @if (showChatParams()) {
             <div class="params-popover">

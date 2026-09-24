@@ -19,6 +19,32 @@ function publicDir(): string {
   return candidates.find((dir) => fs.existsSync(path.join(dir, 'index.html'))) ?? candidates[0];
 }
 
+/**
+ * Central error handler for the API app. Must be registered AFTER the routes
+ * whose errors it should catch (Express only forwards to downstream handlers),
+ * e.g. the chat routes and the streaming /proxy route.
+ */
+export function errorHandler(err: unknown, res: Response): void {
+  // Safety net for streamed/partial responses (e.g. a proxy body that failed
+  // mid-stream): once headers are flushed we cannot send a status or body,
+  // so close the connection instead of crashing with ERR_HTTP_HEADERS_SENT.
+  if (res.headersSent) {
+    try { res.end(); } catch { /* client may already be gone */ }
+    return;
+  }
+  if (err instanceof HttpError) {
+    res.status(err.status).json({ error: err.message });
+    return;
+  }
+  const named = err as { name?: string };
+  if (named?.name === 'AbortError') {
+    res.end();
+    return;
+  }
+  const message = err instanceof Error ? err.message : 'internal error';
+  res.status(500).json({ error: message });
+}
+
 export function createApp(store: PersistencePort) {
   const app = express();
   const spaRoot = publicDir();
@@ -74,17 +100,7 @@ export function createApp(store: PersistencePort) {
   });
 
   app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
-    if (err instanceof HttpError) {
-      res.status(err.status).json({ error: err.message });
-      return;
-    }
-    const named = err as { name?: string };
-    if (named?.name === 'AbortError') {
-      res.end();
-      return;
-    }
-    const message = err instanceof Error ? err.message : 'internal error';
-    res.status(500).json({ error: message });
+    errorHandler(err, res);
   });
 
   return app;

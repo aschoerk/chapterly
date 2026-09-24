@@ -111,6 +111,16 @@ async function handleProxy(req: Request, res: Response, store: PersistencePort):
 
 export function registerProxyRoutes(app: Express, store: PersistencePort): void {
   app.use('/proxy', (req: Request, res: Response, next: NextFunction) => {
-    handleProxy(req, res, store).catch(next);
+    handleProxy(req, res, store).catch((err: unknown) => {
+      // Once the upstream stream is being piped, headers are already flushed
+      // and the body may be partially sent. Express can no longer produce an
+      // error payload — forwarding would trigger ERR_HTTP_HEADERS_SENT.
+      if (res.headersSent) {
+        console.error(`proxy error after response started: ${err instanceof Error ? err.message : err}`);
+        try { res.end(); } catch { /* client may already be gone */ }
+        return;
+      }
+      next(err);
+    });
   });
 }

@@ -52,8 +52,6 @@ export class ChatNodeComponent {
   readonly branchModelId = signal('');
   readonly isLoading = signal(false);
   readonly pendingAction = signal<'version' | 'branch' | 'insert' | 'send' | 'continue' | 'structure' | null>(null);
-  readonly structureTasks: GenerationTaskKind[] = ['title', 'headings', 'overview'];
-  readonly structureTask = signal<GenerationTaskKind>('headings');
   readonly showPreview = signal(false);
   /** Set by Cancel so auto-open does not immediately re-enter edit. */
   readonly editDismissed = signal(false);
@@ -543,13 +541,15 @@ export class ChatNodeComponent {
     });
   }
 
-  async generateStructure(placement: 'prepend' | 'insert' | 'append'): Promise<void> {
+  /** Generate a chapter heading for THIS assistant answer; only its text is used as context. */
+  async generateHeading(): Promise<void> {
     if (this.isLoading()) return;
     const node = this.node();
+    if (node.role !== 'assistant') return;
     const chatId = this.chatService.currentChatId();
     if (!chatId) return;
 
-    const task = this.structureTask();
+    const task: GenerationTaskKind = 'headings';
     const configuredModel = this.generation.modelFor(task);
     const model = configuredModel
       ?? this.enabledModels().find(m => m.modelId === this.resolvePreferredModelId(node));
@@ -567,9 +567,10 @@ export class ChatNodeComponent {
       const resolved = await this.llmService.resolveForCurrentChat(model);
       const config = this.generation.get(task);
       const instruction = config.prompt.trim() || this.defaultStructurePrompt(task);
-      const context = this.chatService.getActivePath()
-        .map(entry => `${entry.role}: ${entry.content}`)
-        .join('\n\n');
+
+      // The current chapter heading is derived from this single answer.
+      const context = node.content.trim();
+
       const result = await this.llmService.askLlm(
         provider.baseUrl,
         provider.apiKey,
@@ -587,9 +588,9 @@ export class ChatNodeComponent {
       const content = result.content.trim();
       if (!content) throw new Error(this.i18n.t('node.structureEmpty'));
 
-      const parentId = this.structureParentId(placement);
+      // The heading wraps this answer: it becomes the new parent (prepend placement).
       const created = await this.chatService.addNode(chatId, {
-        parentId,
+        parentId: node.parentId,
         role: 'structural',
         content,
         modelId: model.modelId,
@@ -599,13 +600,9 @@ export class ChatNodeComponent {
           || undefined
       });
 
-      if (placement === 'prepend') {
-        await this.chatService.reparentNodes(chatId, [node.id], created.id);
-        this.chatService.setActiveChild(node.parentId, created.id);
-        this.chatService.setActiveChild(created.id, node.id);
-      } else {
-        this.chatService.setActiveChild(parentId, created.id);
-      }
+      await this.chatService.reparentNodes(chatId, [node.id], created.id);
+      this.chatService.setActiveChild(node.parentId, created.id);
+      this.chatService.setActiveChild(created.id, node.id);
       this.activate.emit(created.id);
     } catch (err: any) {
       console.error(err);
@@ -614,13 +611,6 @@ export class ChatNodeComponent {
       this.isLoading.set(false);
       this.pendingAction.set(null);
     }
-  }
-
-  private structureParentId(placement: 'prepend' | 'insert' | 'append'): string | null {
-    if (placement === 'prepend') return this.node().parentId;
-    if (placement === 'insert') return this.node().id;
-    const path = this.chatService.getActivePath();
-    return (path[path.length - 1] ?? this.node()).id;
   }
 
   private defaultStructurePrompt(task: GenerationTaskKind): string {

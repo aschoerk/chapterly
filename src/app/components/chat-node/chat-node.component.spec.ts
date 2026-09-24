@@ -755,46 +755,56 @@ describe('ChatNodeComponent', () => {
   });
 
   describe('structure generation', () => {
-    it('generates a configured structure task as a child of the current node', async () => {
-      const q1 = node({ id: 'q1', content: 'Story context' });
-      await openChat([q1]);
-      createFixture(q1);
-      component.structureTask.set('title');
+    it('offers the heading button only on assistant nodes', () => {
+      createFixture(node({ role: 'user', content: 'Question' }));
+      expect(titleButton('Generate a chapter heading for this answer')).toBeNull();
 
-      await component.generateStructure('insert');
+      createFixture(node({ role: 'assistant', content: 'Answer' }));
+      expect(titleButton('Generate a chapter heading for this answer')).not.toBeNull();
+    });
+
+    it('generates a chapter heading that wraps the assistant answer', async () => {
+      const q1 = node({ id: 'q1', content: 'Story context' });
+      const a1 = node({ id: 'a1', chatId: 'chat-1', parentId: 'q1', role: 'assistant', content: 'Chapter text' });
+      await openChat([q1, a1]);
+      createFixture(a1);
+
+      await component.generateHeading();
 
       const generated = chatService.nodes().find(n => n.role === 'structural');
       expect(generated?.content).toBe('Generated structure');
       expect(generated?.parentId).toBe('q1');
       expect(generated?.modelId).toBe('alpha/model');
+      expect(chatService.nodes().find(n => n.id === 'a1')?.parentId).toBe(generated?.id);
       expect(llm.askLlm).toHaveBeenCalled();
       expect(emitted).toContain(generated?.id);
     });
 
-    it('prepends structure by making it the current node parent', async () => {
+    it('uses only the current node text as context', async () => {
+      const q1 = node({ id: 'q1', content: 'Story context' });
+      const a1 = node({ id: 'a1', chatId: 'chat-1', parentId: 'q1', role: 'assistant', content: 'Sole context' });
+      const a2 = node({ id: 'a2', chatId: 'chat-1', parentId: 'q1', role: 'assistant', content: 'Other answer' });
+      await openChat([q1, a1, a2]);
+      createFixture(a1);
+
+      await component.generateHeading();
+
+      const messages = llm.askLlm.mock.calls[0][3];
+      const userMsg = messages.find((m: { role: string }) => m.role === 'user');
+      expect(userMsg.content).toContain('Sole context');
+      expect(userMsg.content).not.toContain('Other answer');
+      expect(userMsg.content).not.toContain('Story context');
+    });
+
+    it('does nothing when called on a non-assistant node', async () => {
       const q1 = node({ id: 'q1', content: 'Story context' });
       await openChat([q1]);
       createFixture(q1);
 
-      await component.generateStructure('prepend');
+      await component.generateHeading();
 
-      const generated = chatService.nodes().find(n => n.role === 'structural');
-      expect(generated?.parentId).toBeNull();
-      expect(chatService.nodes().find(n => n.id === 'q1')?.parentId).toBe(generated?.id);
-    });
-
-    it('appends structure after the active path leaf', async () => {
-      const q1 = node({ id: 'q1', content: 'Story context' });
-      const a1 = node({ id: 'a1', parentId: 'q1', role: 'assistant', content: 'Chapter' });
-      await openChat([q1, a1]);
-      chatService.setActiveChild('q1', 'a1');
-      createFixture(q1);
-      const activeLeafId = chatService.getActivePath().at(-1)?.id;
-
-      await component.generateStructure('append');
-
-      const generated = chatService.nodes().find(n => n.role === 'structural');
-      expect(generated?.parentId).toBe(activeLeafId);
+      expect(llm.askLlm).not.toHaveBeenCalled();
+      expect(chatService.nodes().filter(n => n.role === 'structural').length).toBe(0);
     });
   });
 

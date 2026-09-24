@@ -14,6 +14,10 @@ import {SideBarComponent} from '../../components/side-bar/side-bar.component';
 import {Router} from '@angular/router';
 import {ProjectService} from '../../core/project.service';
 import { I18nService } from '../../core/i18n/i18n.service';
+import { LlmService } from '../../core/llm/llm.service';
+import { GenerationSettingsService } from '../../core/generation-settings.service';
+import { GenerationTaskKind } from '../../models/generation-task';
+import { ModelEntry, ProviderConfig } from '../../models/chat-config';
 
 @Component({
   selector: 'app-chat',
@@ -29,6 +33,8 @@ export class ChatComponent implements OnInit {
   private readonly settings = inject(SettingsService);
   private readonly lastModelService = inject(LastModelService);
   private readonly parameters = inject(ChatParametersService);
+  private readonly llmService = inject(LlmService);
+  private readonly generation = inject(GenerationSettingsService);
 
   readonly chats = this.chatService.chats;
   readonly currentChatId = this.chatService.currentChatId;
@@ -60,6 +66,8 @@ export class ChatComponent implements OnInit {
   readonly chatParamsDraft = signal<ChatParametersDraft>(emptyParametersDraft());
   readonly chatParamsInherited = signal<ResolvedChatParameters | null>(null);
   readonly chatParamsSummary = signal('defaults');
+  readonly isGeneratingStructure = signal(false);
+  readonly pendingStructure = signal<string | null>(null);
 
   private resizeStartX = 0;
   private resizeStartWidth = 0;
@@ -377,6 +385,200 @@ export class ChatComponent implements OnInit {
   onChatParamsChanged(event: { override: boolean; draft: ChatParametersDraft }) {
     this.chatParamsOverride.set(event.override);
     this.chatParamsDraft.set(event.draft);
+  }
+
+  /** Generate a title for the whole story (context = all assistant nodes). */
+  async generateTitle(): Promise<void> {
+    await this.runStructureGeneration('title');
+  }
+
+  /** Generate a summary of the whole story (context = all assistant nodes). */
+  async generateSummary(): Promise<void> {
+    await this.runStructureGeneration('overview');
+  }
+
+  /** Shared generation for the chat-level Title / Summary buttons. */
+  private async runStructureGeneration(task: GenerationTaskKind): Promise<void> {
+    const chatId = this.currentChatId();
+    if (!chatId || this.isGeneratingStructure()) return;
+
+    const resolvedModel = this.resolveStructureModel(task);
+    if (!resolvedModel) {
+      alert(this.i18n.t('node.structureModelMissing'));
+      return;
+    }
+    const { model, provider } = resolvedModel;
+
+    this.isGeneratingStructure.set(true);
+    this.pendingStructure.set(task);
+    try {
+      const resolved = await this.llmService.resolveForCurrentChat(model);
+      const config = this.generation.get(task);
+      const instruction = config.prompt.trim() || this.defaultStructurePrompt(task);
+
+      // Whole-story context: the text of every current assistant node.
+      const context = this.chatService.currentNodes()
+        .filter(n => n.isCurrent && n.role === 'assistant' && n.content?.trim())
+        .map(n => n.content)
+        .join('\n\n');
+
+      const result = await this.llmService.askLlm(
+        provider.baseUrl,
+        provider.apiKey,
+        model.modelId,
+        [{
+          role: 'user',
+          content: `${instruction}\n\nCurrent chat context:\n${context || '(empty chat)'}\n\nReturn only the resulting text.`
+        }],
+        resolved.stream,
+        undefined,
+        undefined,
+        this.llmService.toLlmExtras(resolved),
+        model.providerId
+      );
+      const content = result.content.trim();
+      if (!content) throw new Error(this.i18n.t('node.structureEmpty'));
+
+      if (task === 'title') {
+        // The title wraps the whole story: insert at root above the first node.
+        const first = this.chatService.getActiveChild(null);
+        const created = await this.addStructureNode(chatId, null, content, model);
+        if (first) {
+          await this.chatService.reparentNodes(chatId, [first.id], created.id);
+          this.chatService.setActiveChild(null, created.id);
+          this.chatService.setActiveChild(created.id, first.id);
+        } else {
+          this.chatService.setActiveChild(null, created.id);
+        }
+        // The generated title also becomes the chat/story title.
+        await this.chatService.updateChatTitle(chatId, content);
+      } else {
+        // The summary lands at the end of the active path.
+        const path = this.chatService.getActivePath();
+        const parentId = path[path.length - 1]?.id ?? null;
+        const created = await this.addStructureNode(chatId, parentId, content, model);
+        this.chatService.setActiveChild(parentId, created.id);
+      }
+    } catch (err: any) {
+      console.error(err);
+      alert(this.i18n.t('node.structureFailed', { error: err?.message || err }));
+    } finally {
+      this.isGeneratingStructure.set(false);
+      this.pendingStructure.set(null);
+    }
+  }
+
+  /** Generate a heading for EVERY assistant node on the active path. */
+  async generateHeadings(): Promise<void> {
+    const chatId = this.currentChatId();
+    if (!chatId || this.isGeneratingStructure()) return;
+
+    const resolvedModel = this.resolveStructureModel('headings');
+    if (!resolvedModel) {
+      alert(this.i18n.t('node.structureModelMissing'));
+      return;
+    }
+    const { model, provider } = resolvedModel;
+
+    this.isGeneratingStructure.set(true);
+    this.pendingStructure.set('headings');
+    try {
+      const resolved = await this.llmService.resolveForCurrentChat(model);
+      const config = this.generation.get('headings');
+      const instruction = config.prompt.trim() || this.defaultStructurePrompt('headings');
+
+      // The active path is the linear reading order of the story.
+      const assistants = this.chatService.getActivePath()
+        .filter(n => n.role === 'assistant' && n.content?.trim());
+
+      const nodeById = new Map(this.chatService.currentNodes().map(n => [n.id, n]));
+      const previous: { node: ChatNode; heading: ChatNode }[] = [];
+      for (const assistant of assistants) {
+        // A chapter counts as headed when its parent is a structural node.
+        // Already-headed chapters are kept in the context but not regenerated.
+        const parent = assistant.parentId ? nodeById.get(assistant.parentId) : undefined;
+        if (parent?.role === 'structural') {
+          previous.push({ node: assistant, heading: parent });
+          continue;
+        }
+
+        // Context = earlier chapters (incl. their generated headings) + the current one.
+        const blocks: string[] = previous.map(({ node, heading }) =>
+          `Chapter — heading: "${heading.content}"\n\nContent:\n${node.content}`);
+        blocks.push(`Chapter — heading: (to be created)\n\nContent:\n${assistant.content}`);
+
+        const result = await this.llmService.askLlm(
+          provider.baseUrl,
+          provider.apiKey,
+          model.modelId,
+          [{
+            role: 'user',
+            content: `${instruction}\n\nThe following chapters are listed in story order. Every chapter already has a heading EXCEPT the LAST one.\nGenerate the heading for the LAST chapter only; use the earlier chapters to match the style.\n\n${blocks.join('\n\n')}\n\nReturn only the heading text.`
+          }],
+          resolved.stream,
+          undefined,
+          undefined,
+          this.llmService.toLlmExtras(resolved),
+          model.providerId
+        );
+        const headingContent = result.content.trim();
+        if (!headingContent) throw new Error(this.i18n.t('node.structureEmpty'));
+
+        // Wrap this chapter under a new structural heading (same parent as the answer).
+        const heading = await this.chatService.addNode(chatId, {
+          parentId: assistant.parentId,
+          role: 'structural',
+          content: headingContent,
+          modelId: model.modelId,
+          providerId: model.providerId,
+          chatParametersId: this.chatService.chats().find(c => c.id === chatId)?.chatParametersId
+            || model.chatParametersId
+            || undefined
+        });
+        await this.chatService.reparentNodes(chatId, [assistant.id], heading.id);
+        this.chatService.setActiveChild(assistant.parentId, heading.id);
+        this.chatService.setActiveChild(heading.id, assistant.id);
+
+        previous.push({ node: assistant, heading });
+      }
+    } catch (err: any) {
+      console.error(err);
+      alert(this.i18n.t('node.structureFailed', { error: err?.message || err }));
+    } finally {
+      this.isGeneratingStructure.set(false);
+      this.pendingStructure.set(null);
+    }
+  }
+
+  /** Resolve the model+provider for an authoring task, or null if unset/unknown. */
+  private resolveStructureModel(task: GenerationTaskKind): { model: ModelEntry; provider: ProviderConfig } | null {
+    const configuredModel = this.generation.modelFor(task);
+    const model = configuredModel
+      ?? this.enabledModels().find(m =>
+        m.modelId === this.lastModelService.selectedModelId() ||
+        m.id === this.lastModelService.selectedModelId())
+      ?? this.enabledModels()[0];
+    if (!model) return null;
+    const provider = this.settings.providers().find(p => p.id === model.providerId);
+    return provider ? { model, provider } : null;
+  }
+
+  private async addStructureNode(chatId: string, parentId: string | null, content: string, model: ModelEntry): Promise<ChatNode> {
+    return this.chatService.addNode(chatId, {
+      parentId,
+      role: 'structural',
+      content,
+      modelId: model.modelId,
+      providerId: model.providerId,
+      chatParametersId: this.chatService.chats().find(c => c.id === chatId)?.chatParametersId
+        || model.chatParametersId
+        || undefined
+    });
+  }
+
+  private defaultStructurePrompt(task: GenerationTaskKind): string {
+    if (task === 'title') return 'Generate a concise title for this story.';
+    return 'Generate a concise overview of this story so far.';
   }
 
   async saveChatParams() {

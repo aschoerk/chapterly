@@ -368,32 +368,15 @@
         }
       </button>
 
-      <div class="structure-actions">
-        <select class="structure-task"
-                [ngModel]="structureTask()"
-                (ngModelChange)="structureTask.set($event)"
-                [disabled]="isLoading()"
-                [title]="i18n.t('node.structureTaskTitle')">
-          @for (task of structureTasks; track task) {
-            <option [value]="task">{{ i18n.t('config.generation.tasks.' + task) }}</option>
-          }
-        </select>
-        <button class="btn-icon" type="button" [disabled]="isLoading()"
-                (click)="generateStructure('prepend'); $event.stopPropagation()"
-                [title]="i18n.t('node.prependStructureTitle')">
-          {{ isLoading() && pendingAction() === 'structure' ? i18n.t('node.generatingStructure') : i18n.t('node.prepend') }}
-        </button>
-        <button class="btn-icon" type="button" [disabled]="isLoading()"
-                (click)="generateStructure('insert'); $event.stopPropagation()"
-                [title]="i18n.t('node.insertStructureTitle')">
-          {{ i18n.t('node.insertStructure') }}
-        </button>
-        <button class="btn-icon" type="button" [disabled]="isLoading()"
-                (click)="generateStructure('append'); $event.stopPropagation()"
-                [title]="i18n.t('node.appendStructureTitle')">
-          {{ i18n.t('node.append') }}
-        </button>
-      </div>
+      @if (node().role === 'assistant') {
+        <div class="structure-actions">
+          <button class="btn-icon" type="button" [disabled]="isLoading()"
+                  (click)="generateHeading(); $event.stopPropagation()"
+                  [title]="i18n.t('node.addHeadingTitle')">
+            {{ isLoading() && pendingAction() === 'structure' ? i18n.t('node.generatingStructure') : i18n.t('node.addHeading') }}
+          </button>
+        </div>
+      }
 
       @if (showClosedContinue()) {
         <button class="btn-icon" type="button"
