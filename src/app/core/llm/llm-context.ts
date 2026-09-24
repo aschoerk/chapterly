@@ -109,10 +109,12 @@ export interface BuildLlmMessagesInput {
  * is always appended as a user message (attachments via nodeToMessageContent).
  */
 export function buildLlmMessages(input: BuildLlmMessagesInput): ChatMessage[] {
-  const history = pathToNode(input.nodes, input.contextParentId).map(n => ({
-    role: n.role,
-    content: nodeToMessageContent(n)
-  }));
+  const history = pathToNode(input.nodes, input.contextParentId)
+    .filter((n): n is ChatNode & { role: ChatMessage['role'] } => n.role !== 'structural')
+    .map(n => ({
+      role: n.role,
+      content: nodeToMessageContent(n)
+    }));
 
   const question: Pick<ChatNode, 'content' | 'attachments'> = input.extra
     ? {

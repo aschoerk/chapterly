@@ -36,7 +36,12 @@ describe('ChatNodeComponent', () => {
   let chatService: ChatService;
   let settings: SettingsService;
   let confirm: ConfirmService;
-  let llm: { streamAnswer: ReturnType<typeof vi.fn> };
+  let llm: {
+    streamAnswer: ReturnType<typeof vi.fn>;
+    askLlm: ReturnType<typeof vi.fn>;
+    resolveForCurrentChat: ReturnType<typeof vi.fn>;
+    toLlmExtras: ReturnType<typeof vi.fn>;
+  };
   let emitted: string[];
 
   beforeEach(async () => {
@@ -62,6 +67,9 @@ describe('ChatNodeComponent', () => {
         {
           provide: LlmService,
           useValue: {
+            askLlm: vi.fn(async () => ({ content: 'Generated structure', thinking: '' })),
+            resolveForCurrentChat: vi.fn(async () => ({ stream: false })),
+            toLlmExtras: vi.fn(() => ({})),
             streamAnswer: vi.fn(async (
               chatId: string,
               questionNodeId: string,
@@ -93,7 +101,12 @@ describe('ChatNodeComponent', () => {
     chatService = TestBed.inject(ChatService);
     settings = TestBed.inject(SettingsService);
     confirm = TestBed.inject(ConfirmService);
-    llm = TestBed.inject(LlmService) as unknown as { streamAnswer: ReturnType<typeof vi.fn> };
+    llm = TestBed.inject(LlmService) as unknown as {
+      streamAnswer: ReturnType<typeof vi.fn>;
+      askLlm: ReturnType<typeof vi.fn>;
+      resolveForCurrentChat: ReturnType<typeof vi.fn>;
+      toLlmExtras: ReturnType<typeof vi.fn>;
+    };
     TestBed.inject(I18nService).setLocale('en');
 
     await settings.loadAll();
@@ -738,6 +751,50 @@ describe('ChatNodeComponent', () => {
 
       expect(llm.streamAnswer).not.toHaveBeenCalled();
       expect(chatService.nodes().filter(n => n.role === 'user' && n.content === 'Should not insert').length).toBe(0);
+    });
+  });
+
+  describe('structure generation', () => {
+    it('generates a configured structure task as a child of the current node', async () => {
+      const q1 = node({ id: 'q1', content: 'Story context' });
+      await openChat([q1]);
+      createFixture(q1);
+      component.structureTask.set('title');
+
+      await component.generateStructure('insert');
+
+      const generated = chatService.nodes().find(n => n.role === 'structural');
+      expect(generated?.content).toBe('Generated structure');
+      expect(generated?.parentId).toBe('q1');
+      expect(generated?.modelId).toBe('alpha/model');
+      expect(llm.askLlm).toHaveBeenCalled();
+      expect(emitted).toContain(generated?.id);
+    });
+
+    it('prepends structure by making it the current node parent', async () => {
+      const q1 = node({ id: 'q1', content: 'Story context' });
+      await openChat([q1]);
+      createFixture(q1);
+
+      await component.generateStructure('prepend');
+
+      const generated = chatService.nodes().find(n => n.role === 'structural');
+      expect(generated?.parentId).toBeNull();
+      expect(chatService.nodes().find(n => n.id === 'q1')?.parentId).toBe(generated?.id);
+    });
+
+    it('appends structure after the active path leaf', async () => {
+      const q1 = node({ id: 'q1', content: 'Story context' });
+      const a1 = node({ id: 'a1', parentId: 'q1', role: 'assistant', content: 'Chapter' });
+      await openChat([q1, a1]);
+      chatService.setActiveChild('q1', 'a1');
+      createFixture(q1);
+      const activeLeafId = chatService.getActivePath().at(-1)?.id;
+
+      await component.generateStructure('append');
+
+      const generated = chatService.nodes().find(n => n.role === 'structural');
+      expect(generated?.parentId).toBe(activeLeafId);
     });
   });
 

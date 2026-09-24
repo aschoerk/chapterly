@@ -778,7 +778,7 @@ export const openApiSpec: OpenApiDocument = {
           id: { type: 'string' },
           chatId: { type: 'string' },
           parentId: { type: 'string', nullable: true },
-          role: { type: 'string', enum: ['system', 'user', 'assistant'] },
+          role: { type: 'string', enum: ['system', 'user', 'assistant', 'structural'] },
           content: { type: 'string' },
           thinking: { type: 'string', nullable: true },
           modelId: { type: 'string', nullable: true },
@@ -799,7 +799,7 @@ export const openApiSpec: OpenApiDocument = {
         required: ['role', 'content'],
         properties: {
           parentId: { type: 'string', nullable: true },
-          role: { type: 'string', enum: ['system', 'user', 'assistant'] },
+          role: { type: 'string', enum: ['system', 'user', 'assistant', 'structural'] },
           content: { type: 'string' },
           thinking: { type: 'string' },
           modelId: { type: 'string' },

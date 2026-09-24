@@ -779,7 +779,7 @@ export class MemoryPersistence implements PersistencePort {
     patch: { content: string; attachments?: NodeAttachment[]; thinking?: string },
   ): ChatNode {
     const old = this.requireNode(chatId, nodeId);
-    if (old.role !== 'system' && old.role !== expected) {
+    if (old.role !== 'system' && old.role !== 'structural' && old.role !== expected) {
       throw badRequest(`Only ${expected}s can be versioned this way`);
     }
     const ts = now();

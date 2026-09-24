@@ -117,11 +117,69 @@ export class SqlitePersistence implements PersistencePort {
     this.addColumn('models', 'catalog_json', 'TEXT');
     this.addColumn('models', 'chat_parameters_id', 'TEXT');
     this.addColumn('chat_parameters', 'top_p', 'REAL');
+    this.migrateChatNodeRoles();
   }
 
   private addColumn(table: string, column: string, definition: string): void {
     const columns = this.db.prepare(`PRAGMA table_info(${table})`).all() as Row[];
     if (!columns.some((row) => row.name === column)) this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  }
+
+  private migrateChatNodeRoles(): void {
+    const schema = this.row("SELECT sql FROM sqlite_master WHERE type='table' AND name='chat_nodes'");
+    if (typeof schema?.sql !== 'string' || !/role\s+TEXT[^,]*CHECK\s*\(\s*role\s+IN\s*\(/i.test(schema.sql)) return;
+
+    const columns = this.db.prepare('PRAGMA table_info(chat_nodes)').all() as Row[];
+    const names = columns.map((column) => column.name as string);
+    const standard = new Set([
+      'id', 'chat_id', 'parent_id', 'role', 'content', 'thinking', 'model_id', 'provider_id',
+      'version', 'previous_version_id', 'prompt_tokens', 'completion_tokens', 'attachments',
+      'is_current', 'created_at', 'updated_at', 'chat_parameters_id',
+    ]);
+    const extras = columns
+      .filter((column) => !standard.has(column.name as string))
+      .map((column) => `"${String(column.name).replace(/"/g, '""')}" ${String(column.type || 'TEXT')}`);
+    const definition = [
+      'id TEXT PRIMARY KEY',
+      'chat_id TEXT NOT NULL',
+      'parent_id TEXT',
+      'role TEXT NOT NULL',
+      'content TEXT NOT NULL',
+      'thinking TEXT',
+      'model_id TEXT',
+      'provider_id TEXT',
+      'version INTEGER NOT NULL DEFAULT 1',
+      'previous_version_id TEXT',
+      'prompt_tokens INTEGER',
+      'completion_tokens INTEGER',
+      "attachments TEXT DEFAULT '[]'",
+      'is_current INTEGER NOT NULL DEFAULT 1',
+      'created_at TEXT NOT NULL',
+      'updated_at TEXT',
+      'chat_parameters_id TEXT',
+      ...extras,
+    ].join(', ');
+    const quotedNames = names.map((name) => `"${name.replace(/"/g, '""')}"`).join(', ');
+
+    // DROP TABLE chat_nodes fails with "FOREIGN KEY constraint failed" while
+    // PRAGMA foreign_keys = ON (as set in init()): the drop runs an implicit
+    // DELETE FROM chat_nodes that violates FK constraints referencing the table.
+    // PRAGMA foreign_keys cannot be toggled inside a transaction, so switch it
+    // off before the migration transaction and restore it afterwards.
+    const foreignKeys = this.db.pragma('foreign_keys');
+    this.db.pragma('foreign_keys = OFF');
+    try {
+      const migrate = this.db.transaction(() => {
+        this.db.exec(`CREATE TABLE chat_nodes_migrated (${definition})`);
+        this.db.exec(`INSERT INTO chat_nodes_migrated (${quotedNames}) SELECT ${quotedNames} FROM chat_nodes`);
+        this.db.exec('DROP TABLE chat_nodes');
+        this.db.exec('ALTER TABLE chat_nodes_migrated RENAME TO chat_nodes');
+        this.db.exec('CREATE INDEX IF NOT EXISTS idx_chat_nodes_chat_id ON chat_nodes(chat_id)');
+      });
+      migrate();
+    } finally {
+      this.db.pragma(`foreign_keys = ${foreignKeys ? 'ON' : 'OFF'}`);
+    }
   }
 
   async close(): Promise<void> { this.db.close(); }
@@ -163,7 +221,7 @@ export class SqlitePersistence implements PersistencePort {
   async editAssistant(chatId: string, nodeId: string, content: string, attachments?: NodeAttachment[], thinking?: string): Promise<ChatNode> { return this.versionNode(chatId, nodeId, 'assistant', content, attachments, thinking); }
   async editUser(chatId: string, nodeId: string, content: string, attachments?: NodeAttachment[]): Promise<ChatNode> { return this.versionNode(chatId, nodeId, 'user', content, attachments); }
   async branchUser(chatId: string, nodeId: string, data: BranchQuestionRequest): Promise<ChatNode> { const parent = this.node(chatId, nodeId); return this.createNode(chatId, { parentId: parent.parent_id as string | null, role: 'user', content: data.content, modelId: data.modelId, providerId: data.providerId, attachments: data.attachments }); }
-  private versionNode(chatId: string, nodeId: string, expected: ChatNode['role'], content: string, attachments?: NodeAttachment[], thinking?: string): ChatNode { const old = this.node(chatId, nodeId); if (old.role !== 'system' && old.role !== expected) throw badRequest(`Only ${expected}s can be versioned this way`); const ts = now(); const oldAttachments = json<NodeAttachment[]>(old.attachments, []); const isEmpty = !String(old.content ?? '').trim() && !this.rows('SELECT 1 FROM chat_nodes WHERE parent_id=? LIMIT 1', nodeId).length;
+  private versionNode(chatId: string, nodeId: string, expected: ChatNode['role'], content: string, attachments?: NodeAttachment[], thinking?: string): ChatNode { const old = this.node(chatId, nodeId); if (old.role !== 'system' && old.role !== 'structural' && old.role !== expected) throw badRequest(`Only ${expected}s can be versioned this way`); const ts = now(); const oldAttachments = json<NodeAttachment[]>(old.attachments, []); const isEmpty = !String(old.content ?? '').trim() && !this.rows('SELECT 1 FROM chat_nodes WHERE parent_id=? LIMIT 1', nodeId).length;
     if (isEmpty) {
       this.db.prepare('UPDATE chat_nodes SET content=?,thinking=?,attachments=?,updated_at=? WHERE id=?').run(content, thinking !== undefined ? thinking : old.thinking, JSON.stringify(attachments ?? oldAttachments), ts, nodeId);
       this.db.prepare('UPDATE chats SET updated_at=? WHERE id=?').run(ts, chatId);

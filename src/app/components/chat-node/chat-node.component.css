@@ -154,6 +154,32 @@
   border-radius: 0 6px 6px 0;
 }
 
+.structural-node {
+  border-left-color: var(--color-badge-s-text, #a16207);
+  background: color-mix(in srgb, var(--color-badge-s-text, #a16207) 7%, transparent);
+}
+
+.badge.structural {
+  color: var(--color-badge-s-text, #a16207);
+}
+
+.structure-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.structure-task {
+  max-width: 9rem;
+  height: 28px;
+  border: 1px solid var(--color-input-border, #cbd5e1);
+  border-radius: 6px;
+  background: var(--panel, #fff);
+  color: var(--text);
+  font-size: 0.78rem;
+}
+
 .node-header {
   display: flex;
   flex-wrap: wrap;

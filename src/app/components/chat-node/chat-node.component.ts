@@ -18,6 +18,8 @@ import { formatParametersSummary } from '../../models/chat-parameters';
 import {ProjectService} from '../../core/project.service';
 import { I18nService } from '../../core/i18n/i18n.service';
 import { newId } from '../../core/common/helpers';
+import { GenerationSettingsService } from '../../core/generation-settings.service';
+import { GenerationTaskKind } from '../../models/generation-task';
 
 @Component({
   selector: 'app-chat-node',
@@ -33,6 +35,7 @@ export class ChatNodeComponent {
   readonly projectService = inject(ProjectService);
   readonly llmService = inject(LlmService);
   private readonly parameters = inject(ChatParametersService);
+  private readonly generation = inject(GenerationSettingsService);
 
   private readonly confirm = inject(ConfirmService);
   readonly i18n = inject(I18nService);
@@ -48,7 +51,9 @@ export class ChatNodeComponent {
   readonly contentDraft = signal('');
   readonly branchModelId = signal('');
   readonly isLoading = signal(false);
-  readonly pendingAction = signal<'version' | 'branch' | 'insert' | 'send' | 'continue' | null>(null);
+  readonly pendingAction = signal<'version' | 'branch' | 'insert' | 'send' | 'continue' | 'structure' | null>(null);
+  readonly structureTasks: GenerationTaskKind[] = ['title', 'headings', 'overview'];
+  readonly structureTask = signal<GenerationTaskKind>('headings');
   readonly showPreview = signal(false);
   /** Set by Cancel so auto-open does not immediately re-enter edit. */
   readonly editDismissed = signal(false);
@@ -287,7 +292,7 @@ export class ChatNodeComponent {
     this.pendingAction.set('version');
     try {
       let saved: ChatNode;
-      if (node.role === 'assistant' || node.role === 'system') {
+      if (node.role === 'assistant' || node.role === 'system' || node.role === 'structural') {
         saved = await this.chatService.editAssistant(
           chatId,
           node.id,
@@ -538,6 +543,92 @@ export class ChatNodeComponent {
     });
   }
 
+  async generateStructure(placement: 'prepend' | 'insert' | 'append'): Promise<void> {
+    if (this.isLoading()) return;
+    const node = this.node();
+    const chatId = this.chatService.currentChatId();
+    if (!chatId) return;
+
+    const task = this.structureTask();
+    const configuredModel = this.generation.modelFor(task);
+    const model = configuredModel
+      ?? this.enabledModels().find(m => m.modelId === this.resolvePreferredModelId(node));
+    const provider = model
+      ? this.settings.providers().find(p => p.id === model.providerId)
+      : null;
+    if (!model || !provider) {
+      alert(this.i18n.t('node.structureModelMissing'));
+      return;
+    }
+
+    this.isLoading.set(true);
+    this.pendingAction.set('structure');
+    try {
+      const resolved = await this.llmService.resolveForCurrentChat(model);
+      const config = this.generation.get(task);
+      const instruction = config.prompt.trim() || this.defaultStructurePrompt(task);
+      const context = this.chatService.getActivePath()
+        .map(entry => `${entry.role}: ${entry.content}`)
+        .join('\n\n');
+      const result = await this.llmService.askLlm(
+        provider.baseUrl,
+        provider.apiKey,
+        model.modelId,
+        [{
+          role: 'user',
+          content: `${instruction}\n\nCurrent chat context:\n${context || '(empty chat)'}\n\nReturn only the resulting text.`
+        }],
+        resolved.stream,
+        undefined,
+        undefined,
+        this.llmService.toLlmExtras(resolved),
+        model.providerId
+      );
+      const content = result.content.trim();
+      if (!content) throw new Error(this.i18n.t('node.structureEmpty'));
+
+      const parentId = this.structureParentId(placement);
+      const created = await this.chatService.addNode(chatId, {
+        parentId,
+        role: 'structural',
+        content,
+        modelId: model.modelId,
+        providerId: model.providerId,
+        chatParametersId: this.chatService.chats().find(c => c.id === chatId)?.chatParametersId
+          || model.chatParametersId
+          || undefined
+      });
+
+      if (placement === 'prepend') {
+        await this.chatService.reparentNodes(chatId, [node.id], created.id);
+        this.chatService.setActiveChild(node.parentId, created.id);
+        this.chatService.setActiveChild(created.id, node.id);
+      } else {
+        this.chatService.setActiveChild(parentId, created.id);
+      }
+      this.activate.emit(created.id);
+    } catch (err: any) {
+      console.error(err);
+      alert(this.i18n.t('node.structureFailed', { error: err?.message || err }));
+    } finally {
+      this.isLoading.set(false);
+      this.pendingAction.set(null);
+    }
+  }
+
+  private structureParentId(placement: 'prepend' | 'insert' | 'append'): string | null {
+    if (placement === 'prepend') return this.node().parentId;
+    if (placement === 'insert') return this.node().id;
+    const path = this.chatService.getActivePath();
+    return (path[path.length - 1] ?? this.node()).id;
+  }
+
+  private defaultStructurePrompt(task: GenerationTaskKind): string {
+    if (task === 'title') return 'Generate a concise title for this story.';
+    if (task === 'overview') return 'Write a concise overview of this story so far.';
+    return 'Generate a concise chapter or section heading for this point in the story.';
+  }
+
   /**
    * Delete this assistant answer and its subtree, then resend the parent
    * user request. Confirms first when the answer already has children.
@@ -733,7 +824,9 @@ export class ChatNodeComponent {
       const messages: ChatMessage[] = [];
 
       for (const n of path) {
-        messages.push({ role: n.role, content: nodeToMessageContent(n) });
+        if (n.role !== 'structural') {
+          messages.push({ role: n.role, content: nodeToMessageContent(n) });
+        }
       }
       return messages;
     }

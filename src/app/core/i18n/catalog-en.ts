@@ -215,7 +215,19 @@ export const EN = {
     fileTooLarge: '{{name}} is too large (max 4 MB)',
     roleUser: 'direction',
     roleAssistant: 'chapter',
-    roleSystem: 'system'
+    roleSystem: 'system',
+    structure: 'structure',
+    structureTaskTitle: 'Choose the structure to generate',
+    prepend: 'Prepend',
+    append: 'Append',
+    insertStructure: 'Insert',
+    prependStructureTitle: 'Generate structure before this node',
+    appendStructureTitle: 'Generate structure after the active chat path',
+    insertStructureTitle: 'Generate structure under this node',
+    generatingStructure: 'Generating…',
+    structureModelMissing: 'No model is available for structure generation',
+    structureEmpty: 'The model returned no structure text',
+    structureFailed: 'Structure generation failed: {{error}}'
   },
   params: {
     override: 'Override generation settings',

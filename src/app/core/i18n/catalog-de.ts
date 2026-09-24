@@ -215,7 +215,19 @@ export const DE = {
     fileTooLarge: '{{name}} ist zu groß (max. 4 MB)',
     roleUser: 'Anweisung',
     roleAssistant: 'Kapitel',
-    roleSystem: 'System'
+    roleSystem: 'System',
+    structure: 'Struktur',
+    structureTaskTitle: 'Zu erzeugende Struktur auswählen',
+    prepend: 'Davor',
+    append: 'Danach',
+    insertStructure: 'Einfügen',
+    prependStructureTitle: 'Struktur vor diesem Knoten erzeugen',
+    appendStructureTitle: 'Struktur nach dem aktiven Chatpfad erzeugen',
+    insertStructureTitle: 'Struktur unter diesem Knoten erzeugen',
+    generatingStructure: 'Wird erzeugt…',
+    structureModelMissing: 'Kein Modell für die Strukturerzeugung verfügbar',
+    structureEmpty: 'Das Modell hat keinen Strukturtext zurückgegeben',
+    structureFailed: 'Strukturerzeugung fehlgeschlagen: {{error}}'
   },
   params: {
     override: 'Generierungseinstellungen überschreiben',

@@ -1,4 +1,4 @@
-export type NodeRole = 'system' | 'user' | 'assistant';
+export type NodeRole = 'system' | 'user' | 'assistant' | 'structural';
 
 export interface Project {
   id: string;

@@ -227,6 +227,17 @@ describe('API Routes (in-memory SQLite)', () => {
       expect(res.body.parentId).toBe(questionId);
     });
 
+    test('POST /api/chats/:chatId/nodes adds a structural node', async () => {
+      const res = await request(app)
+        .post(`/api/chats/${chatId}/nodes`)
+        .send({ content: 'Chapter One', role: 'structural' });
+      expect(res.status).toBe(201);
+      expect(res.body.role).toBe('structural');
+
+      const nodes = await request(app).get(`/api/chats/${chatId}/nodes`);
+      expect(nodes.body.some((node: { id: string; role: string }) => node.id === res.body.id && node.role === 'structural')).toBe(true);
+    });
+
     test('POST /api/chats/:chatId/nodes/:nodeId/branch-user branches from a question', async () => {
       const nodes = await request(app).get(`/api/chats/${chatId}/nodes`);
       const node = nodes.body.find((entry: { role: string }) => entry.role === 'user');
