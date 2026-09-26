@@ -54,6 +54,13 @@
     }
 
     <div class="delete-actions">
+      @if (node().role === 'assistant') {
+        <button class="btn-icon" type="button" [disabled]="isLoading()"
+                (click)="generateHeading(); $event.stopPropagation()"
+                [title]="i18n.t('node.addHeadingTitle')">
+          {{ isLoading() && pendingAction() === 'structure' ? i18n.t('node.generatingStructure') : i18n.t('node.addHeading') }}
+        </button>
+      }
       <button class="btn-icon danger delete-btn" type="button"
               [title]="i18n.t('node.deleteTitle')"
               [disabled]="isLoading() || chatService.isGenerating(node().id)"
@@ -367,16 +374,6 @@
           <span>{{ i18n.t('node.copy') }}</span>
         }
       </button>
-
-      @if (node().role === 'assistant') {
-        <div class="structure-actions">
-          <button class="btn-icon" type="button" [disabled]="isLoading()"
-                  (click)="generateHeading(); $event.stopPropagation()"
-                  [title]="i18n.t('node.addHeadingTitle')">
-            {{ isLoading() && pendingAction() === 'structure' ? i18n.t('node.generatingStructure') : i18n.t('node.addHeading') }}
-          </button>
-        </div>
-      }
 
       @if (showClosedContinue()) {
         <button class="btn-icon" type="button"

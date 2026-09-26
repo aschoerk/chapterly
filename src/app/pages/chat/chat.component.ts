@@ -15,6 +15,7 @@ import {Router} from '@angular/router';
 import {ProjectService} from '../../core/project.service';
 import { I18nService } from '../../core/i18n/i18n.service';
 import { LlmService } from '../../core/llm/llm.service';
+import { nodeToMessageContent } from '../../core/llm/llm-message';
 import { GenerationSettingsService } from '../../core/generation-settings.service';
 import { GenerationTaskKind } from '../../models/generation-task';
 import { ModelEntry, ProviderConfig } from '../../models/chat-config';
@@ -68,6 +69,13 @@ export class ChatComponent implements OnInit {
   readonly chatParamsSummary = signal('defaults');
   readonly isGeneratingStructure = signal(false);
   readonly pendingStructure = signal<string | null>(null);
+
+  /** Elaborate-dialog state: first/last chapter + comma-separated characters. */
+  readonly showElaborateDialog = signal(false);
+  readonly isElaborating = signal(false);
+  readonly elaborateFirst = signal(1);
+  readonly elaborateLast = signal(1);
+  readonly elaborateNames = signal('');
 
   private resizeStartX = 0;
   private resizeStartWidth = 0;
@@ -146,9 +154,12 @@ export class ChatComponent implements OnInit {
     effect(() => {
       const chatId = this.currentChatId();
       const generating = this.chatService.generatingNodeId();
+      // While Elaborate chains nodes sequentially, draft housekeeping is
+      // deferred so it cannot re-point the active path between chapters.
+      const busy = this.isElaborating();
       this.chatService.currentNodes();
       this.chatService.getActivePath();
-      if (!chatId || generating) return;
+      if (!chatId || generating || busy) return;
       queueMicrotask(async () => {
         await this.chatService.ensureDraftAtLeaf(chatId);
         this.restoreOpenedChatPosition(chatId);
@@ -548,6 +559,163 @@ export class ChatComponent implements OnInit {
       this.isGeneratingStructure.set(false);
       this.pendingStructure.set(null);
     }
+  }
+
+  // ------------------------------------------------------------------
+  // Elaborate — extend the chat with per-chapter elaborations
+  // ------------------------------------------------------------------
+
+  /** Most recent current assistant answer of this chat (model source + attach point). */
+  private mostRecentAssistantNode(): ChatNode | null {
+    const nodes = this.chatService.currentNodes()
+      .filter(n => n.role === 'assistant' && n.isCurrent && n.content?.trim())
+      .sort((a, b) =>
+        (b.updatedAt || b.createdAt).localeCompare(a.updatedAt || a.createdAt)
+      );
+    return nodes[0] ?? null;
+  }
+
+  /** The model of the most recent assistant answer (falls back to selection / first). */
+  private resolveElaborateModel(node: ChatNode): { model: ModelEntry; provider: ProviderConfig } | null {
+    const models = this.enabledModels();
+    const model = models.find(m => !!node.modelId && (m.modelId === node.modelId || m.id === node.modelId))
+      ?? models.find(m =>
+        m.modelId === this.lastModelService.selectedModelId() ||
+        m.id === this.lastModelService.selectedModelId())
+      ?? models[0];
+    if (!model) return null;
+    const provider = this.settings.providers().find(p => p.id === model.providerId);
+    return provider ? { model, provider } : null;
+  }
+
+  openElaborateDialog(): void {
+    const chatId = this.currentChatId();
+    if (!chatId || this.isGeneratingStructure() || this.isElaborating()) return;
+    if (!this.mostRecentAssistantNode()) {
+      alert(this.i18n.t('chat.elaborateNoAnchor'));
+      return;
+    }
+    this.elaborateFirst.set(1);
+    this.elaborateLast.set(1);
+    this.elaborateNames.set('');
+    this.showElaborateDialog.set(true);
+  }
+
+  cancelElaborate(): void {
+    this.showElaborateDialog.set(false);
+  }
+
+  /** Confirm the dialog and run the sequential elaborations. */
+  async confirmElaborate(): Promise<void> {
+    const chatId = this.currentChatId();
+    this.showElaborateDialog.set(false);
+    if (!chatId) return;
+
+    const first = this.elaborateFirst();
+    const last = this.elaborateLast();
+    if (first < 1 || last < first) return;
+
+    const names = this.elaborateNames()
+      .split(',')
+      .map(s => s.trim())
+      .filter(Boolean);
+
+    const anchor = this.mostRecentAssistantNode();
+    if (!anchor) return;
+
+    const resolved = this.resolveElaborateModel(anchor);
+    if (!resolved) {
+      alert(this.i18n.t('chat.elaborateNoModel'));
+      return;
+    }
+    const { model, provider } = resolved;
+
+    this.isElaborating.set(true);
+    this.chatService.elaborating = true;
+    try {
+      let parentId: string | null = anchor.id;
+      for (let chapter = first; chapter <= last; chapter++) {
+        // No names → one generic elaboration per chapter.
+        // With names → one elaboration per name, in first person.
+        const prompts = names.length > 0
+          ? names.map(name =>
+            `elaborate on chapter ${chapter} out of the view of ${name} in first person`)
+          : [`elaborate on chapter ${chapter}`];
+
+        for (const prompt of prompts) {
+          parentId = await this.elaborateOne(chatId, parentId, prompt, model, provider);
+        }
+      }
+    } catch (err: any) {
+      console.error(err);
+      alert(this.i18n.t('chat.elaborateFailed', { error: err?.message || err }));
+    } finally {
+      this.isElaborating.set(false);
+      this.chatService.elaborating = false;
+    }
+  }
+
+  /** Persist one question at the leaf and stream an answer; returns the answer node id. */
+  private async elaborateOne(
+    chatId: string,
+    parentId: string | null,
+    content: string,
+    model: ModelEntry,
+    provider: { baseUrl: string; apiKey: string }
+  ): Promise<string> {
+    const question = await this.getOrCreateElaborateQuestion(chatId, parentId, content, model);
+    const messages = this.buildElaborateContext(parentId);
+    messages.push({ role: 'user', content });
+    const answer = await this.llmService.streamAnswer(
+      chatId,
+      question.id,
+      provider,
+      model,
+      messages
+    );
+    return answer.id;
+  }
+
+  /** Reuse an empty leaf draft under `parentId` if one exists, else create a fresh question. */
+  private async getOrCreateElaborateQuestion(
+    chatId: string,
+    parentId: string | null,
+    content: string,
+    model: ModelEntry
+  ): Promise<ChatNode> {
+    const draft = this.chatService.getChildren(parentId)
+      .find(n =>
+        n.role === 'user' &&
+        !n.content?.trim() &&
+        !(n.attachments?.length)
+      );
+    if (draft) {
+      const saved = await this.chatService.persistQuestion(
+        chatId, draft.id, content, undefined, model.modelId, model.providerId
+      );
+      this.chatService.setActiveChild(parentId, saved.id);
+      return saved;
+    }
+    const created = await this.chatService.addNode(chatId, {
+      parentId,
+      role: 'user',
+      content,
+      modelId: model.modelId,
+      providerId: model.providerId
+    });
+    this.chatService.setActiveChild(parentId, created.id);
+    return created;
+  }
+
+  /** Context = the linear path up to (incl.) the anchor, skipping structural wrappers. */
+  private buildElaborateContext(parentId: string | null): ChatMessage[] {
+    if (!parentId) return [];
+    return this.chatService.getPathToNode(parentId)
+      .filter(n => n.role !== 'structural')
+      .map(n => ({
+        role: n.role as 'system' | 'user' | 'assistant',
+        content: nodeToMessageContent(n)
+      }));
   }
 
   /** Resolve the model+provider for an authoring task, or null if unset/unknown. */

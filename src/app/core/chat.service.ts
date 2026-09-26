@@ -13,6 +13,13 @@ export class ChatService {
   private readonly api = inject(CHAT_API);
   private readonly editSession = inject(NodeEditSession)
 
+  /**
+   * True while a multi-step writer (e.g. Elaborate) is sequentially chaining
+   * new nodes. ensureDraftAtLeaf is skipped so it cannot re-point the active
+   * path to a stray draft under an intermediate answer mid-sequence.
+   */
+  elaborating = false;
+
 
   readonly _chats = signal<Chat[]>([]);
   private readonly _nodes = signal<ChatNode[]>([]);
@@ -586,6 +593,23 @@ export class ChatService {
     return this._nodes().find(n => n.id === nodeId) ?? node;
   }
 
+  async patchNode(
+    chatId: string,
+    nodeId: string,
+    data: {
+      content?: string;
+      thinking?: string;
+      attachments?: NodeAttachment[];
+      modelId?: string;
+      providerId?: string;
+      parentId?: string | null;
+    }
+  ): Promise<ChatNode> {
+    const node = await this.api.patchNode(chatId, nodeId, data);
+    this._nodes.update(list => list.map(n => (n.id === nodeId ? { ...n, ...node } : n)));
+    return this._nodes().find(n => n.id === nodeId) ?? node;
+  }
+
   /**
    * Guarantee the active path ends on an empty question the user can type into.
    * - empty chat → root draft question
@@ -593,6 +617,7 @@ export class ChatService {
    */
   async ensureDraftAtLeaf(chatId: string): Promise<void> {
     if (!chatId || this.ensuringDraft || this.generatingNodeId()) return;
+    if (this.elaborating) return;
     if (this._currentChatId() !== chatId) return;
 
     this.ensuringDraft = true;

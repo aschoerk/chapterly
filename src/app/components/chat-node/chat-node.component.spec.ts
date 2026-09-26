@@ -763,6 +763,20 @@ describe('ChatNodeComponent', () => {
       expect(titleButton('Generate a chapter heading for this answer')).not.toBeNull();
     });
 
+    it('replaces the existing heading node for the same answer', async () => {
+      const q1 = node({ id: 'q1', content: 'Story context' });
+      const h1 = node({ id: 'h1', chatId: 'chat-1', parentId: 'q1', role: 'structural', content: 'Old heading' });
+      const a1 = node({ id: 'a1', chatId: 'chat-1', parentId: 'h1', role: 'assistant', content: 'Chapter text' });
+      await openChat([q1, h1, a1]);
+      createFixture(a1);
+
+      await component.generateHeading();
+
+      expect(chatService.nodes().filter(n => n.role === 'structural')).toHaveLength(1);
+      expect(chatService.nodes().find(n => n.id === 'h1')?.content).toBe('Generated structure');
+      expect(chatService.nodes().find(n => n.id === 'a1')?.parentId).toBe('h1');
+    });
+
     it('generates a chapter heading that wraps the assistant answer', async () => {
       const q1 = node({ id: 'q1', content: 'Story context' });
       const a1 = node({ id: 'a1', chatId: 'chat-1', parentId: 'q1', role: 'assistant', content: 'Chapter text' });

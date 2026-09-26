@@ -15,6 +15,13 @@ import {
 import { Project } from '../../models/chat';
 import { I18nService } from '../../core/i18n/i18n.service';
 import { newId } from '../../core/common/helpers';
+import {
+  buildDocxBlob,
+  buildMarkdown,
+  enumerateDocumentPaths,
+  pickLongestVersion,
+  resolveDocStructure,
+} from '../../core/docx-export';
 
 export interface ParsedTurn {
   role: 'system' | 'user' | 'assistant' | 'other';
@@ -102,6 +109,8 @@ export class ImportComponent {
   readonly includeChats = signal(true);
   readonly importPolicy = signal<ImportPolicy>('reuse');
   readonly isExporting = signal(false);
+  readonly isDocxExporting = signal(false);
+  readonly isMarkdownExporting = signal(false);
 
   constructor() {
     void this.bundleService.loadAll().then(() => {
@@ -1714,5 +1723,100 @@ export class ImportComponent {
     } finally {
       this.isExporting.set(false);
     }
+  }
+
+  /**
+   * DOCX export for the selected single chat: assistant + structure nodes of
+   * the LONGEST version (same version/branch enumeration as the chat reader).
+   *
+   *   first structural node           → title
+   *   structural node before a beat   → chapter heading
+   *   last structural node            → introduction part
+   */
+  async exportDocx(): Promise<void> {
+    if (this.exportScope() !== 'chat') return;
+    const chatId = this.exportChatId();
+    const chat = this.chats().find((c) => c.id === chatId);
+    if (!chatId || !chat) {
+      this.globalError.set(this.i18n.t('import.docxNoChat'));
+      return;
+    }
+
+    this.isDocxExporting.set(true);
+    this.globalError.set(null);
+    try {
+      const nodes = await this.chatService.fetchNodes(chatId);
+      const path = pickLongestVersion(enumerateDocumentPaths(nodes));
+      if (path.length === 0) {
+        throw new Error(this.i18n.t('import.docxEmpty'));
+      }
+
+      const blob = buildDocxBlob(chat.title, nodes);
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `${this.safeFileStem(chat.title) || 'chapterly'}.docx`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+      this.progress.set(
+        this.i18n.t('import.docxExported', {
+          title: chat.title,
+          chapters: path.filter((n) => n.role === 'assistant').length,
+        }),
+      );
+    } catch (err: any) {
+      this.globalError.set(err?.message || String(err));
+    } finally {
+      this.isDocxExporting.set(false);
+    }
+  }
+
+  /**
+   * Markdown export for the selected single chat — the same longest-version
+   * book structure as the DOCX export, written as a plain Markdown file.
+   */
+  async exportMarkdown(): Promise<void> {
+    if (this.exportScope() !== 'chat') return;
+    const chatId = this.exportChatId();
+    const chat = this.chats().find((c) => c.id === chatId);
+    if (!chatId || !chat) {
+      this.globalError.set(this.i18n.t('import.mdNoChat'));
+      return;
+    }
+
+    this.isMarkdownExporting.set(true);
+    this.globalError.set(null);
+    try {
+      const nodes = await this.chatService.fetchNodes(chatId);
+      const { path } = resolveDocStructure(chat.title, nodes);
+      if (path.length === 0) {
+        throw new Error(this.i18n.t('import.mdEmpty'));
+      }
+
+      const markdown = buildMarkdown(chat.title, nodes);
+      const blob = new Blob([markdown], { type: 'text/markdown;charset=utf-8' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `${this.safeFileStem(chat.title) || 'chapterly'}.md`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+      this.progress.set(
+        this.i18n.t('import.mdExported', {
+          title: chat.title,
+          chapters: path.filter((n) => n.role === 'assistant').length,
+        }),
+      );
+    } catch (err: any) {
+      this.globalError.set(err?.message || String(err));
+    } finally {
+      this.isMarkdownExporting.set(false);
+    }
+  }
+
+  private safeFileStem(title: string): string {
+    return (title || '')
+      .replace(/[\\/:*?"<>|]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 80);
   }
 }

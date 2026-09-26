@@ -78,7 +78,18 @@ export const EN = {
     summary: 'Summary',
     summaryTitle: 'Generate a summary of the whole story',
     headings: 'Headings',
-    headingsTitle: 'Generate a heading for every chapter'
+    headingsTitle: 'Generate a heading for every chapter',
+    elaborate: 'Elaborate',
+    elaborateTitle: 'Elaborate chapters',
+    elaborateHint: 'The last answer describes chapters 1..n. Elaborate each chosen chapter — optionally from the point of view of named characters (comma separated).',
+    elaborateFirst: 'First chapter',
+    elaborateLast: 'Last chapter',
+    elaborateNames: 'Characters',
+    elaborateNamesPlaceholder: 'e.g. Anna, Ben (comma separated, optional)',
+    elaborateConfirm: 'Elaborate',
+    elaborateNoAnchor: 'There is no assistant answer yet to elaborate on',
+    elaborateNoModel: 'No model is available for elaboration',
+    elaborateFailed: 'Elaboration failed: {{error}}'
   },
   reader: {
     columns: 'Columns',

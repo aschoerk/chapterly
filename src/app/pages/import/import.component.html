@@ -70,6 +70,18 @@
             (click)="exportBundle()">
       {{ isExporting() ? i18n.t('import.exporting') : i18n.t('import.download') }}
     </button>
+    <button class="btn primary" type="button"
+            [disabled]="isDocxExporting() || isImporting() || exportScope() !== 'chat' || !exportChatId()"
+            (click)="exportDocx()"
+            [title]="exportScope() !== 'chat' ? i18n.t('import.docxChatOnly') : i18n.t('import.docxTitle')">
+      {{ isDocxExporting() ? i18n.t('import.docxExporting') : i18n.t('import.downloadDocx') }}
+    </button>
+    <button class="btn primary" type="button"
+            [disabled]="isMarkdownExporting() || isImporting() || exportScope() !== 'chat' || !exportChatId()"
+            (click)="exportMarkdown()"
+            [title]="exportScope() !== 'chat' ? i18n.t('import.mdChatOnly') : i18n.t('import.mdTitle')">
+      {{ isMarkdownExporting() ? i18n.t('import.mdExporting') : i18n.t('import.downloadMarkdown') }}
+    </button>
   </div>
 </section>
 <!-- ========== Drop zone ========== -->

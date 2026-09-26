@@ -588,6 +588,20 @@ export class ChatNodeComponent {
       const content = result.content.trim();
       if (!content) throw new Error(this.i18n.t('node.structureEmpty'));
 
+      const existingHeading = node.parentId
+        ? this.chatService.nodes().find(n => n.id === node.parentId && n.role === 'structural')
+        : undefined;
+
+      if (existingHeading) {
+        await this.chatService.patchNode(chatId, existingHeading.id, {
+          content,
+          modelId: model.modelId,
+          providerId: model.providerId
+        });
+        this.activate.emit(existingHeading.id);
+        return;
+      }
+
       // The heading wraps this answer: it becomes the new parent (prepend placement).
       const created = await this.chatService.addNode(chatId, {
         parentId: node.parentId,

@@ -100,6 +100,12 @@
                     [title]="i18n.t('chat.headingsTitle')">
               {{ isGeneratingStructure() && pendingStructure() === 'headings' ? i18n.t('chat.generating') : i18n.t('chat.headings') }}
             </button>
+            <button class="btn small" type="button"
+                    [disabled]="isGeneratingStructure() || isElaborating()"
+                    (click)="openElaborateDialog()"
+                    [title]="i18n.t('chat.elaborateTitle')">
+              {{ isElaborating() ? i18n.t('chat.generating') : i18n.t('chat.elaborate') }}
+            </button>
           </div>
           @if (showChatParams()) {
             <div class="params-popover">
@@ -113,6 +119,38 @@
               <div class="modal-actions">
                 <button class="btn" type="button" (click)="showChatParams.set(false)">{{ i18n.t('common.close') }}</button>
                 <button class="btn primary" type="button" (click)="saveChatParams()">{{ i18n.t('chat.applyToChat') }}</button>
+              </div>
+            </div>
+          }
+
+          @if (showElaborateDialog()) {
+            <div class="elaborate-backdrop">
+              <div class="elaborate-dialog" role="dialog" aria-modal="true"
+                   [attr.aria-label]="i18n.t('chat.elaborateTitle')">
+                <h3>{{ i18n.t('chat.elaborateTitle') }}</h3>
+                <p class="elaborate-hint">{{ i18n.t('chat.elaborateHint') }}</p>
+
+                <label class="elaborate-field">
+                  <span>{{ i18n.t('chat.elaborateFirst') }}</span>
+                  <input type="number" min="1" [ngModel]="elaborateFirst()"
+                         (ngModelChange)="elaborateFirst.set(+$event)" />
+                </label>
+                <label class="elaborate-field">
+                  <span>{{ i18n.t('chat.elaborateLast') }}</span>
+                  <input type="number" min="1" [ngModel]="elaborateLast()"
+                         (ngModelChange)="elaborateLast.set(+$event)" />
+                </label>
+                <label class="elaborate-field">
+                  <span>{{ i18n.t('chat.elaborateNames') }}</span>
+                  <input type="text" [ngModel]="elaborateNames()"
+                         (ngModelChange)="elaborateNames.set($event)"
+                         [placeholder]="i18n.t('chat.elaborateNamesPlaceholder')" />
+                </label>
+
+                <div class="elaborate-actions">
+                  <button class="btn" type="button" (click)="cancelElaborate()">{{ i18n.t('common.cancel') }}</button>
+                  <button class="btn primary" type="button" (click)="confirmElaborate()">{{ i18n.t('chat.elaborateConfirm') }}</button>
+                </div>
               </div>
             </div>
           }

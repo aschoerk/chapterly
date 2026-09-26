@@ -78,7 +78,18 @@ export const DE = {
     summary: 'Zusammenfassung',
     summaryTitle: 'Zusammenfassung der ganzen Story erzeugen',
     headings: 'Überschriften',
-    headingsTitle: 'Überschrift für jedes Kapitel erzeugen'
+    headingsTitle: 'Überschrift für jedes Kapitel erzeugen',
+    elaborate: 'Ausarbeiten',
+    elaborateTitle: 'Kapitel ausarbeiten',
+    elaborateHint: 'Die letzte Antwort beschreibt die Kapitel 1..n. Arbeiten Sie jedes gewählte Kapitel aus — optional aus der Sicht der genannten Figuren (durch Kommas getrennt).',
+    elaborateFirst: 'Erstes Kapitel',
+    elaborateLast: 'Letztes Kapitel',
+    elaborateNames: 'Figuren',
+    elaborateNamesPlaceholder: 'z. B. Anna, Ben (mit Komma getrennt, optional)',
+    elaborateConfirm: 'Ausarbeiten',
+    elaborateNoAnchor: 'Es gibt noch keine Antwort zum Ausarbeiten',
+    elaborateNoModel: 'Kein Modell für die Ausarbeitung verfügbar',
+    elaborateFailed: 'Ausarbeitung fehlgeschlagen: {{error}}'
   },
   reader: {
     columns: 'Spalten',
