@@ -9,6 +9,11 @@ import { ChatService } from '../../core/chat.service';
 import { MarkdownService } from '../../core/markdown.service';
 import { ChatNode } from '../../models/chat';
 import { I18nService } from '../../core/i18n/i18n.service';
+import {
+  enumerateStoryDocuments,
+  isUsableNode,
+  storyNodeTimestamp,
+} from '../../core/story-paths';
 
 export interface ReaderFont {
   id: string;
@@ -193,23 +198,7 @@ export class ChatReaderComponent implements OnInit, OnDestroy {
   }
 
   private isUsable(n: ChatNode): boolean {
-    return !!(n.content?.trim() || n.attachments?.length);
-  }
-
-  private childIdsByParent(nodes: ChatNode[]): Map<string, string[]> {
-    const map = new Map<string, string[]>();
-    for (const n of nodes) {
-      if (!n.parentId) continue;
-      const list = map.get(n.parentId) ?? [];
-      list.push(n.id);
-      map.set(n.parentId, list);
-    }
-    return map;
-  }
-
-  /** Empty node with no children: a draft leaf, not a document version. */
-  private isEmptyLeaf(n: ChatNode, childIds: Map<string, string[]>): boolean {
-    return !this.isUsable(n) && !(childIds.get(n.id)?.length);
+    return isUsableNode(n);
   }
 
   private allChildren(parentId: string | null): ChatNode[] {
@@ -219,8 +208,7 @@ export class ChatReaderComponent implements OnInit, OnDestroy {
   }
 
   private ts(n: ChatNode): number {
-    const t = Date.parse(n.createdAt || n.updatedAt || '');
-    return Number.isFinite(t) ? t : 0;
+    return storyNodeTimestamp(n);
   }
 
   readonly currentDoc = computed(() => {
@@ -286,114 +274,33 @@ export class ChatReaderComponent implements OnInit, OnDestroy {
     queueMicrotask(() => this.layout());
   }
 
-  private familyOf(node: ChatNode, byId: Map<string, ChatNode>): ChatNode[] {
-    const ids = new Set<string>();
-    let cur: ChatNode | undefined = node;
-    while (cur) {                     // walk back to the first version
-      if (ids.has(cur.id)) break;
-      ids.add(cur.id);
-      cur = cur.previousVersionId ? byId.get(cur.previousVersionId) : undefined;
-    }
-    for (const n of byId.values()) {  // walk forward to later versions
-      if (n.previousVersionId && ids.has(n.previousVersionId)) ids.add(n.id);
-    }
-    // one more pass so long chains close
-    let changed = true;
-    while (changed) {
-      changed = false;
-      for (const n of byId.values()) {
-        if (ids.has(n.id)) continue;
-        if (n.previousVersionId && ids.has(n.previousVersionId)) {
-          ids.add(n.id);
-          changed = true;
-        }
-        if (n.id && [...ids].some(id => byId.get(id)?.previousVersionId === n.id)) {
-          ids.add(n.id);
-          changed = true;
-        }
-      }
-    }
-    return [...ids].map(id => byId.get(id)!).filter(Boolean)
-      .sort((a, b) => (a.version ?? 0) - (b.version ?? 0) || this.ts(a) - this.ts(b));
+  // ------------------------------------------------------------------
+  // Version collapse — only the youngest version of each family is used
+  // ------------------------------------------------------------------
+
+  /** True when `a` is a newer version than `b` (higher version, else newer ts). */
+  private isYounger(a: ChatNode, b: ChatNode): boolean {
+    const va = a.version ?? 1;
+    const vb = b.version ?? 1;
+    if (va !== vb) return va > vb;
+    return this.ts(a) > this.ts(b);
   }
 
-  private familyId(node: ChatNode, byId: Map<string, ChatNode>): string {
-    const fam = this.familyOf(node, byId);
-    return fam[0]?.id ?? node.id;     // stable id = oldest version
-  }
+  // ------------------------------------------------------------------
+  // Documents — shared algorithm in core/story-paths
+  // ------------------------------------------------------------------
 
-  readonly documents = computed(() => {
-    const allNodes = this.chatService.currentNodes();
-    const childIds = this.childIdsByParent(allNodes);
-
-    // Keep empty nodes that still have children so the chain stays connected.
-    // Drop empty childless nodes — they must not spawn extra document versions.
-    const nodes = allNodes.filter(n => !this.isEmptyLeaf(n, childIds));
-    const byId = new Map(nodes.map(n => [n.id, n]));
-
-    const familyKids = new Map<string, ChatNode[]>();
-    const addKid = (parentFamilyId: string, child: ChatNode) => {
-      const list = familyKids.get(parentFamilyId) ?? [];
-      if (!list.some(n => n.id === child.id)) list.push(child);
-      familyKids.set(parentFamilyId, list);
-    };
-
-    for (const n of nodes) {
-      if (!n.parentId) continue;
-      const parent = byId.get(n.parentId);
-      if (!parent) continue;
-      addKid(this.familyId(parent, byId), n);
-      // siblings in the parent's version family are also parents of n
-      for (const rel of this.familyOf(parent, byId)) {
-        addKid(this.familyId(rel, byId), n);
-      }
-    }
-
-    // root families = nodes with no parent
-    const roots = nodes.filter(n => !n.parentId);
-    const rootFamilies = new Map<string, ChatNode[]>();
-    for (const r of roots) {
-      const fid = this.familyId(r, byId);
-      rootFamilies.set(fid, this.familyOf(r, byId));
-    }
-
-    const paths: ChatNode[][] = [];
-
-    const walk = (famMembers: ChatNode[], acc: ChatNode[]) => {
-      for (const pick of famMembers) {
-        // Empty childless versions are already filtered out. An empty node
-        // that only exists to hold children must not appear in the book and
-        // must not start a document of its own.
-        const structuralOnly = !this.isUsable(pick);
-        const nextAcc = structuralOnly ? acc : [...acc, pick];
-        const fid = this.familyId(pick, byId);
-        const rawKids = familyKids.get(fid) ?? [];
-        // group kids into families (branches + their versions)
-        const kidFam = new Map<string, ChatNode[]>();
-        for (const kid of rawKids) {
-          const kfid = this.familyId(kid, byId);
-          kidFam.set(kfid, this.familyOf(kid, byId));
-        }
-        if (kidFam.size === 0) {
-          if (!structuralOnly && nextAcc.length) paths.push(nextAcc);
-          continue;
-        }
-        for (const members of kidFam.values()) {
-          walk(members, nextAcc);
-        }
-      }
-    };
-
-    for (const members of rootFamilies.values()) walk(members, []);
-
-    paths.sort((a, b) => {
-      const va = a.reduce((s, n) => s + (n.version ?? 1), 0);
-      const vb = b.reduce((s, n) => s + (n.version ?? 1), 0);
-      if (va !== vb) return va - vb;                 // older version combo first
-      return Math.max(...a.map(n => this.ts(n))) - Math.max(...b.map(n => this.ts(n)));
-    });
-    return paths;
-  });
+  /**
+   * All story documents as root→leaf paths. Delegates to the SHARED
+   * enumerator (core/story-paths) so the reader and the DOCX/Markdown
+   * exporters always agree:
+   *   - youngest version per family only (older versions ignored),
+   *   - plain DFS that CLONES the path from the root at every fork,
+   *   - empty connectors kept, empty drafts dropped, orphans become roots.
+   */
+  readonly documents = computed(() =>
+    enumerateStoryDocuments(this.chatService.currentNodes())
+  );
 
   private resizeObserver?: ResizeObserver;
 

@@ -641,8 +641,8 @@ describe('ImportComponent', () => {
         { id: 'sT', chatId: 'c1', parentId: 'q0', role: 'structural', content: 'Book Title' },
         { id: 'q1', chatId: 'c1', parentId: 'sT', role: 'user', content: 'Q' },
         { id: 'h1', chatId: 'c1', parentId: 'q1', role: 'structural', content: 'Ch One' },
-        { id: 'a1', chatId: 'c1', parentId: 'h1', role: 'assistant', content: 'old' },
-        { id: 'a1b', chatId: 'c1', parentId: 'h1', role: 'assistant', content: 'a much longer chapter text', previousVersionId: 'a1', isCurrent: true },
+        { id: 'a1', chatId: 'c1', parentId: 'h1', role: 'assistant', content: 'old', version: 1, isCurrent: false, createdAt: '2025-01-01T00:00:00Z' },
+        { id: 'a1b', chatId: 'c1', parentId: 'h1', role: 'assistant', content: 'a much longer chapter text', previousVersionId: 'a1', version: 2, isCurrent: true, createdAt: '2025-01-02T00:00:00Z' },
         { id: 'q2', chatId: 'c1', parentId: 'a1b', role: 'user', content: 'Q' },
         { id: 'a2', chatId: 'c1', parentId: 'q2', role: 'assistant', content: 'second chapter content' },
         { id: 'sIntro', chatId: 'c1', parentId: 'a2', role: 'structural', content: 'The introduction.' },
@@ -689,8 +689,8 @@ describe('ImportComponent', () => {
         { id: 'sT', chatId: 'c1', parentId: 'q0', role: 'structural', content: 'Book Title' },
         { id: 'q1', chatId: 'c1', parentId: 'sT', role: 'user', content: 'Q' },
         { id: 'h1', chatId: 'c1', parentId: 'q1', role: 'structural', content: 'Ch One' },
-        { id: 'a1', chatId: 'c1', parentId: 'h1', role: 'assistant', content: 'old' },
-        { id: 'a1b', chatId: 'c1', parentId: 'h1', role: 'assistant', content: 'a much longer chapter text', previousVersionId: 'a1', isCurrent: true },
+        { id: 'a1', chatId: 'c1', parentId: 'h1', role: 'assistant', content: 'old', version: 1, isCurrent: false, createdAt: '2025-01-01T00:00:00Z' },
+        { id: 'a1b', chatId: 'c1', parentId: 'h1', role: 'assistant', content: 'a much longer chapter text', previousVersionId: 'a1', version: 2, isCurrent: true, createdAt: '2025-01-02T00:00:00Z' },
         { id: 'q2', chatId: 'c1', parentId: 'a1b', role: 'user', content: 'Q' },
         { id: 'a2', chatId: 'c1', parentId: 'q2', role: 'assistant', content: 'second chapter content' },
         { id: 'sIntro', chatId: 'c1', parentId: 'a2', role: 'structural', content: 'The introduction.' },
@@ -727,6 +727,81 @@ describe('ImportComponent', () => {
     expect(text).not.toMatch(/^old$/m);
     expect(text).toContain('second chapter content');
     expect(component.progress()).toContain('Book');
+  });
+
+  it('asks which document to export when a chat has several paths', async () => {
+    seedApi(api, {
+      chats: [{ id: 'c1', title: 'Book' }],
+      nodes: [
+        { id: 'q0', chatId: 'c1', parentId: null, role: 'user', content: 'Q', createdAt: '2025-01-01T00:00:00Z' },
+        { id: 'b1', chatId: 'c1', parentId: 'q0', role: 'assistant', content: 'Branch one ending', version: 1, createdAt: '2025-01-02T00:00:00Z' },
+        { id: 'b2', chatId: 'c1', parentId: 'q0', role: 'assistant', content: 'Branch two ending', version: 1, createdAt: '2025-01-03T00:00:00Z' },
+      ],
+    });
+    await createComponent();
+
+    let downloadedBlob: Blob | undefined;
+    let downloadedAnchor: HTMLAnchorElement | undefined;
+    vi.spyOn(URL, 'createObjectURL').mockImplementation((obj: Blob | MediaSource) => {
+      downloadedBlob = obj as Blob;
+      return 'blob:chapterly-docx';
+    });
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (
+      this: HTMLAnchorElement,
+    ) {
+      downloadedAnchor = this;
+    });
+
+    component.exportScope.set('chat');
+    component.exportChatId.set('c1');
+    await component.exportDocx();
+
+    // two paths → the picker opens, nothing downloaded yet
+    expect(component.showDocPicker()).toBe(true);
+    expect(component.docPickOptions().length).toBe(2);
+    // most recent path (b2) is preselected
+    expect(component.docPickIndex()).toBe(1);
+    expect(downloadedAnchor).toBeUndefined();
+
+    // choose the first path explicitly
+    component.docPickIndex.set(0);
+    component.confirmDocPick();
+
+    expect(component.showDocPicker()).toBe(false);
+    expect(downloadedAnchor?.download).toBe('Book.docx');
+    const bytes = new Uint8Array(await (downloadedBlob as Blob).arrayBuffer());
+    const text = new TextDecoder().decode(bytes);
+    expect(text).toContain('Branch one ending');
+    expect(text).not.toContain('Branch two ending');
+  });
+
+  it('cancelling the document picker exports nothing', async () => {
+    seedApi(api, {
+      chats: [{ id: 'c1', title: 'Book' }],
+      nodes: [
+        { id: 'q0', chatId: 'c1', parentId: null, role: 'user', content: 'Q', createdAt: '2025-01-01T00:00:00Z' },
+        { id: 'b1', chatId: 'c1', parentId: 'q0', role: 'assistant', content: 'Branch one ending', version: 1, createdAt: '2025-01-02T00:00:00Z' },
+        { id: 'b2', chatId: 'c1', parentId: 'q0', role: 'assistant', content: 'Branch two ending', version: 1, createdAt: '2025-01-03T00:00:00Z' },
+      ],
+    });
+    await createComponent();
+
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    const create = vi.spyOn(URL, 'createObjectURL').mockImplementation(() => 'blob:x');
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+
+    component.exportScope.set('chat');
+    component.exportChatId.set('c1');
+    await component.exportDocx();
+    expect(component.showDocPicker()).toBe(true);
+
+    component.cancelDocPick();
+    expect(component.showDocPicker()).toBe(false);
+    expect(click).not.toHaveBeenCalled();
+    // restore mocks so afterEach restoreAllMocks doesn't leak
+    click.mockRestore();
+    create.mockRestore();
   });
 
   // ------------------------------------------------------------------

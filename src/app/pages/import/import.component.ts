@@ -12,15 +12,14 @@ import {
   ChatBundle,
   ImportPolicy,
 } from '../../core/bundle.service';
-import { Project } from '../../models/chat';
+import { Project, ChatNode } from '../../models/chat';
 import { I18nService } from '../../core/i18n/i18n.service';
 import { newId } from '../../core/common/helpers';
 import {
   buildDocxBlob,
   buildMarkdown,
   enumerateDocumentPaths,
-  pickLongestVersion,
-  resolveDocStructure,
+  pickDocumentPath,
 } from '../../core/docx-export';
 
 export interface ParsedTurn {
@@ -111,6 +110,15 @@ export class ImportComponent {
   readonly isExporting = signal(false);
   readonly isDocxExporting = signal(false);
   readonly isMarkdownExporting = signal(false);
+
+  /** "Which document do you want to export?" picker (shown when a chat has
+   *  more than one story path). */
+  readonly showDocPicker = signal(false);
+  readonly docPickOptions = signal<Array<{ index: number; label: string; isRecent: boolean }>>([]);
+  readonly docPickIndex = signal(0);
+  private pendingDocExport:
+    | { kind: 'docx' | 'markdown'; title: string; nodes: ChatNode[]; paths: ChatNode[][] }
+    | null = null;
 
   constructor() {
     void this.bundleService.loadAll().then(() => {
@@ -1726,8 +1734,10 @@ export class ImportComponent {
   }
 
   /**
-   * DOCX export for the selected single chat: assistant + structure nodes of
-   * the LONGEST version (same version/branch enumeration as the chat reader).
+   * DOCX export for the selected single chat. Uses the SHARED document
+   * enumeration (same youngest-version DFS as the chat reader). When the chat
+   * has several story paths, the user is asked which one to export (default:
+   * the path containing the most recent node).
    *
    *   first structural node           → title
    *   structural node before a beat   → chapter heading
@@ -1746,23 +1756,15 @@ export class ImportComponent {
     this.globalError.set(null);
     try {
       const nodes = await this.chatService.fetchNodes(chatId);
-      const path = pickLongestVersion(enumerateDocumentPaths(nodes));
-      if (path.length === 0) {
+      const paths = enumerateDocumentPaths(nodes);
+      if (paths.length === 0) {
         throw new Error(this.i18n.t('import.docxEmpty'));
       }
-
-      const blob = buildDocxBlob(chat.title, nodes);
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = `${this.safeFileStem(chat.title) || 'chapterly'}.docx`;
-      a.click();
-      URL.revokeObjectURL(a.href);
-      this.progress.set(
-        this.i18n.t('import.docxExported', {
-          title: chat.title,
-          chapters: path.filter((n) => n.role === 'assistant').length,
-        }),
-      );
+      if (paths.length > 1) {
+        this.beginDocPick('docx', chat.title, nodes, paths);
+        return;
+      }
+      this.downloadDoc('docx', chat.title, nodes, pickDocumentPath(paths));
     } catch (err: any) {
       this.globalError.set(err?.message || String(err));
     } finally {
@@ -1771,8 +1773,8 @@ export class ImportComponent {
   }
 
   /**
-   * Markdown export for the selected single chat — the same longest-version
-   * book structure as the DOCX export, written as a plain Markdown file.
+   * Markdown export for the selected single chat — the same chosen path /
+   * picker flow as the DOCX export, written as a plain Markdown file.
    */
   async exportMarkdown(): Promise<void> {
     if (this.exportScope() !== 'chat') return;
@@ -1787,28 +1789,123 @@ export class ImportComponent {
     this.globalError.set(null);
     try {
       const nodes = await this.chatService.fetchNodes(chatId);
-      const { path } = resolveDocStructure(chat.title, nodes);
-      if (path.length === 0) {
+      const paths = enumerateDocumentPaths(nodes);
+      if (paths.length === 0) {
         throw new Error(this.i18n.t('import.mdEmpty'));
       }
-
-      const markdown = buildMarkdown(chat.title, nodes);
-      const blob = new Blob([markdown], { type: 'text/markdown;charset=utf-8' });
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = `${this.safeFileStem(chat.title) || 'chapterly'}.md`;
-      a.click();
-      URL.revokeObjectURL(a.href);
-      this.progress.set(
-        this.i18n.t('import.mdExported', {
-          title: chat.title,
-          chapters: path.filter((n) => n.role === 'assistant').length,
-        }),
-      );
+      if (paths.length > 1) {
+        this.beginDocPick('markdown', chat.title, nodes, paths);
+        return;
+      }
+      this.downloadDoc('markdown', chat.title, nodes, pickDocumentPath(paths));
     } catch (err: any) {
       this.globalError.set(err?.message || String(err));
     } finally {
       this.isMarkdownExporting.set(false);
+    }
+  }
+
+  // ------------------------------------------------------------------
+  // "Which document?" picker (multi-path chats)
+  // ------------------------------------------------------------------
+
+  private documentLabel(index: number, path: ChatNode[], isRecent: boolean): string {
+    const tip = path.length ? path[path.length - 1] : null;
+    const kind = tip?.role === 'assistant'
+      ? this.i18n.t('reader.roleAssistant')
+      : tip?.role === 'user'
+        ? this.i18n.t('reader.roleUser')
+        : tip?.role === 'system'
+          ? this.i18n.t('node.roleSystem')
+          : this.i18n.t('node.structure');
+    const version = tip ? ` · v${tip.version ?? 1}` : '';
+    const tipText = tip?.content?.trim()?.slice(0, 40) || '';
+    const recent = isRecent ? ` — ${this.i18n.t('import.docRecent')}` : '';
+    return `${index + 1}. ${kind}${version} · ${tipText}${recent}`;
+  }
+
+  private beginDocPick(
+    kind: 'docx' | 'markdown',
+    title: string,
+    nodes: ChatNode[],
+    paths: ChatNode[][],
+  ): void {
+    const recent = pickDocumentPath(paths);
+    const recentId = recent.map((n) => n.id).join('|');
+    this.docPickOptions.set(paths.map((p, i) => ({
+      index: i,
+      isRecent: p.map((n) => n.id).join('|') === recentId,
+      label: this.documentLabel(i, p, p.map((n) => n.id).join('|') === recentId),
+    })));
+    const defaultIdx = Math.max(0, this.docPickOptions().findIndex((o) => o.isRecent));
+    this.docPickIndex.set(defaultIdx);
+    this.pendingDocExport = { kind, title, nodes, paths };
+    this.showDocPicker.set(true);
+  }
+
+  cancelDocPick(): void {
+    this.showDocPicker.set(false);
+    this.pendingDocExport = null;
+  }
+
+  /** Run the export with the chosen document path. */
+  confirmDocPick(): void {
+    const pending = this.pendingDocExport;
+    this.showDocPicker.set(false);
+    this.pendingDocExport = null;
+    if (!pending) return;
+
+    const path = pickDocumentPath(pending.paths, this.docPickIndex());
+    if (pending.kind === 'docx') {
+      this.isDocxExporting.set(true);
+      try {
+        this.downloadDoc('docx', pending.title, pending.nodes, path);
+      } catch (err: any) {
+        this.globalError.set(err?.message || String(err));
+      } finally {
+        this.isDocxExporting.set(false);
+      }
+    } else {
+      this.isMarkdownExporting.set(true);
+      try {
+        this.downloadDoc('markdown', pending.title, pending.nodes, path);
+      } catch (err: any) {
+        this.globalError.set(err?.message || String(err));
+      } finally {
+        this.isMarkdownExporting.set(false);
+      }
+    }
+  }
+
+  /** Build the file and trigger the browser download. */
+  private downloadDoc(kind: 'docx' | 'markdown', title: string, nodes: ChatNode[], path: ChatNode[]): void {
+    if (kind === 'docx') {
+      const blob = buildDocxBlob(title, nodes, { path });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `${this.safeFileStem(title) || 'chapterly'}.docx`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+      this.progress.set(
+        this.i18n.t('import.docxExported', {
+          title,
+          chapters: path.filter((n) => n.role === 'assistant').length,
+        }),
+      );
+    } else {
+      const markdown = buildMarkdown(title, nodes, { path });
+      const blob = new Blob([markdown], { type: 'text/markdown;charset=utf-8' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `${this.safeFileStem(title) || 'chapterly'}.md`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+      this.progress.set(
+        this.i18n.t('import.mdExported', {
+          title,
+          chapters: path.filter((n) => n.role === 'assistant').length,
+        }),
+      );
     }
   }
 

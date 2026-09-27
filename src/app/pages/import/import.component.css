@@ -506,3 +506,70 @@ select, input, textarea {
   max-width: 420px;
   text-align: left;
 }
+
+/* ==========================================================================
+   Export document picker (multi-path chats)
+   ========================================================================== */
+.doc-pick-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 5vh 5vw;
+  box-sizing: border-box;
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.doc-pick-dialog {
+  width: min(520px, 100%);
+  max-width: 90vw;
+  max-height: 80vh;
+  overflow-y: auto;
+  padding: 1.25rem 1.5rem;
+  border-radius: 12px;
+  background: var(--panel, #fff);
+  color: var(--text, #111);
+  border: 1px solid var(--border, #e5e5e5);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
+  box-sizing: border-box;
+}
+
+.doc-pick-dialog h3 {
+  margin: 0 0 0.5rem;
+  font-size: 1.15rem;
+  font-weight: 650;
+  color: var(--text);
+}
+
+.doc-pick-hint {
+  margin: 0 0 1rem;
+  font-size: 0.85rem;
+  line-height: 1.45;
+  color: var(--muted, #666);
+}
+
+.doc-pick-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  margin-bottom: 0.55rem;
+  font-size: 0.875rem;
+  color: var(--text);
+  cursor: pointer;
+  line-height: 1.35;
+}
+
+.doc-pick-option input[type="radio"] {
+  margin-top: 0.25rem;
+}
+
+.doc-pick-label {
+  flex: 1 1 auto;
+  word-break: break-word;
+}
+
+.doc-pick-actions {
+  margin-top: 0.75rem;
+}

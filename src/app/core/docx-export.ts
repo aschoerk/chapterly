@@ -1,12 +1,15 @@
 /**
  * DOCX export for a single chapterly chat.
  *
- * Pure/mostly-pure helpers so the logic is unit-testable without Angular:
+ * Pure/mostly-pure helpers so the logic is unit-testable without Angular.
  *
- *  - `enumerateDocumentPaths` mirrors the chat-reader's document enumeration
- *    (version families + branches) so the exporter finds the SAME set of
- *    story versions the reader would page through.
- *  - `pickLongestVersion` returns the path with the most written content.
+ *  - `enumerateDocumentPaths` uses the SHARED story enumerator
+ *    (./story-paths — the same algorithm as the chat-reader): youngest version
+ *    per family only, plain DFS that clones the path from the root at every
+ *    fork. The exporter and the reader therefore always agree on the set of
+ *    documents.
+ *  - `pickDocumentPath` returns the document containing the MOST RECENT node
+ *    (or any chosen candidate index, for the UI "which path?" picker).
  *  - `classifyStructure` maps the linear path onto a book:
  *        first structural node            → title
  *        structural node before a chapter → chapter heading
@@ -15,156 +18,37 @@
  */
 import { marked, type Token } from 'marked';
 import { ChatNode } from '../models/chat';
+import {
+  enumerateStoryDocuments,
+  isUsableNode,
+  pickMostRecentDocument,
+} from './story-paths';
 
 // ---------------------------------------------------------------------------
-// Version selection (mirrors chat-reader.component.ts)
+// Document enumeration & selection (shared algorithm, see ./story-paths)
 // ---------------------------------------------------------------------------
 
-export function isUsableNode(n: ChatNode): boolean {
-  return !!(n.content?.trim() || n.attachments?.length);
-}
-
-function childIdsByParent(nodes: ChatNode[]): Map<string, string[]> {
-  const map = new Map<string, string[]>();
-  for (const n of nodes) {
-    if (!n.parentId) continue;
-    const list = map.get(n.parentId) ?? [];
-    list.push(n.id);
-    map.set(n.parentId, list);
-  }
-  return map;
-}
-
-function isEmptyLeaf(n: ChatNode, childIds: Map<string, string[]>): boolean {
-  return !isUsableNode(n) && !(childIds.get(n.id)?.length);
-}
-
-function tsOf(n: ChatNode): number {
-  const t = Date.parse(n.createdAt || n.updatedAt || '');
-  return Number.isFinite(t) ? t : 0;
-}
-
-function familyOf(node: ChatNode, byId: Map<string, ChatNode>): ChatNode[] {
-  const ids = new Set<string>();
-  let cur: ChatNode | undefined = node;
-  while (cur) {
-    if (ids.has(cur.id)) break;
-    ids.add(cur.id);
-    cur = cur.previousVersionId ? byId.get(cur.previousVersionId) : undefined;
-  }
-  let changed = true;
-  while (changed) {
-    changed = false;
-    for (const n of byId.values()) {
-      if (ids.has(n.id)) continue;
-      if (n.previousVersionId && ids.has(n.previousVersionId)) {
-        ids.add(n.id);
-        changed = true;
-      }
-      if ([...ids].some(id => byId.get(id)?.previousVersionId === n.id)) {
-        ids.add(n.id);
-        changed = true;
-      }
-    }
-  }
-  return [...ids]
-    .map(id => byId.get(id)!)
-    .filter(Boolean)
-    .sort((a, b) => (a.version ?? 0) - (b.version ?? 0) || tsOf(a) - tsOf(b));
-}
-
-function familyId(node: ChatNode, byId: Map<string, ChatNode>): string {
-  const fam = familyOf(node, byId);
-  return fam[0]?.id ?? node.id; // stable id = oldest version
+/**
+ * Every candidate "document" for a chat — the SAME set the chat-reader pages
+ * through (youngest version per family, DFS with path cloning).
+ */
+export function enumerateDocumentPaths(allNodes: ChatNode[]): ChatNode[][] {
+  return enumerateStoryDocuments(allNodes);
 }
 
 /**
- * Every candidate "document" for a chat, exactly as the chat reader builds
- * them: combinations of version families and branches. Sorted oldest-combo
- * first (mirrors the reader's ordering).
+ * Pick the document to export.
+ *  - `index` provided and valid → that candidate document.
+ *  - otherwise → the document containing the MOST RECENT node.
  */
-export function enumerateDocumentPaths(allNodes: ChatNode[]): ChatNode[][] {
-  const childIds = childIdsByParent(allNodes);
-  const nodes = allNodes.filter(n => !isEmptyLeaf(n, childIds));
-  const byId = new Map(nodes.map(n => [n.id, n]));
-
-  const familyKids = new Map<string, ChatNode[]>();
-  const addKid = (parentFamilyId: string, child: ChatNode) => {
-    const list = familyKids.get(parentFamilyId) ?? [];
-    if (!list.some(n => n.id === child.id)) list.push(child);
-    familyKids.set(parentFamilyId, list);
-  };
-
-  for (const n of nodes) {
-    if (!n.parentId) continue;
-    const parent = byId.get(n.parentId);
-    if (!parent) continue;
-    addKid(familyId(parent, byId), n);
-    for (const rel of familyOf(parent, byId)) {
-      addKid(familyId(rel, byId), n);
-    }
+export function pickDocumentPath(
+  paths: ChatNode[][],
+  index?: number,
+): ChatNode[] {
+  if (index !== undefined && Number.isInteger(index) && index >= 0 && index < paths.length) {
+    return paths[index];
   }
-
-  const roots = nodes.filter(n => !n.parentId);
-  const rootFamilies = new Map<string, ChatNode[]>();
-  for (const r of roots) {
-    const fid = familyId(r, byId);
-    rootFamilies.set(fid, familyOf(r, byId));
-  }
-
-  const paths: ChatNode[][] = [];
-
-  const walk = (famMembers: ChatNode[], acc: ChatNode[]) => {
-    for (const pick of famMembers) {
-      const structuralOnly = !isUsableNode(pick);
-      const nextAcc = structuralOnly ? acc : [...acc, pick];
-      const fid = familyId(pick, byId);
-      const rawKids = familyKids.get(fid) ?? [];
-      const kidFam = new Map<string, ChatNode[]>();
-      for (const kid of rawKids) {
-        const kfid = familyId(kid, byId);
-        kidFam.set(kfid, familyOf(kid, byId));
-      }
-      if (kidFam.size === 0) {
-        if (!structuralOnly && nextAcc.length) paths.push(nextAcc);
-        continue;
-      }
-      for (const members of kidFam.values()) {
-        walk(members, nextAcc);
-      }
-    }
-  };
-
-  for (const members of rootFamilies.values()) walk(members, []);
-
-  paths.sort((a, b) => {
-    const va = a.reduce((s, n) => s + (n.version ?? 1), 0);
-    const vb = b.reduce((s, n) => s + (n.version ?? 1), 0);
-    if (va !== vb) return va - vb;
-    return Math.max(...a.map(n => tsOf(n))) - Math.max(...b.map(n => tsOf(n)));
-  });
-  return paths;
-}
-
-function pathLength(path: ChatNode[]): number {
-  return path.reduce((s, n) => s + (n.content?.length ?? 0), 0);
-}
-
-/** The longest (most written content) version of the chat. */
-export function pickLongestVersion(paths: ChatNode[][]): ChatNode[] {
-  let best: ChatNode[] = [];
-  let bestLen = -1;
-  let bestTs = -1;
-  for (const p of paths) {
-    const len = pathLength(p);
-    const ts = Math.max(...p.map(n => tsOf(n)));
-    if (len > bestLen || (len === bestLen && ts > bestTs)) {
-      best = p;
-      bestLen = len;
-      bestTs = ts;
-    }
-  }
-  return best;
+  return pickMostRecentDocument(paths);
 }
 
 // ---------------------------------------------------------------------------
@@ -644,22 +528,30 @@ export function buildZip(entries: ZipEntry[]): Uint8Array {
 export const DOCX_MIME =
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 
-/** Shared: resolve the longest chat version into a book structure. */
+/** Shared: resolve a chat's chosen document into a book structure. */
 export function resolveDocStructure(
   chatTitle: string,
   allNodes: ChatNode[],
+  options?: { index?: number; path?: ChatNode[] },
 ): { path: ChatNode[]; doc: DocStructure } {
   const paths = enumerateDocumentPaths(allNodes);
-  const path = pickLongestVersion(paths);
+  const path = options?.path && options.path.length
+    ? options.path
+    : pickDocumentPath(paths, options?.index);
   return { path, doc: classifyStructure(path, chatTitle) };
 }
 
 /**
- * Build a .docx Blob for the longest version of a chat's assistant + structure
- * nodes. `allNodes` must contain every node (incl. prior versions) of the chat.
+ * Build a .docx Blob for the chosen document of a chat's assistant + structure
+ * nodes. Without an explicit choice, the document containing the MOST RECENT
+ * node is used.
  */
-export function buildDocxBlob(chatTitle: string, allNodes: ChatNode[]): Blob {
-  const { doc } = resolveDocStructure(chatTitle, allNodes);
+export function buildDocxBlob(
+  chatTitle: string,
+  allNodes: ChatNode[],
+  options?: { index?: number; path?: ChatNode[] },
+): Blob {
+  const { doc } = resolveDocStructure(chatTitle, allNodes, options);
   const now = new Date().toISOString();
 
   const entries: ZipEntry[] = [
@@ -692,8 +584,12 @@ export function buildDocxBlob(chatTitle: string, allNodes: ChatNode[]): Blob {
  *     # Chapter heading
  *     …
  */
-export function buildMarkdown(chatTitle: string, allNodes: ChatNode[]): string {
-  const { doc } = resolveDocStructure(chatTitle, allNodes);
+export function buildMarkdown(
+  chatTitle: string,
+  allNodes: ChatNode[],
+  options?: { index?: number; path?: ChatNode[] },
+): string {
+  const { doc } = resolveDocStructure(chatTitle, allNodes, options);
   const out: string[] = [];
 
   if (doc.title) {

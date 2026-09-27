@@ -409,17 +409,52 @@ body.sidebar-resizing * {
   color: var(--text);
 }
 
-.elaborate-field span {
-  flex: 0 0 auto;
-  min-width: 9rem;
+/* First / Last chapter share one row. */
+.elaborate-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+  flex: 1 1 auto;
+  flex-wrap: nowrap;
 }
 
-.elaborate-field input {
+.elaborate-row .elaborate-field {
+  margin-bottom: 0;
+  flex: 1 1 0%;
+}
+
+.elaborate-field span {
+  flex: 0 0 auto;
+  /* Fixed label column so every input field starts at the same x position:
+     First / Last / Characters / Model all left-align. */
+  width: 8.5rem;
+  white-space: nowrap;
+}
+
+.elaborate-field input,
+.elaborate-field select.elaborate-model-select {
   flex: 1 1 auto;
-  padding: 0.4rem 0.6rem;
+  min-width: 0; /* let long content shrink instead of widening the field */
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  padding: 0.4rem 0.6rem; /* inputs */
   border: 1px solid var(--color-input-border, #ccc);
   border-radius: var(--radius-md, 8px);
   font: inherit;
+}
+
+.elaborate-row .elaborate-field.compact input {
+  padding: 0.4rem 0.4rem;
+}
+
+.elaborate-field select.elaborate-model-select {
+  height: 30px;
+  padding: 0.2rem 0.4rem;
+  background: var(--bg-input, Field);
+  color: var(--text, inherit);
+  font-size: 0.875rem;
 }
 
 .elaborate-actions {

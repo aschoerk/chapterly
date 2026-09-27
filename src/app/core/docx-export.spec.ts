@@ -6,7 +6,7 @@ import {
   buildMarkdown,
   classifyStructure,
   enumerateDocumentPaths,
-  pickLongestVersion,
+  pickDocumentPath,
 } from './docx-export';
 
 function node(o: Partial<ChatNode>): ChatNode {
@@ -14,11 +14,11 @@ function node(o: Partial<ChatNode>): ChatNode {
 }
 
 // ---------------------------------------------------------------------------
-// Version enumeration / longest version
+// Document enumeration / selection (shared youngest-version algorithm)
 // ---------------------------------------------------------------------------
 
-describe('docx-export · version selection', () => {
-  it('enumerates version families and branches like the chat reader', () => {
+describe('docx-export · document selection', () => {
+  it('enumerates only the youngest version of an answer family', () => {
     const nodes = [
       node({ id: 'q1', chatId: 'c1', parentId: null, role: 'user', content: 'Q' }),
       // a1 is retired by a2 (same logical beat, newer version)
@@ -36,31 +36,34 @@ describe('docx-export · version selection', () => {
     ];
 
     const paths = enumerateDocumentPaths(nodes);
-    // both the old and the new version are candidate documents (like the reader)
-    expect(paths).toHaveLength(2);
-    const longest = pickLongestVersion(paths);
-    expect(longest.some(n => n.id === 'a1')).toBe(false);
-    expect(longest.some(n => n.id === 'a2')).toBe(true);
+    // the younger version replaces the older one — a single document
+    expect(paths).toHaveLength(1);
+    expect(paths[0].map(n => n.id)).toContain('a2');
+    expect(paths[0].some(n => n.id === 'a1')).toBe(false);
+    // the most-recent path is the only candidate
+    expect(pickDocumentPath(paths).map(n => n.id)).toContain('a2');
   });
 
-  it('prefers the longest content when multiple versions/branches exist', () => {
+  it('picks the document containing the most recent node', () => {
     const nodes = [
-      node({ id: 'q1', chatId: 'c1', parentId: null, role: 'user', content: 'Q' }),
-      node({
-        id: 'b1', chatId: 'c1', parentId: 'q1', role: 'assistant',
-        content: 'short', previousVersionId: undefined, version: 1,
-        isCurrent: false, createdAt: '2025-01-01T00:00:00Z',
-      }),
-      node({
-        id: 'b2', chatId: 'c1', parentId: 'q1', role: 'assistant',
-        content: 'A considerably longer piece of text used as the full chapter.',
-        previousVersionId: 'b1', version: 2, isCurrent: true,
-        createdAt: '2025-01-02T00:00:00Z',
-      }),
+      node({ id: 'q1', chatId: 'c1', parentId: null, role: 'user', content: 'Q', createdAt: '2025-01-01T00:00:00Z' }),
+      node({ id: 'b1', chatId: 'c1', parentId: 'q1', role: 'assistant', content: 'Branch one', version: 1, createdAt: '2025-01-02T00:00:00Z' }),
+      node({ id: 'b2', chatId: 'c1', parentId: 'q1', role: 'assistant', content: 'Branch two', version: 1, createdAt: '2025-01-03T00:00:00Z' }),
     ];
+    const paths = enumerateDocumentPaths(nodes);
+    expect(paths).toHaveLength(2);
+    expect(pickDocumentPath(paths).map(n => n.id)).toEqual(['q1', 'b2']);
+  });
 
-    const longest = pickLongestVersion(enumerateDocumentPaths(nodes));
-    expect(longest.map(n => n.id)).toContain('b2');
+  it('honours an explicit candidate index', () => {
+    const nodes = [
+      node({ id: 'q1', chatId: 'c1', parentId: null, role: 'user', content: 'Q', createdAt: '2025-01-01T00:00:00Z' }),
+      node({ id: 'b1', chatId: 'c1', parentId: 'q1', role: 'assistant', content: 'Branch one', version: 1, createdAt: '2025-01-02T00:00:00Z' }),
+      node({ id: 'b2', chatId: 'c1', parentId: 'q1', role: 'assistant', content: 'Branch two', version: 1, createdAt: '2025-01-03T00:00:00Z' }),
+    ];
+    const paths = enumerateDocumentPaths(nodes);
+    expect(pickDocumentPath(paths, 0).map(n => n.id)).toEqual(['q1', 'b1']);
+    expect(pickDocumentPath(paths, 99).map(n => n.id)).toEqual(['q1', 'b2']); // invalid → most recent
   });
 });
 

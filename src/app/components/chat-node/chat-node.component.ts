@@ -629,7 +629,7 @@ export class ChatNodeComponent {
 
   private defaultStructurePrompt(task: GenerationTaskKind): string {
     if (task === 'title') return 'Generate a concise title for this story.';
-    if (task === 'overview') return 'Write a concise overview of this story so far.';
+    if (task === 'overview') return 'Write an engaging introduction to this story.';
     return 'Generate a concise chapter or section heading for this point in the story.';
   }
 

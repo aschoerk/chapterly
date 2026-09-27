@@ -60,6 +60,9 @@ export class ChatComponent implements OnInit {
   private static readonly SIDEBAR_WIDTH_MIN = 200;
   private static readonly SIDEBAR_WIDTH_MAX = 720;
 
+  /** Per-chat Elaborate continuation state (localStorage). */
+  private static readonly LS_ELABORATE = 'chat-client.elaborate.byChatId';
+
   readonly sidebarWidth = signal(this.loadSidebarWidth());
   readonly isResizing = signal(false);
   readonly showChatParams = signal(false);
@@ -76,6 +79,9 @@ export class ChatComponent implements OnInit {
   readonly elaborateFirst = signal(1);
   readonly elaborateLast = signal(1);
   readonly elaborateNames = signal('');
+  /** Model used for every elaboration. Initialised to the model of the most
+   *  recent assistant answer; can be overridden in the dialog. */
+  readonly elaborateModelId = signal<string>('');
 
   private resizeStartX = 0;
   private resizeStartWidth = 0;
@@ -398,17 +404,26 @@ export class ChatComponent implements OnInit {
     this.chatParamsDraft.set(event.draft);
   }
 
+  /** Abort the current generation AND any running multi-call operation
+   *  (headings / elaborate / title / summary). */
+  stopGeneration(): void {
+    this.chatService.stopGeneration();
+  }
+
   /** Generate a title for the whole story (context = all assistant nodes). */
   async generateTitle(): Promise<void> {
     await this.runStructureGeneration('title');
   }
 
-  /** Generate a summary of the whole story (context = all assistant nodes). */
-  async generateSummary(): Promise<void> {
+  /** Generate an introduction for the whole story (context = all assistant nodes).
+   *  The resulting structure node wraps the story and sits right after an
+   *  existing structure node (e.g. a generated title), or becomes the very
+   *  first node of the story when none exists yet. */
+  async generateIntroduction(): Promise<void> {
     await this.runStructureGeneration('overview');
   }
 
-  /** Shared generation for the chat-level Title / Summary buttons. */
+  /** Shared generation for the chat-level Title / Introduction buttons. */
   private async runStructureGeneration(task: GenerationTaskKind): Promise<void> {
     const chatId = this.currentChatId();
     if (!chatId || this.isGeneratingStructure()) return;
@@ -422,6 +437,8 @@ export class ChatComponent implements OnInit {
 
     this.isGeneratingStructure.set(true);
     this.pendingStructure.set(task);
+    // The whole process (LLM call + node wiring) is cancelled by one Stop press.
+    const opSignal = this.chatService.beginOperation(task);
     try {
       const resolved = await this.llmService.resolveForCurrentChat(model);
       const config = this.generation.get(task);
@@ -443,10 +460,11 @@ export class ChatComponent implements OnInit {
         }],
         resolved.stream,
         undefined,
-        undefined,
+        opSignal,
         this.llmService.toLlmExtras(resolved),
         model.providerId
       );
+      if (this.chatService.isOperationCancelled()) return;
       const content = result.content.trim();
       if (!content) throw new Error(this.i18n.t('node.structureEmpty'));
 
@@ -464,18 +482,31 @@ export class ChatComponent implements OnInit {
         // The generated title also becomes the chat/story title.
         await this.chatService.updateChatTitle(chatId, content);
       } else {
-        // The summary lands at the end of the active path.
-        const path = this.chatService.getActivePath();
-        const parentId = path[path.length - 1]?.id ?? null;
+        // The introduction is a structure node that wraps the story and reads
+        // right after an existing structure node (e.g. a generated title), or
+        // becomes the very first node of the story when none exists yet.
+        const rootChildren = this.chatService.getChildren(null);
+        const existingStructure = rootChildren.find(n => n.role === 'structural');
+        const parentId = existingStructure?.id ?? null;
+        const first = this.chatService.getActiveChild(parentId);
+
         const created = await this.addStructureNode(chatId, parentId, content, model);
-        this.chatService.setActiveChild(parentId, created.id);
+        if (first) {
+          await this.chatService.reparentNodes(chatId, [first.id], created.id);
+          this.chatService.setActiveChild(parentId, created.id);
+          this.chatService.setActiveChild(created.id, first.id);
+        } else {
+          this.chatService.setActiveChild(parentId, created.id);
+        }
       }
     } catch (err: any) {
+      if (this.chatService.isOperationCancelled()) return; // user stopped — not an error
       console.error(err);
       alert(this.i18n.t('node.structureFailed', { error: err?.message || err }));
     } finally {
       this.isGeneratingStructure.set(false);
       this.pendingStructure.set(null);
+      this.chatService.endOperation();
     }
   }
 
@@ -493,6 +524,8 @@ export class ChatComponent implements OnInit {
 
     this.isGeneratingStructure.set(true);
     this.pendingStructure.set('headings');
+    // The whole multi-call process is cancelled by one Stop press.
+    const opSignal = this.chatService.beginOperation('headings');
     try {
       const resolved = await this.llmService.resolveForCurrentChat(model);
       const config = this.generation.get('headings');
@@ -505,6 +538,8 @@ export class ChatComponent implements OnInit {
       const nodeById = new Map(this.chatService.currentNodes().map(n => [n.id, n]));
       const previous: { node: ChatNode; heading: ChatNode }[] = [];
       for (const assistant of assistants) {
+        // Bail out between chapters if the user pressed Stop.
+        if (this.chatService.isOperationCancelled()) return;
         // A chapter counts as headed when its parent is a structural node.
         // Already-headed chapters are kept in the context but not regenerated.
         const parent = assistant.parentId ? nodeById.get(assistant.parentId) : undefined;
@@ -528,10 +563,11 @@ export class ChatComponent implements OnInit {
           }],
           resolved.stream,
           undefined,
-          undefined,
+          opSignal,
           this.llmService.toLlmExtras(resolved),
           model.providerId
         );
+        if (this.chatService.isOperationCancelled()) return;
         const headingContent = result.content.trim();
         if (!headingContent) throw new Error(this.i18n.t('node.structureEmpty'));
 
@@ -553,17 +589,48 @@ export class ChatComponent implements OnInit {
         previous.push({ node: assistant, heading });
       }
     } catch (err: any) {
+      if (this.chatService.isOperationCancelled()) return; // user stopped — not an error
       console.error(err);
       alert(this.i18n.t('node.structureFailed', { error: err?.message || err }));
     } finally {
       this.isGeneratingStructure.set(false);
       this.pendingStructure.set(null);
+      this.chatService.endOperation();
     }
   }
 
   // ------------------------------------------------------------------
   // Elaborate — extend the chat with per-chapter elaborations
   // ------------------------------------------------------------------
+
+  /** Per-chat continuation state for the Elaborate dialog. */
+  private loadElaborateState(chatId: string): { lastChapter: number; characters: string } {
+    try {
+      const raw = localStorage.getItem(ChatComponent.LS_ELABORATE);
+      const map = raw ? JSON.parse(raw) : {};
+      const entry = map?.[chatId];
+      if (entry && typeof entry.lastChapter === 'number' && Number.isFinite(entry.lastChapter)) {
+        return {
+          lastChapter: Math.max(0, Math.floor(entry.lastChapter)),
+          characters: typeof entry.characters === 'string' ? entry.characters : '',
+        };
+      }
+    } catch {
+      /* corrupted / blocked storage — start fresh */
+    }
+    return { lastChapter: 0, characters: '' };
+  }
+
+  private saveElaborateState(chatId: string, state: { lastChapter: number; characters: string }): void {
+    try {
+      const raw = localStorage.getItem(ChatComponent.LS_ELABORATE);
+      const map = raw ? JSON.parse(raw) : {};
+      map[chatId] = state;
+      localStorage.setItem(ChatComponent.LS_ELABORATE, JSON.stringify(map));
+    } catch {
+      /* best-effort; never block elaboration on storage failure */
+    }
+  }
 
   /** Most recent current assistant answer of this chat (model source + attach point). */
   private mostRecentAssistantNode(): ChatNode | null {
@@ -575,10 +642,24 @@ export class ChatComponent implements OnInit {
     return nodes[0] ?? null;
   }
 
-  /** The model of the most recent assistant answer (falls back to selection / first). */
-  private resolveElaborateModel(node: ChatNode): { model: ModelEntry; provider: ProviderConfig } | null {
+  /** Model of the most recent assistant answer, resolvable to a ModelEntry. */
+  private resolveElaborateModel(node: ChatNode): ModelEntry | null {
     const models = this.enabledModels();
-    const model = models.find(m => !!node.modelId && (m.modelId === node.modelId || m.id === node.modelId))
+    return models.find(m => !!node.modelId && (m.modelId === node.modelId || m.id === node.modelId))
+      ?? models.find(m =>
+        m.modelId === this.lastModelService.selectedModelId() ||
+        m.id === this.lastModelService.selectedModelId())
+      ?? models[0]
+      ?? null;
+  }
+
+  /** Resolve the selected (overrideable) elaborate model to entry + provider. */
+  private resolveSelectedElaborateModel(): { model: ModelEntry; provider: ProviderConfig } | null {
+    const models = this.enabledModels();
+    const model = models.find(m =>
+      !!this.elaborateModelId() &&
+      (m.modelId === this.elaborateModelId() || m.id === this.elaborateModelId())
+    )
       ?? models.find(m =>
         m.modelId === this.lastModelService.selectedModelId() ||
         m.id === this.lastModelService.selectedModelId())
@@ -591,13 +672,24 @@ export class ChatComponent implements OnInit {
   openElaborateDialog(): void {
     const chatId = this.currentChatId();
     if (!chatId || this.isGeneratingStructure() || this.isElaborating()) return;
-    if (!this.mostRecentAssistantNode()) {
+    const anchor = this.mostRecentAssistantNode();
+    if (!anchor) {
       alert(this.i18n.t('chat.elaborateNoAnchor'));
       return;
     }
-    this.elaborateFirst.set(1);
-    this.elaborateLast.set(1);
-    this.elaborateNames.set('');
+
+    // Continue where the last elaboration for THIS chat left off:
+    //   First chapter = previous Last chapter + 1, characters = last used.
+    // Each chat keeps its own state (not a global default).
+    const state = this.loadElaborateState(chatId);
+    const next = state.lastChapter + 1;
+    this.elaborateFirst.set(next);
+    this.elaborateLast.set(next);
+    this.elaborateNames.set(state.characters);
+
+    // initial model = the one that created the most recent assistant answer
+    const model = this.resolveElaborateModel(anchor);
+    this.elaborateModelId.set(model?.modelId ?? '');
     this.showElaborateDialog.set(true);
   }
 
@@ -623,18 +715,24 @@ export class ChatComponent implements OnInit {
     const anchor = this.mostRecentAssistantNode();
     if (!anchor) return;
 
-    const resolved = this.resolveElaborateModel(anchor);
+    const resolved = this.resolveSelectedElaborateModel();
     if (!resolved) {
       alert(this.i18n.t('chat.elaborateNoModel'));
       return;
     }
     const { model, provider } = resolved;
 
+    // Remember what was used, per chat, for the next dialog opening.
+    this.saveElaborateState(chatId, { lastChapter: last, characters: this.elaborateNames() });
+
     this.isElaborating.set(true);
     this.chatService.elaborating = true;
+    // One Stop press cancels the whole chain (all chapters / views).
+    this.chatService.beginOperation('elaborate');
     try {
       let parentId: string | null = anchor.id;
       for (let chapter = first; chapter <= last; chapter++) {
+        if (this.chatService.isOperationCancelled()) break;
         // No names → one generic elaboration per chapter.
         // With names → one elaboration per name, in first person.
         const prompts = names.length > 0
@@ -643,15 +741,18 @@ export class ChatComponent implements OnInit {
           : [`elaborate on chapter ${chapter}`];
 
         for (const prompt of prompts) {
+          if (this.chatService.isOperationCancelled()) break;
           parentId = await this.elaborateOne(chatId, parentId, prompt, model, provider);
         }
       }
     } catch (err: any) {
+      if (this.chatService.isOperationCancelled()) return; // user stopped — not an error
       console.error(err);
       alert(this.i18n.t('chat.elaborateFailed', { error: err?.message || err }));
     } finally {
       this.isElaborating.set(false);
       this.chatService.elaborating = false;
+      this.chatService.endOperation();
     }
   }
 
@@ -746,7 +847,8 @@ export class ChatComponent implements OnInit {
 
   private defaultStructurePrompt(task: GenerationTaskKind): string {
     if (task === 'title') return 'Generate a concise title for this story.';
-    return 'Generate a concise overview of this story so far.';
+    // 'overview' = the introduction node placed at the start of the story.
+    return 'Write an engaging introduction to this story.';
   }
 
   async saveChatParams() {

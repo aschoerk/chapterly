@@ -213,16 +213,63 @@ describe('ChatReaderComponent', () => {
     ]);
   });
 
-  it('groups versions of the same answer via previousVersionId', async () => {
+  it('uses only the youngest version of an answer, ignoring older versions', async () => {
     await openChat([
       { id: 'q1', parentId: null, role: 'user', content: 'Q1', createdAt: t(1) },
       { id: 'a1', parentId: 'q1', role: 'assistant', content: 'v1', version: 1, createdAt: t(2) },
       { id: 'a2', parentId: 'q1', role: 'assistant', content: 'v2', version: 2, previousVersionId: 'a1', createdAt: t(3) }
     ]);
     const paths = component.documents().map(p => p.map(n => n.id));
+    expect(paths).toEqual([['q1', 'a2']]);
+    const html = component.bookHtml();
+    expect(html).toContain('chapter · v2');   // only the newest answer renders
+    expect(html).not.toContain('chapter · v1'); // the older version is skipped
+  });
+
+  it('re-homes children of an older version under its youngest version', async () => {
+    await openChat([
+      { id: 'q1', parentId: null, role: 'user', content: 'Q1', createdAt: t(1) },
+      { id: 'a1', parentId: 'q1', role: 'assistant', content: 'v1', version: 1, isCurrent: false, createdAt: t(2) },
+      { id: 'a2', parentId: 'q1', role: 'assistant', content: 'v2', version: 2, previousVersionId: 'a1', isCurrent: true, createdAt: t(3) },
+      // q2 hangs off the OLD a1 → must fold under the youngest (a2)
+      { id: 'q2', parentId: 'a1', role: 'user', content: 'Q2', createdAt: t(4) },
+      { id: 'a3', parentId: 'q2', role: 'assistant', content: 'A3', version: 1, createdAt: t(5) }
+    ]);
+    const paths = component.documents().map(p => p.map(n => n.id));
+    expect(paths).toEqual([['q1', 'a2', 'q2', 'a3']]);
+  });
+
+  it('clones the full path from the root for each branch at a fork', async () => {
+    await openChat([
+      { id: 'q1', parentId: null, role: 'user', content: 'Q1', createdAt: t(1) },
+      { id: 'a1', parentId: 'q1', role: 'assistant', content: 'A1', version: 1, createdAt: t(2) },
+      { id: 'a2', parentId: 'a1', role: 'assistant', content: 'A2', version: 1, createdAt: t(3) },
+      { id: 'q2', parentId: 'a2', role: 'user', content: 'Q2', createdAt: t(4) },
+      { id: 'b1', parentId: 'q2', role: 'assistant', content: 'B1', version: 1, createdAt: t(5) },
+      { id: 'b2', parentId: 'q2', role: 'assistant', content: 'B2', version: 1, createdAt: t(6) },
+      // deeper continuation of the second branch only
+      { id: 'q3', parentId: 'b2', role: 'user', content: 'Q3', createdAt: t(7) },
+      { id: 'a3', parentId: 'q3', role: 'assistant', content: 'A3', version: 1, createdAt: t(8) }
+    ]);
+    // Each branch gets its own complete document incl. the full shared prefix.
+    expect(component.documents().map(p => p.map(n => n.id))).toEqual([
+      ['q1', 'a1', 'a2', 'q2', 'b1'],
+      ['q1', 'a1', 'a2', 'q2', 'b2', 'q3', 'a3']
+    ]);
+  });
+
+  it('treats nodes with a missing parent as roots instead of dropping them', async () => {
+    await openChat([
+      { id: 'q1', parentId: null, role: 'user', content: 'Q1', createdAt: t(1) },
+      { id: 'a1', parentId: 'q1', role: 'assistant', content: 'A1', version: 1, createdAt: t(2) },
+      // orphan: parent id does not exist in this chat
+      { id: 'orphanQ', parentId: 'missing-parent', role: 'user', content: 'OQ', createdAt: t(3) },
+      { id: 'orphanA', parentId: 'orphanQ', role: 'assistant', content: 'OA', version: 1, createdAt: t(4) }
+    ]);
+    const paths = component.documents().map(p => p.map(n => n.id));
     expect(paths).toEqual([
       ['q1', 'a1'],
-      ['q1', 'a2']
+      ['orphanQ', 'orphanA']
     ]);
   });
 

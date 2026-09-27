@@ -45,6 +45,7 @@ describe('Chat', () => {
     localStorage.removeItem('chat.currentChatId');
     localStorage.removeItem('chat.scrollByChatId');
     localStorage.removeItem('chat.generationTasks');
+    localStorage.removeItem('chat-client.elaborate.byChatId');
 
     await TestBed.configureTestingModule({
       imports: [ChatComponent],
@@ -137,27 +138,60 @@ describe('Chat', () => {
     expect(chatService.chats().find(c => c.id === 'chat-1')?.title).toBe('Generated structure');
   });
 
-  it('uses every assistant node as context for title/summary', async () => {
+  it('uses every assistant node as context for title/introduction', async () => {
     await openStory();
 
-    await component.generateSummary();
+    await component.generateIntroduction();
 
     const messages = llm.askLlm.mock.calls[0][3];
     const userMsg = messages.find((m: { role: string }) => m.role === 'user')!;
     expect(userMsg.content).toContain('Answer one');
     expect(userMsg.content).toContain('Answer two');
     expect(userMsg.content).not.toContain('Question');
+    // the overview task now defaults to an introduction prompt
+    expect(userMsg.content).toContain('introduction');
   });
 
-  it('appends the summary at the end of the active path', async () => {
+  it('places the introduction first and wraps the story when no structure node exists', async () => {
     await openStory();
-    const leafId = chatService.getActivePath().at(-1)!.id;
 
-    await component.generateSummary();
+    await component.generateIntroduction();
 
-    const summary = chatService.nodes().find(n => n.role === 'structural');
-    expect(summary?.parentId).toBe(leafId);
-    expect(chatService.getActiveChildId(leafId)).toBe(summary?.id);
+    const intro = chatService.nodes().find(n => n.role === 'structural');
+    expect(intro?.content).toBe('Generated structure');
+    expect(intro?.parentId).toBeNull();
+    // the intro wraps the first story node → it becomes the 1st node
+    expect(chatService.nodes().find(n => n.id === 'q1')?.parentId).toBe(intro?.id);
+    // (a draft leaf may be appended at the end by ensureDraftAtLeaf)
+    expect(chatService.getActivePath().slice(0, 3).map(n => n.id)).toEqual([intro?.id, 'q1', 'a1']);
+  });
+
+  it('places the introduction second, right after an existing structure node', async () => {
+    seedApi(api, {
+      chats: [{ id: 'chat-1', title: 'Story' }],
+      nodes: [
+        { id: 't1', chatId: 'chat-1', parentId: null, role: 'structural', content: 'Story title' },
+        { id: 'q1', chatId: 'chat-1', parentId: 't1', role: 'user', content: 'Question' },
+        { id: 'a1', chatId: 'chat-1', parentId: 'q1', role: 'assistant', content: 'Answer one' },
+        { id: 'a2', chatId: 'chat-1', parentId: 'q1', role: 'assistant', content: 'Answer two' }
+      ]
+    });
+    await chatService.loadChats();
+    await chatService.selectChat('chat-1');
+    chatService.setActiveChild(null, 't1');
+    chatService.setActiveChild('t1', 'q1');
+    chatService.setActiveChild('q1', 'a1');
+
+    await component.generateIntroduction();
+
+    const structural = chatService.nodes().filter(n => n.role === 'structural');
+    expect(structural.length).toBe(2); // title + introduction
+    const intro = structural.find(n => n.content === 'Generated structure')!;
+    // the intro sits right after the existing structure node (2nd in the story)
+    expect(intro.parentId).toBe('t1');
+    expect(chatService.nodes().find(n => n.id === 'q1')?.parentId).toBe(intro.id);
+    // (a draft leaf may be appended at the end by ensureDraftAtLeaf)
+    expect(chatService.getActivePath().slice(0, 4).map(n => n.id)).toEqual(['t1', intro.id, 'q1', 'a1']);
   });
 
   /** Seed a linear chain q1 → a1 → q2 → a2 and walk it. */
@@ -335,6 +369,108 @@ describe('Chat', () => {
     const a1 = chatService.nodes().find(n => n.role === 'assistant' && n.parentId === q1.id)!;
     expect(q2.parentId).toBe(a1.id);
     expect(llm.streamAnswer).toHaveBeenCalledTimes(2);
+  });
+
+  it('pre-selects the most recent answer model when opening the elaborate dialog', async () => {
+    await openElaborateStory();
+
+    component.openElaborateDialog();
+
+    expect(component.showElaborateDialog()).toBe(true);
+    expect(component.elaborateModelId()).toBe('alpha/model');
+  });
+
+  it('initializes first/last chapter to 1 with empty characters the first time', async () => {
+    await openElaborateStory();
+
+    component.openElaborateDialog();
+
+    expect(component.elaborateFirst()).toBe(1);
+    expect(component.elaborateLast()).toBe(1);
+    expect(component.elaborateNames()).toBe('');
+  });
+
+  it('reopens elaborate on the same chat at previous last chapter + 1 with the last characters', async () => {
+    await openElaborateStory();
+    llm.streamAnswer.mockClear();
+
+    // First use: elaborate chapters 1–3 with two characters
+    component.elaborateFirst.set(1);
+    component.elaborateLast.set(3);
+    component.elaborateNames.set('Anna, Ben');
+    await component.confirmElaborate();
+
+    // Reopen the dialog for the SAME chat.
+    llm.streamAnswer.mockClear();
+    component.openElaborateDialog();
+
+    expect(component.elaborateFirst()).toBe(4); // last chapter (3) + 1
+    expect(component.elaborateLast()).toBe(4);  // defaults to First
+    expect(component.elaborateNames()).toBe('Anna, Ben'); // last used characters
+  });
+
+  it('keeps elaborate continuation state separate per chat', async () => {
+    await openElaborateStory();
+    llm.streamAnswer.mockClear();
+    component.elaborateFirst.set(1);
+    component.elaborateLast.set(5);
+    component.elaborateNames.set('Cassidy');
+    await component.confirmElaborate();
+
+    // Switch to a different chat: its dialog must start back at chapter 1.
+    seedApi(api, {
+      chats: [{ id: 'chat-2', title: 'Other', projectId: null }],
+      nodes: [
+        { id: 'q0b', chatId: 'chat-2', parentId: null, role: 'user', content: 'Chapters', createdAt: '2025-01-01T00:00:00Z' },
+        {
+          id: 'a0b', chatId: 'chat-2', parentId: 'q0b', role: 'assistant',
+          content: 'Chapter 1: …', modelId: 'alpha/model', providerId: 'prov-1',
+          createdAt: '2025-01-02T00:00:00Z'
+        }
+      ]
+    });
+    await chatService.loadChats();
+    await chatService.selectChat('chat-2');
+    chatService.setActiveChild(null, 'q0b');
+    chatService.setActiveChild('q0b', 'a0b');
+    llm.streamAnswer.mockClear();
+
+    component.openElaborateDialog();
+
+    // The other chat has never been elaborated → back to defaults.
+    expect(component.elaborateFirst()).toBe(1);
+    expect(component.elaborateLast()).toBe(1);
+    expect(component.elaborateNames()).toBe('');
+  });
+
+  it('uses the model chosen in the elaborate dialog for every elaboration', async () => {
+    // a second enabled model that is NOT the anchor's model
+    seedApi(api, {
+      providers: [{ id: 'prov-2' }],
+      models: [{ id: 'm-2', displayName: 'Beta', modelId: 'beta/model', providerId: 'prov-2' }]
+    });
+    await TestBed.inject(SettingsService).loadAll();
+
+    await openElaborateStory();
+    llm.streamAnswer.mockClear();
+
+    component.openElaborateDialog();
+    expect(component.elaborateModelId()).toBe('alpha/model'); // pre-selected
+
+    component.elaborateModelId.set('beta/model'); // user overrides
+    component.elaborateFirst.set(1);
+    component.elaborateLast.set(1);
+    component.elaborateNames.set('');
+
+    await component.confirmElaborate();
+
+    const nodes = chatService.nodes();
+    const q1 = nodes.find(n => n.role === 'user' && n.content === 'elaborate on chapter 1')!;
+    expect(q1.modelId).toBe('beta/model');
+    expect(q1.providerId).toBe('prov-2');
+    const a1 = nodes.find(n => n.role === 'assistant' && n.parentId === q1.id)!;
+    expect(a1.modelId).toBe('beta/model');
+    expect(a1.providerId).toBe('prov-2');
   });
 });
 

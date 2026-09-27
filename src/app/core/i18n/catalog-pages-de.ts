@@ -153,6 +153,10 @@ export const DE_PAGES = {
     mdNoChat: 'Bitte wählen Sie eine Geschichte für den Markdown-Export.',
     mdEmpty: 'Diese Geschichte hat keine Kapitel zum Exportieren.',
     mdExported: '„{{title}}“ als Markdown exportiert ({{chapters}} Kapitel).',
+    docRecent: 'neueste',
+    docPickerTitle: 'Welches Dokument?',
+    docPickerHint: 'Diese Geschichte hat mehrere Story-Pfade. Wählen Sie, welcher exportiert werden soll — der neueste ist vorausgewählt.',
+    docPickExport: 'Exportieren',
     dropTitle: 'JSON-Datei(en) hier ablegen',
     dropHint:
       'Chapterly-Bündel → sofort wiederherstellen  |  Copilots → Projekte sofort  |  Sitzungen → Prüfungsliste  |  Grok-Export → eine Sitzung je Gespräch',

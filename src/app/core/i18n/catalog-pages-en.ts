@@ -152,6 +152,10 @@ export const EN_PAGES = {
     mdNoChat: 'Select a chat to export as Markdown.',
     mdEmpty: 'This chat has no chapters to export.',
     mdExported: 'Exported “{{title}}” as Markdown ({{chapters}} chapters).',
+    docRecent: 'most recent',
+    docPickerTitle: 'Which document?',
+    docPickerHint: 'This chat has several story paths. Choose which one to export — the most recent is preselected.',
+    docPickExport: 'Export',
     dropTitle: 'Drop JSON file(s) here',
     dropHint:
       'Chapterly bundle → restore immediately  |  Copilots → Projects immediately  |  Sessions → review list  |  Grok export → one session per conversation',

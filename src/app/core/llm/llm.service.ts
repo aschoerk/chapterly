@@ -340,7 +340,9 @@ export class LlmService {
       return answerNode;
     } finally {
       flushReveal();
-      this.chatService.stopGeneration();
+      // End this single answer without cancelling a running multi-call
+      // operation (e.g. the elaborate chain).
+      this.chatService.clearGeneration();
       if (this.chatService.alwaysOpenAtLeaf() && (accContent.trim() || accThinking.trim())) {
         const current = this.chatService.getActiveChild(questionNodeId) ?? answerNode;
         await this.chatService.ensureDraftAtLeaf(chatId);

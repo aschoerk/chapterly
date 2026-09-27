@@ -437,21 +437,57 @@ export class ChatService {
   // Currently generating answer
   readonly generatingNodeId = signal<string | null>(null);
 
-  private currentAbortController: AbortController | null = null;
+  /** Label of a running multi-call operation
+   *  ('title' | 'overview' | 'headings' | 'elaborate'), or null. */
+  readonly operationLabel = signal<string | null>(null);
 
-  startGeneration(nodeId: string): AbortSignal {
-    this.stopGeneration(); // cancel any previous one
-    this.currentAbortController = new AbortController();
-    this.generatingNodeId.set(nodeId);
-    return this.currentAbortController.signal;
+  private currentAbortController: AbortController | null = null;
+  private operationAbort: AbortController | null = null;
+
+  /** Begin a multi-call operation (structure generation / elaborate).
+   *  Returns an AbortSignal that aborts the WHOLE remaining process when the
+   *  user presses Stop — not just the current in-flight LLM call. */
+  beginOperation(label: string): AbortSignal {
+    this.operationAbort?.abort();
+    this.operationLabel.set(label);
+    this.operationAbort = new AbortController();
+    return this.operationAbort.signal;
   }
 
-  stopGeneration(): void {
+  /** Finish a multi-call operation (success / error / completion). */
+  endOperation(): void {
+    this.operationAbort = null;
+    this.operationLabel.set(null);
+  }
+
+  /** True if the running multi-call operation was cancelled by the user. */
+  isOperationCancelled(): boolean {
+    return !!this.operationAbort?.signal.aborted;
+  }
+
+  /** Cancel any in-flight single-answer generation. Used between generations
+   *  and when an answer finishes — it does NOT cancel a running multi-call
+   *  operation. */
+  clearGeneration(): void {
     if (this.currentAbortController) {
       this.currentAbortController.abort();
       this.currentAbortController = null;
     }
     this.generatingNodeId.set(null);
+  }
+
+  startGeneration(nodeId: string): AbortSignal {
+    this.clearGeneration(); // cancel any previous single-answer generation
+    this.currentAbortController = new AbortController();
+    this.generatingNodeId.set(nodeId);
+    return this.currentAbortController.signal;
+  }
+
+  /** User-facing STOP: cancels the current answer generation AND any running
+   *  multi-call operation (headings / elaborate / title / summary). */
+  stopGeneration(): void {
+    this.clearGeneration();
+    this.operationAbort?.abort();
   }
 
   isGenerating(nodeId: string): boolean {

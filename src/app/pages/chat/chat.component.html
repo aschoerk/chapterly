@@ -91,9 +91,9 @@
               {{ isGeneratingStructure() && pendingStructure() === 'title' ? i18n.t('chat.generating') : i18n.t('chat.title') }}
             </button>
             <button class="btn small" type="button" [disabled]="isGeneratingStructure()"
-                    (click)="generateSummary()"
-                    [title]="i18n.t('chat.summaryTitle')">
-              {{ isGeneratingStructure() && pendingStructure() === 'overview' ? i18n.t('chat.generating') : i18n.t('chat.summary') }}
+                    (click)="generateIntroduction()"
+                    [title]="i18n.t('chat.introductionTitle')">
+              {{ isGeneratingStructure() && pendingStructure() === 'overview' ? i18n.t('chat.generating') : i18n.t('chat.introduction') }}
             </button>
             <button class="btn small" type="button" [disabled]="isGeneratingStructure()"
                     (click)="generateHeadings()"
@@ -106,6 +106,14 @@
                     [title]="i18n.t('chat.elaborateTitle')">
               {{ isElaborating() ? i18n.t('chat.generating') : i18n.t('chat.elaborate') }}
             </button>
+
+            @if (isGeneratingStructure() || isElaborating() || chatService.generatingNodeId()) {
+              <button class="btn small danger" type="button"
+                      (click)="stopGeneration()"
+                      [title]="i18n.t('node.stopTitle')">
+                <span>{{ i18n.t('node.stop') }}</span>
+              </button>
+            }
           </div>
           @if (showChatParams()) {
             <div class="params-popover">
@@ -130,21 +138,34 @@
                 <h3>{{ i18n.t('chat.elaborateTitle') }}</h3>
                 <p class="elaborate-hint">{{ i18n.t('chat.elaborateHint') }}</p>
 
-                <label class="elaborate-field">
-                  <span>{{ i18n.t('chat.elaborateFirst') }}</span>
-                  <input type="number" min="1" [ngModel]="elaborateFirst()"
-                         (ngModelChange)="elaborateFirst.set(+$event)" />
-                </label>
-                <label class="elaborate-field">
-                  <span>{{ i18n.t('chat.elaborateLast') }}</span>
-                  <input type="number" min="1" [ngModel]="elaborateLast()"
-                         (ngModelChange)="elaborateLast.set(+$event)" />
-                </label>
+                <div class="elaborate-row">
+                  <label class="elaborate-field compact">
+                    <span>{{ i18n.t('chat.elaborateFirst') }}</span>
+                    <input type="number" min="1" [ngModel]="elaborateFirst()"
+                           (ngModelChange)="elaborateFirst.set(+$event)" />
+                  </label>
+                  <label class="elaborate-field compact">
+                    <span>{{ i18n.t('chat.elaborateLast') }}</span>
+                    <input type="number" min="1" [ngModel]="elaborateLast()"
+                           (ngModelChange)="elaborateLast.set(+$event)" />
+                  </label>
+                </div>
                 <label class="elaborate-field">
                   <span>{{ i18n.t('chat.elaborateNames') }}</span>
                   <input type="text" [ngModel]="elaborateNames()"
                          (ngModelChange)="elaborateNames.set($event)"
                          [placeholder]="i18n.t('chat.elaborateNamesPlaceholder')" />
+                </label>
+                <label class="elaborate-field">
+                  <span>{{ i18n.t('chat.elaborateModel') }}</span>
+                  <select class="elaborate-model-select"
+                          [ngModel]="elaborateModelId()"
+                          (ngModelChange)="elaborateModelId.set($event)"
+                          [title]="i18n.t('chat.elaborateModelTitle')">
+                    @for (model of enabledModels(); track model.id) {
+                      <option [value]="model.modelId">{{ model.displayName }}</option>
+                    }
+                  </select>
                 </label>
 
                 <div class="elaborate-actions">

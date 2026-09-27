@@ -83,6 +83,28 @@
       {{ isMarkdownExporting() ? i18n.t('import.mdExporting') : i18n.t('import.downloadMarkdown') }}
     </button>
   </div>
+
+  @if (showDocPicker()) {
+    <div class="doc-pick-backdrop">
+      <div class="doc-pick-dialog" role="dialog" aria-modal="true"
+           [attr.aria-label]="i18n.t('import.docPickerTitle')">
+        <h3>{{ i18n.t('import.docPickerTitle') }}</h3>
+        <p class="doc-pick-hint">{{ i18n.t('import.docPickerHint') }}</p>
+        @for (opt of docPickOptions(); track opt.index) {
+          <label class="doc-pick-option">
+            <input type="radio" name="docPick"
+                   [value]="opt.index" [ngModel]="docPickIndex()"
+                   (ngModelChange)="docPickIndex.set($event)" />
+            <span class="doc-pick-label">{{ opt.label }}</span>
+          </label>
+        }
+        <div class="elaborate-actions doc-pick-actions">
+          <button class="btn" type="button" (click)="cancelDocPick()">{{ i18n.t('common.cancel') }}</button>
+          <button class="btn primary" type="button" (click)="confirmDocPick()">{{ i18n.t('import.docPickExport') }}</button>
+        </div>
+      </div>
+    </div>
+  }
 </section>
 <!-- ========== Drop zone ========== -->
 <section
