@@ -360,6 +360,91 @@ body.sidebar-resizing * {
 
 
 /* ==========================================================================
+   Trash panel (soft-deleted branches)
+   ========================================================================== */
+.trash-panel {
+  margin: 0 0.75rem 0.5rem;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--border, #3333);
+  border-radius: 8px;
+  background: var(--panel, transparent);
+}
+
+.trash-panel h3 {
+  margin: 0 0 0.5rem;
+  font-size: 0.95rem;
+  font-weight: 650;
+  color: var(--text);
+}
+
+.trash-empty {
+  margin: 0.2rem 0 0.5rem;
+  font-size: 0.8rem;
+  color: var(--muted, #888);
+}
+
+.trash-list {
+  list-style: none;
+  margin: 0.25rem 0 0.5rem;
+  padding: 0;
+  max-height: 260px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.trash-item {
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--border, #3333);
+  border-radius: 6px;
+  background: var(--panel, transparent);
+}
+
+.trash-item-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+}
+
+.trash-badge {
+  padding: 0.05rem 0.4rem;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  background: var(--accent, #3355ff);
+  color: var(--on-accent, #fff);
+}
+
+.trash-date {
+  color: var(--muted, #888);
+}
+
+.trash-preview {
+  margin: 0.3rem 0 0;
+  font-size: 0.82rem;
+  line-height: 1.35;
+  color: var(--text);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+}
+
+.trash-actions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+  margin-top: 0.3rem;
+}
+
+.trash-footer {
+  text-align: right;
+  margin-top: 0.25rem;
+}
+
+
+/* ==========================================================================
    Elaborate dialog
    ========================================================================== */
 .elaborate-backdrop {

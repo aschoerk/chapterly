@@ -287,7 +287,7 @@ export class IdbChatApiService implements ChatApiPort {
 
   async getNodes(chatId: string): Promise<ChatNode[]> {
     const list = await this.tx(['nodes'], 'readonly', tx => this.req<ChatNode[]>(tx.objectStore('nodes').index('by-chat').getAll(chatId)));
-    return list.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    return list.filter(n => !n.deletedAt).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   }
 
   async createNode(chatId: string, data: CreateNodeRequest): Promise<ChatNode> {
@@ -381,16 +381,61 @@ export class IdbChatApiService implements ChatApiPort {
     await this.tx(['nodes', 'chats'], 'readwrite', async tx => {
       const store = tx.objectStore('nodes');
       const all = await this.req<ChatNode[]>(store.index('by-chat').getAll(chatId));
+      const ts = this.now();
       if (options?.keepChildren) {
         const target = all.find(n => n.id === nodeId);
         const parentId = target?.parentId ?? null;
         for (const child of all.filter(n => n.parentId === nodeId)) {
           await this.req(store.put({ ...child, parentId }));
         }
-        await this.req(store.delete(nodeId));
+        await this.req(store.put({ ...target, deletedAt: ts, updatedAt: ts }));
         await this.touchChat(tx, chatId, 1);
         return;
       }
+      // Soft-delete the whole subtree (tombstone) so it can be restored later.
+      const drop = new Set<string>();
+      const walk = (id: string) => {
+        drop.add(id);
+        all.filter(n => n.parentId === id).forEach(c => walk(c.id));
+      };
+      walk(nodeId);
+      for (const row of all.filter(n => drop.has(n.id))) {
+        await this.req(store.put({ ...row, deletedAt: ts, updatedAt: ts }));
+      }
+      await this.touchChat(tx, chatId, drop.size);
+    });
+  }
+
+  async getDeletedNodes(chatId: string): Promise<ChatNode[]> {
+    const all = await this.tx(['nodes'], 'readonly', tx => this.req<ChatNode[]>(tx.objectStore('nodes').index('by-chat').getAll(chatId)));
+    const deleted = all.filter(n => !!n.deletedAt);
+    const deletedIds = new Set(deleted.map(n => n.id));
+    return deleted
+      .filter(n => !n.parentId || !deletedIds.has(n.parentId))
+      .sort((a, b) => String(a.deletedAt).localeCompare(String(b.deletedAt)));
+  }
+
+  async restoreNode(chatId: string, nodeId: string): Promise<void> {
+    await this.tx(['nodes', 'chats'], 'readwrite', async tx => {
+      const store = tx.objectStore('nodes');
+      const all = await this.req<ChatNode[]>(store.index('by-chat').getAll(chatId));
+      const drop = new Set<string>();
+      const walk = (id: string) => {
+        drop.add(id);
+        all.filter(n => n.parentId === id).forEach(c => walk(c.id));
+      };
+      walk(nodeId);
+      for (const row of all.filter(n => drop.has(n.id))) {
+        await this.req(store.put({ ...row, deletedAt: null }));
+      }
+      await this.touchChat(tx, chatId, drop.size);
+    });
+  }
+
+  async purgeNode(chatId: string, nodeId: string): Promise<void> {
+    await this.tx(['nodes', 'chats'], 'readwrite', async tx => {
+      const store = tx.objectStore('nodes');
+      const all = await this.req<ChatNode[]>(store.index('by-chat').getAll(chatId));
       const drop = new Set<string>();
       const walk = (id: string) => {
         drop.add(id);
@@ -398,7 +443,7 @@ export class IdbChatApiService implements ChatApiPort {
       };
       walk(nodeId);
       for (const id of drop) await this.req(store.delete(id));
-      await this.touchChat(tx, chatId, drop.size);
+      await this.touchChat(tx, chatId, 0);
     });
   }
 
@@ -601,7 +646,7 @@ export class IdbChatApiService implements ChatApiPort {
       const next: ChatNode = {
         ...old, id: this.id(), content: data.content, thinking: nextThinking, attachments: nextAttachments,
         version: (old.version || 1) + 1, previousVersionId: old.id, isCurrent: true,
-        createdAt: this.now(), updatedAt: this.now()
+        createdAt: this.now(), updatedAt: this.now(), deletedAt: null
       };
       await this.req(store.put({ ...old, isCurrent: false }));
       await this.req(store.put(next));

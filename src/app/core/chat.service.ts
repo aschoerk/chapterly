@@ -47,6 +47,10 @@ export class ChatService {
     return this._nodes().filter(n => n.chatId === chatId);
   });
 
+  /** Deleted branch roots (trash) of the currently selected chat. */
+  private readonly _deletedNodes = signal<ChatNode[]>([]);
+  readonly deletedNodes = computed(() => this._deletedNodes());
+
   private loadViewPref(key: string, fallback: boolean): boolean {
     const raw = localStorage.getItem(key);
     if (raw === '1') return true;
@@ -193,6 +197,7 @@ export class ChatService {
     if (this._currentChatId() === id) {
       this._currentChatId.set(null);
       this._nodes.set([]);
+      this._deletedNodes.set([]);
     }
   }
 
@@ -240,6 +245,7 @@ export class ChatService {
     this._currentChatId.set(chatId);
     this._activeChildMap.set({});
     await this.loadNodes(chatId);
+    await this.loadDeletedNodes(chatId);
     this.restoreMostRecentPath();
     await this.ensureDraftAtLeaf(chatId);
   }
@@ -248,6 +254,32 @@ export class ChatService {
 
   async loadNodes(chatId: string): Promise<void> {
     this._nodes.set(await this.api.getNodes(chatId));
+  }
+
+  /** Refresh the trash list (deleted branch roots) for a chat. */
+  async loadDeletedNodes(chatId: string): Promise<void> {
+    if (!chatId) {
+      this._deletedNodes.set([]);
+      return;
+    }
+    this._deletedNodes.set(await this.api.getDeletedNodes(chatId));
+  }
+
+  /** Restore a soft-deleted branch back into the live tree. */
+  async restoreBranch(chatId: string, nodeId: string): Promise<void> {
+    await this.api.restoreNode(chatId, nodeId);
+    await this.loadNodes(chatId);
+    await this.loadDeletedNodes(chatId);
+    // Re-point the active path so the restored branch is visible right away.
+    for (const node of this.getPathToNode(nodeId)) {
+      this.setActiveChild(node.parentId ?? null, node.id);
+    }
+  }
+
+  /** Permanently remove a soft-deleted branch. */
+  async purgeBranch(chatId: string, nodeId: string): Promise<void> {
+    await this.api.purgeNode(chatId, nodeId);
+    await this.loadDeletedNodes(chatId);
   }
 
   async addNode(chatId: string, data: CreateNodeRequest): Promise<ChatNode> {
@@ -327,6 +359,7 @@ export class ChatService {
     }
 
     await this.ensureDraftAtLeaf(chatId);
+    await this.loadDeletedNodes(chatId);
   }
 
   private adoptSubtree(oldId: string, newId: string): void {

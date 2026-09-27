@@ -61,6 +61,8 @@ export interface ChatNode {
   isCurrent: boolean;
   createdAt: string;
   updatedAt?: string | null;
+  /** When set, the node is in the trash (soft-deleted) and hidden from normal lists. */
+  deletedAt?: string | null;
   promptTokens?: number | null;
   completionTokens?: number | null;
   attachments?: NodeAttachment[];

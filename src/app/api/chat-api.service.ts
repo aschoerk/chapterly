@@ -168,6 +168,24 @@ export class ChatApiService {
     );
   }
 
+  getDeletedNodes(chatId: string): Promise<ChatNode[]> {
+    return firstValueFrom(
+      this.http.get<ChatNode[]>(this.api(`/chats/${chatId}/nodes/deleted`))
+    );
+  }
+
+  restoreNode(chatId: string, nodeId: string): Promise<void> {
+    return firstValueFrom(
+      this.http.post<void>(this.api(`/chats/${chatId}/nodes/${nodeId}/restore`), {})
+    );
+  }
+
+  purgeNode(chatId: string, nodeId: string): Promise<void> {
+    return firstValueFrom(
+      this.http.delete<void>(this.api(`/chats/${chatId}/nodes/${nodeId}/purge`))
+    );
+  }
+
   // ---------- Personas ----------
 
   getPersonas(): Promise<Persona[]> {

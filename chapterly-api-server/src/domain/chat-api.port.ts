@@ -62,6 +62,12 @@ export interface ChatApiPort {
   branchUser(chatId: string, nodeId: string, data: BranchQuestionRequest): Promise<ChatNode>;
   patchNode(chatId: string, nodeId: string, data: PatchNodeRequest): Promise<ChatNode>;
   deleteNode(chatId: string, nodeId: string, options?: { keepChildren?: boolean }): Promise<void>;
+  /** Deleted branch roots (soft-deleted nodes whose parent is not deleted). */
+  getDeletedNodes(chatId: string): Promise<ChatNode[]>;
+  /** Move a soft-deleted branch back into the live tree. */
+  restoreNode(chatId: string, nodeId: string): Promise<void>;
+  /** Permanently remove a soft-deleted branch and all its descendants. */
+  purgeNode(chatId: string, nodeId: string): Promise<void>;
 
   getPersonas(): Promise<Persona[]>;
   createPersona(data: CreatePersonaRequest): Promise<Persona>;

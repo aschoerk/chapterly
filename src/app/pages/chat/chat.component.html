@@ -107,6 +107,13 @@
               {{ isElaborating() ? i18n.t('chat.generating') : i18n.t('chat.elaborate') }}
             </button>
 
+            <button class="btn small" type="button"
+                    [class.danger]="trashCount() > 0"
+                    (click)="toggleTrash()"
+                    [title]="i18n.t('chat.trashTitle')">
+              {{ i18n.t('chat.trash') }}@if (trashCount() > 0) { ({{ trashCount() }}) }
+            </button>
+
             @if (isGeneratingStructure() || isElaborating() || chatService.generatingNodeId()) {
               <button class="btn small danger" type="button"
                       (click)="stopGeneration()"
@@ -127,6 +134,45 @@
               <div class="modal-actions">
                 <button class="btn" type="button" (click)="showChatParams.set(false)">{{ i18n.t('common.close') }}</button>
                 <button class="btn primary" type="button" (click)="saveChatParams()">{{ i18n.t('chat.applyToChat') }}</button>
+              </div>
+            </div>
+          }
+
+          @if (showTrash()) {
+            <div class="trash-panel" role="dialog" aria-modal="true"
+                 [attr.aria-label]="i18n.t('chat.trashTitle')">
+              <h3>{{ i18n.t('chat.trashTitle') }}</h3>
+              @if (trashLoading()) {
+                <p class="trash-empty">{{ i18n.t('chat.trashLoading') }}</p>
+              } @else if (chatService.deletedNodes().length === 0) {
+                <p class="trash-empty">{{ i18n.t('chat.trashEmpty') }}</p>
+              } @else {
+                <ul class="trash-list">
+                  @for (node of chatService.deletedNodes(); track node.id) {
+                    <li class="trash-item">
+                      <div class="trash-item-head">
+                        <span class="trash-badge">{{ node.role === 'user' ? i18n.t('node.roleUser') : node.role === 'assistant' ? i18n.t('node.roleAssistant') : i18n.t('node.roleSystem') }}</span>
+                        <span class="trash-date">{{ trashDate(node) }}</span>
+                      </div>
+                      <div class="trash-preview">{{ trashPreview(node) }}</div>
+                      <div class="trash-actions">
+                        <button class="btn small" type="button"
+                                (click)="restoreBranch(node.id)"
+                                [title]="i18n.t('chat.trashRestoreTitle')">
+                          {{ i18n.t('chat.trashRestore') }}
+                        </button>
+                        <button class="btn small danger" type="button"
+                                (click)="purgeBranch(node.id)"
+                                [title]="i18n.t('chat.trashPurgeTitle')">
+                          {{ i18n.t('chat.trashPurge') }}
+                        </button>
+                      </div>
+                    </li>
+                  }
+                </ul>
+              }
+              <div class="trash-footer">
+                <button class="btn" type="button" (click)="showTrash.set(false)">{{ i18n.t('common.close') }}</button>
               </div>
             </div>
           }

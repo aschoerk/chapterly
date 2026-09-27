@@ -103,6 +103,15 @@ export class CompositeChatApiService implements ChatApiPort {
   deleteNode(chatId: string, nodeId: string, options?: { keepChildren?: boolean }): Promise<void> {
     return this.api('chats').deleteNode(chatId, nodeId, options);
   }
+  getDeletedNodes(chatId: string): Promise<ChatNode[]> {
+    return this.api('chats').getDeletedNodes(chatId);
+  }
+  restoreNode(chatId: string, nodeId: string): Promise<void> {
+    return this.api('chats').restoreNode(chatId, nodeId);
+  }
+  purgeNode(chatId: string, nodeId: string): Promise<void> {
+    return this.api('chats').purgeNode(chatId, nodeId);
+  }
 
   getPersonas(): Promise<Persona[]> {
     return this.api('personas').getPersonas();

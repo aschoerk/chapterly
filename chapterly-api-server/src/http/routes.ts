@@ -301,6 +301,12 @@ export function registerChatApiRoutes(app: Express, api: PersistencePort): void 
       res.json(await api.getNodes(param(req, 'id')));
     }),
   );
+  app.get(
+    '/api/chats/:id/nodes/deleted',
+    wrap(async (req, res) => {
+      res.json(await api.getDeletedNodes(param(req, 'id')));
+    }),
+  );
   app.post(
     '/api/chats/:id/nodes',
     wrap(async (req, res) => {
@@ -384,6 +390,20 @@ export function registerChatApiRoutes(app: Express, api: PersistencePort): void 
         String(req.query.keepChildren ?? '').toLowerCase(),
       );
       await api.deleteNode(param(req, 'id'), param(req, 'nodeId'), { keepChildren });
+      res.status(204).end();
+    }),
+  );
+  app.post(
+    '/api/chats/:id/nodes/:nodeId/restore',
+    wrap(async (req, res) => {
+      await api.restoreNode(param(req, 'id'), param(req, 'nodeId'));
+      res.status(204).end();
+    }),
+  );
+  app.delete(
+    '/api/chats/:id/nodes/:nodeId/purge',
+    wrap(async (req, res) => {
+      await api.purgeNode(param(req, 'id'), param(req, 'nodeId'));
       res.status(204).end();
     }),
   );

@@ -440,7 +440,9 @@ export class MemoryPersistence implements PersistencePort {
 
   async getNodes(chatId: string): Promise<ChatNode[]> {
     this.requireChat(chatId);
-    return [...this.nodes.values()].filter((n) => n.chatId === chatId).map(clone);
+    return [...this.nodes.values()]
+      .filter((n) => n.chatId === chatId && !n.deletedAt)
+      .map(clone);
   }
 
   async createNode(chatId: string, data: CreateNodeRequest): Promise<ChatNode> {
@@ -518,21 +520,66 @@ export class MemoryPersistence implements PersistencePort {
     options?: { keepChildren?: boolean },
   ): Promise<void> {
     const node = this.requireNode(chatId, nodeId);
+    const ts = now();
     const children = [...this.nodes.values()].filter((n) => n.parentId === nodeId);
     if (options?.keepChildren) {
+      // Soft-delete only this node; children stay live and are reparented.
       for (const child of children) child.parentId = node.parentId;
-    } else {
-      const stack = [nodeId];
-      while (stack.length) {
-        const id = stack.pop() as string;
-        for (const child of this.nodes.values()) {
-          if (child.parentId === id) stack.push(child.id);
-        }
-        this.nodes.delete(id);
-      }
+      node.deletedAt = ts;
       return;
     }
-    this.nodes.delete(node.id);
+    // Soft-delete the whole subtree (tombstone) so it can be restored later.
+    const stack = [nodeId];
+    const visited = new Set<string>();
+    while (stack.length) {
+      const id = stack.pop() as string;
+      if (visited.has(id)) continue;
+      visited.add(id);
+      for (const child of this.nodes.values()) {
+        if (child.parentId === id) stack.push(child.id);
+      }
+      const target = this.nodes.get(id);
+      if (target) target.deletedAt = ts;
+    }
+  }
+
+  /** Deleted branch roots: deleted nodes whose parent is not deleted. */
+  async getDeletedNodes(chatId: string): Promise<ChatNode[]> {
+    this.requireChat(chatId);
+    const deleted = [...this.nodes.values()].filter(
+      (n) => n.chatId === chatId && n.deletedAt,
+    );
+    const deletedIds = new Set(deleted.map((n) => n.id));
+    return deleted
+      .filter((n) => !n.parentId || !deletedIds.has(n.parentId))
+      .map(clone);
+  }
+
+  /** Restore a soft-deleted branch: clear the tombstone on it and its descendants. */
+  async restoreNode(chatId: string, nodeId: string): Promise<void> {
+    this.requireNode(chatId, nodeId);
+    const stack = [nodeId];
+    while (stack.length) {
+      const id = stack.pop() as string;
+      for (const child of this.nodes.values()) {
+        if (child.parentId === id) stack.push(child.id);
+      }
+      const target = this.nodes.get(id);
+      if (target) target.deletedAt = null;
+    }
+  }
+
+  /** Permanently remove a soft-deleted branch and all its descendants. */
+  async purgeNode(chatId: string, nodeId: string): Promise<void> {
+    this.requireNode(chatId, nodeId);
+    const stack = [nodeId];
+    while (stack.length) {
+      const id = stack.pop() as string;
+      for (const child of this.nodes.values()) {
+        if (child.parentId === id) stack.push(child.id);
+      }
+      this.nodes.delete(id);
+    }
   }
 
   async getPersonas(): Promise<Persona[]> {
@@ -809,6 +856,7 @@ export class MemoryPersistence implements PersistencePort {
       isCurrent: true,
       createdAt: ts,
       updatedAt: ts,
+      deletedAt: null,
     };
     this.nodes.set(next.id, next);
     for (const child of this.nodes.values()) {

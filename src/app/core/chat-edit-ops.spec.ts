@@ -51,8 +51,11 @@ describe('ChatService edit ops (insert / remove / delete)', () => {
 
     const leftover = chat.nodes().filter(n => n.chatId === chatId);
     for (const n of leftover) {
-      await chat.deleteNode(chatId, n.id);
+      // Purge (not soft-delete) so the fake starts each test with a clean slate.
+      await chat.purgeBranch(chatId, n.id);
     }
+    await chat.loadNodes(chatId);
+    await chat.loadDeletedNodes(chatId);
     expect(chat.nodes().filter(n => n.chatId === chatId)).toEqual([]);
   });
 
@@ -100,7 +103,8 @@ describe('ChatService edit ops (insert / remove / delete)', () => {
       const left = chat.nodes();
       expect(ids(left).sort()).toEqual(ids([t.u0, t.a0, t.u1, t.a1, t.u2]).sort());
       expect(chat.getChildren(t.u2.id)).toEqual([]);
-      expect(api.nodes.find(n => n.id === t.a2.id)).toBeUndefined();
+      // Soft delete: gone from the live list, still tombstoned (restorable).
+      expect((await api.getNodes(chatId)).find(n => n.id === t.a2.id)).toBeUndefined();
     });
 
     it('deletes a mid-tree answer and every descendant', async () => {
@@ -110,7 +114,7 @@ describe('ChatService edit ops (insert / remove / delete)', () => {
       const left = chat.nodes();
       expect(ids(left).sort()).toEqual(ids([t.u0, t.a0, t.u1]).sort());
       expect(left.some(n => n.id === t.u2.id || n.id === t.a2.id)).toBe(false);
-      expect(api.nodes.filter(n => n.chatId === chatId).map(n => n.id).sort())
+      expect((await api.getNodes(chatId)).map(n => n.id).sort())
         .toEqual(ids(left).sort());
     });
 
@@ -119,7 +123,11 @@ describe('ChatService edit ops (insert / remove / delete)', () => {
       await chat.deleteNode(chatId, t.u0.id);
 
       expect(chat.nodes().filter(n => n.chatId === chatId)).toEqual([]);
-      expect(api.nodes.filter(n => n.chatId === chatId)).toEqual([]);
+      expect(await api.getNodes(chatId)).toEqual([]);
+      // Every deleted node is recoverable from the trash.
+      const trash = await api.getDeletedNodes(chatId);
+      expect(trash.length).toBeGreaterThan(0);
+      expect(trash.map(n => n.id).sort()).toEqual([t.u0.id]);
     });
 
     it('rejects delete of a missing node', async () => {
@@ -257,6 +265,43 @@ describe('ChatService edit ops (insert / remove / delete)', () => {
       const kids = chat.getChildren(t.a1.id);
       expect(kids).toHaveLength(1);
       expect(chat.isDraftQuestion(kids[0])).toBe(true);
+    });
+  });
+
+  describe('trash (soft delete / restore / purge)', () => {
+    it('lists only the branch root in the trash after a subtree delete', async () => {
+      const t = await linear();
+      await chat.deleteNode(chatId, t.a1.id); // deletes a1 → u2 → a2
+
+      const trash = await api.getDeletedNodes(chatId);
+      expect(trash.map(n => n.id)).toEqual([t.a1.id]);
+    });
+
+    it('restores a deleted branch back into the tree', async () => {
+      const t = await linear();
+      await chat.deleteNode(chatId, t.a1.id);
+      expect(chat.nodes().some(n => n.id === t.u2.id)).toBe(false);
+
+      await chat.restoreBranch(chatId, t.a1.id);
+
+      const nodes = chat.nodes();
+      expect(nodes.some(n => n.id === t.a1.id)).toBe(true);
+      expect(nodes.some(n => n.id === t.u2.id)).toBe(true);
+      expect(nodes.some(n => n.id === t.a2.id)).toBe(true);
+      expect(byId(nodes, t.u2.id).parentId).toBe(t.a1.id);
+      expect(byId(nodes, t.a2.id).parentId).toBe(t.u2.id);
+      expect(await api.getDeletedNodes(chatId)).toEqual([]);
+    });
+
+    it('purges a deleted branch permanently', async () => {
+      const t = await linear();
+      await chat.deleteNode(chatId, t.a1.id);
+      await chat.purgeBranch(chatId, t.a1.id);
+
+      expect(chat.nodes().some(n =>
+        n.id === t.a1.id || n.id === t.u2.id || n.id === t.a2.id)).toBe(false);
+      expect(await api.getDeletedNodes(chatId)).toEqual([]);
+      expect((await api.getNodes(chatId)).some(n => n.id === t.a1.id)).toBe(false);
     });
   });
 });

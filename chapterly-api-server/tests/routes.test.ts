@@ -273,6 +273,68 @@ describe('API Routes (in-memory SQLite)', () => {
       expect(res.status).toBe(204);
     });
 
+    describe('Trash (soft delete / restore / purge)', () => {
+      let chatId: string;
+      let questionId: string;
+      let answerId: string;
+      let childId: string;
+
+      beforeEach(async () => {
+        const chatRes = await request(app).post('/api/chats').send({ title: 'Trash Test Chat' });
+        chatId = chatRes.body.id;
+        const q = await request(app)
+          .post(`/api/chats/${chatId}/nodes`)
+          .send({ content: 'Q?', role: 'user' });
+        questionId = q.body.id;
+        const a = await request(app)
+          .post(`/api/chats/${chatId}/nodes`)
+          .send({ content: 'A.', role: 'assistant', parentId: questionId });
+        answerId = a.body.id;
+        const c = await request(app)
+          .post(`/api/chats/${chatId}/nodes`)
+          .send({ content: 'C?', role: 'user', parentId: answerId });
+        childId = c.body.id;
+      });
+
+      test('delete is soft: node disappears from /nodes but appears in /nodes/deleted', async () => {
+        const del = await request(app).delete(`/api/chats/${chatId}/nodes/${answerId}`);
+        expect(del.status).toBe(204);
+
+        const nodes = await request(app).get(`/api/chats/${chatId}/nodes`);
+        expect(nodes.body.some((n: { id: string }) => n.id === answerId)).toBe(false);
+
+        const trash = await request(app).get(`/api/chats/${chatId}/nodes/deleted`);
+        expect(trash.status).toBe(200);
+        expect(trash.body.map((n: { id: string }) => n.id)).toEqual([answerId]);
+      });
+
+      test('POST /restore brings the whole branch back', async () => {
+        await request(app).delete(`/api/chats/${chatId}/nodes/${answerId}`);
+        const restore = await request(app)
+          .post(`/api/chats/${chatId}/nodes/${answerId}/restore`);
+        expect(restore.status).toBe(204);
+
+        const nodes = await request(app).get(`/api/chats/${chatId}/nodes`);
+        expect(nodes.body.some((n: { id: string }) => n.id === answerId)).toBe(true);
+        expect(nodes.body.some((n: { id: string }) => n.id === childId)).toBe(true);
+        const trash = await request(app).get(`/api/chats/${chatId}/nodes/deleted`);
+        expect(trash.body).toEqual([]);
+      });
+
+      test('DELETE /purge removes the branch permanently', async () => {
+        await request(app).delete(`/api/chats/${chatId}/nodes/${answerId}`);
+        const purge = await request(app)
+          .delete(`/api/chats/${chatId}/nodes/${answerId}/purge`);
+        expect(purge.status).toBe(204);
+
+        const trash = await request(app).get(`/api/chats/${chatId}/nodes/deleted`);
+        expect(trash.body).toEqual([]);
+        const nodes = await request(app).get(`/api/chats/${chatId}/nodes`);
+        expect(nodes.body.some((n: { id: string }) => n.id === answerId)).toBe(false);
+        expect(nodes.body.some((n: { id: string }) => n.id === childId)).toBe(false);
+      });
+    });
+
     test('DELETE /api/chats/:id deletes the chat', async () => {
       const res = await request(app).delete(`/api/chats/${chatId}`);
       expect(res.status).toBe(204);

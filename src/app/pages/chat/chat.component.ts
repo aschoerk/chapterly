@@ -19,6 +19,7 @@ import { nodeToMessageContent } from '../../core/llm/llm-message';
 import { GenerationSettingsService } from '../../core/generation-settings.service';
 import { GenerationTaskKind } from '../../models/generation-task';
 import { ModelEntry, ProviderConfig } from '../../models/chat-config';
+import { ConfirmService } from '../../core/confirm.service';
 
 @Component({
   selector: 'app-chat',
@@ -36,6 +37,7 @@ export class ChatComponent implements OnInit {
   private readonly parameters = inject(ChatParametersService);
   private readonly llmService = inject(LlmService);
   private readonly generation = inject(GenerationSettingsService);
+  private readonly confirm = inject(ConfirmService);
 
   readonly chats = this.chatService.chats;
   readonly currentChatId = this.chatService.currentChatId;
@@ -72,6 +74,10 @@ export class ChatComponent implements OnInit {
   readonly chatParamsSummary = signal('defaults');
   readonly isGeneratingStructure = signal(false);
   readonly pendingStructure = signal<string | null>(null);
+
+  /** Trash panel for soft-deleted branches of the current chat. */
+  readonly showTrash = signal(false);
+  readonly trashLoading = signal(false);
 
   /** Elaborate-dialog state: first/last chapter + comma-separated characters. */
   readonly showElaborateDialog = signal(false);
@@ -374,6 +380,65 @@ export class ChatComponent implements OnInit {
     const open = !this.showChatParams();
     this.showChatParams.set(open);
     if (open) await this.refreshChatParams();
+  }
+
+  async toggleTrash() {
+    const open = !this.showTrash();
+    this.showTrash.set(open);
+    if (open) {
+      const chatId = this.currentChatId();
+      if (!chatId) return;
+      this.trashLoading.set(true);
+      try {
+        await this.chatService.loadDeletedNodes(chatId);
+      } finally {
+        this.trashLoading.set(false);
+      }
+    }
+  }
+
+  trashCount(): number {
+    return this.chatService.deletedNodes().length;
+  }
+
+  trashPreview(node: ChatNode): string {
+    return node.content?.trim() || this.i18n.t('chat.trashEmptyContent');
+  }
+
+  trashDate(node: ChatNode): string {
+    const t = node.deletedAt || node.updatedAt || node.createdAt;
+    const d = new Date(t);
+    return Number.isFinite(d.getTime()) ? d.toLocaleString() : '';
+  }
+
+  async restoreBranch(nodeId: string): Promise<void> {
+    const chatId = this.currentChatId();
+    if (!chatId) return;
+    try {
+      await this.chatService.restoreBranch(chatId, nodeId);
+    } catch (err: any) {
+      console.error(err);
+      alert(this.i18n.t('chat.trashRestoreFailed', { error: err?.message || err }));
+    }
+  }
+
+  async purgeBranch(nodeId: string): Promise<void> {
+    const chatId = this.currentChatId();
+    if (!chatId) return;
+    const ok = await this.confirm.ask({
+      title: this.i18n.t('chat.trashPurgeAsk'),
+      message: this.i18n.t('chat.trashPurgeMsg'),
+      confirmLabel: this.i18n.t('chat.trashPurge'),
+      cancelLabel: this.i18n.t('common.cancel'),
+      danger: true
+    });
+    if (!ok) return;
+    try {
+      await this.chatService.purgeBranch(chatId, nodeId);
+    } catch (err: any) {
+      console.error(err);
+      alert(this.i18n.t('chat.trashPurgeFailed', { error: err?.message || err }));
+    }
   }
 
   async refreshChatParams() {

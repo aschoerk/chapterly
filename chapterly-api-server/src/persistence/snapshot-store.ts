@@ -200,6 +200,17 @@ export class SnapshotPersistence implements PersistencePort {
     await this.memory.deleteNode(chatId, nodeId, options);
     await this.flush();
   }
+  async getDeletedNodes(chatId: string): Promise<ChatNode[]> {
+    return this.memory.getDeletedNodes(chatId);
+  }
+  async restoreNode(chatId: string, nodeId: string): Promise<void> {
+    await this.memory.restoreNode(chatId, nodeId);
+    await this.flush();
+  }
+  async purgeNode(chatId: string, nodeId: string): Promise<void> {
+    await this.memory.purgeNode(chatId, nodeId);
+    await this.flush();
+  }
 
   async getPersonas(): Promise<Persona[]> {
     return this.memory.getPersonas();

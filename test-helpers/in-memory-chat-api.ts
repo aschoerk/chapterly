@@ -38,7 +38,7 @@ class InMemoryChatApi implements Pick<
   ChatApiPort,
   | 'getChats' | 'createChat' | 'cloneChat' | 'deleteChat' | 'patchChat'
   | 'getNodes' | 'createNode' | 'editAssistant' | 'editUser' | 'branchUser'
-  | 'patchNode' | 'deleteNode'
+  | 'patchNode' | 'deleteNode' | 'getDeletedNodes' | 'restoreNode' | 'purgeNode'
   | 'getPersonas'
   | 'getProjects' | 'createProject' | 'updateProject' | 'deleteProject'
   | 'getTopics' | 'createTopic' | 'updateTopic' | 'deleteTopic'
@@ -143,7 +143,7 @@ class InMemoryChatApi implements Pick<
   // ---------- Nodes ----------
 
   async getNodes(chatId: string) {
-    return this.nodes.filter(n => n.chatId === chatId);
+    return this.nodes.filter(n => n.chatId === chatId && !n.deletedAt);
   }
   async createNode(chatId: string, data: CreateNodeRequest) {
     const now = new Date().toISOString();
@@ -175,13 +175,43 @@ class InMemoryChatApi implements Pick<
   }
   async deleteNode(chatId: string, nodeId: string, options?: { keepChildren?: boolean }) {
     const target = this.must(this.nodes, nodeId, 'Node');
+    const ts = new Date().toISOString();
     if (options?.keepChildren) {
       const parentId = target.parentId ?? null;
-      this.nodes = this.nodes
-        .filter(n => n.id !== nodeId)
-        .map(n => n.parentId === nodeId ? { ...n, parentId } : n);
+      this.nodes = this.nodes.map(n =>
+        n.parentId === nodeId ? { ...n, parentId } : n
+      );
+      target.deletedAt = ts;
       return;
     }
+    // Soft-delete the whole subtree (tombstone) so it can be restored later.
+    const drop = new Set<string>();
+    const walk = (id: string) => {
+      drop.add(id);
+      this.nodes.filter(n => n.parentId === id).forEach(child => walk(child.id));
+    };
+    walk(nodeId);
+    for (const n of this.nodes) {
+      if (drop.has(n.id)) n.deletedAt = ts;
+    }
+  }
+  async getDeletedNodes(chatId: string) {
+    const deleted = this.nodes.filter(n => n.chatId === chatId && !!n.deletedAt);
+    const deletedIds = new Set(deleted.map(n => n.id));
+    return deleted.filter(n => !n.parentId || !deletedIds.has(n.parentId));
+  }
+  async restoreNode(chatId: string, nodeId: string) {
+    const drop = new Set<string>();
+    const walk = (id: string) => {
+      drop.add(id);
+      this.nodes.filter(n => n.parentId === id).forEach(child => walk(child.id));
+    };
+    walk(nodeId);
+    for (const n of this.nodes) {
+      if (drop.has(n.id)) n.deletedAt = null;
+    }
+  }
+  async purgeNode(chatId: string, nodeId: string) {
     const drop = new Set<string>();
     const walk = (id: string) => {
       drop.add(id);

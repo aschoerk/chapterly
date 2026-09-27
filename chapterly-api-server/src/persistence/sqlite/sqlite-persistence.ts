@@ -38,7 +38,8 @@ function mapNode(row: Row): ChatNode {
     modelId: (row.model_id as string | null) ?? null, providerId: (row.provider_id as string | null) ?? null,
     version: Number(row.version), previousVersionId: (row.previous_version_id as string | null) ?? null,
     isCurrent: bool(row.is_current), createdAt: row.created_at as string, updatedAt: (row.updated_at as string | null) ?? null,
-    promptTokens: (row.prompt_tokens as number | null) ?? null, completionTokens: (row.completion_tokens as number | null) ?? null,
+    deletedAt: (row.deleted_at as string | null) ?? null, promptTokens: (row.prompt_tokens as number | null) ?? null,
+    completionTokens: (row.completion_tokens as number | null) ?? null,
     attachments: json<NodeAttachment[]>(row.attachments, []), chatParametersId: (row.chat_parameters_id as string | null) ?? null };
 }
 
@@ -114,6 +115,7 @@ export class SqlitePersistence implements PersistencePort {
     this.addColumn('chats', 'chat_parameters_id', 'TEXT');
     this.addColumn('chat_nodes', 'thinking', 'TEXT');
     this.addColumn('chat_nodes', 'chat_parameters_id', 'TEXT');
+    this.addColumn('chat_nodes', 'deleted_at', 'TEXT');
     this.addColumn('models', 'catalog_json', 'TEXT');
     this.addColumn('models', 'chat_parameters_id', 'TEXT');
     this.addColumn('chat_parameters', 'top_p', 'REAL');
@@ -134,7 +136,7 @@ export class SqlitePersistence implements PersistencePort {
     const standard = new Set([
       'id', 'chat_id', 'parent_id', 'role', 'content', 'thinking', 'model_id', 'provider_id',
       'version', 'previous_version_id', 'prompt_tokens', 'completion_tokens', 'attachments',
-      'is_current', 'created_at', 'updated_at', 'chat_parameters_id',
+      'is_current', 'created_at', 'updated_at', 'chat_parameters_id', 'deleted_at',
     ]);
     const extras = columns
       .filter((column) => !standard.has(column.name as string))
@@ -157,6 +159,7 @@ export class SqlitePersistence implements PersistencePort {
       'created_at TEXT NOT NULL',
       'updated_at TEXT',
       'chat_parameters_id TEXT',
+      'deleted_at TEXT',
       ...extras,
     ].join(', ');
     const quotedNames = names.map((name) => `"${name.replace(/"/g, '""')}"`).join(', ');
@@ -210,13 +213,13 @@ export class SqlitePersistence implements PersistencePort {
   async deleteProject(id: string, deleteChats = false): Promise<void> { this.requireRow('project', id, 'projects'); const tx = this.db.transaction(() => { if (deleteChats) this.db.prepare('DELETE FROM chats WHERE project_id=?').run(id); else this.db.prepare('UPDATE chats SET project_id=NULL,updated_at=? WHERE project_id=?').run(now(), id); this.db.prepare('DELETE FROM topic_projects WHERE project_id=?').run(id); this.db.prepare('DELETE FROM projects WHERE id=?').run(id); }); tx(); }
 
   async getChats(): Promise<Chat[]> { return this.rows('SELECT * FROM chats ORDER BY rowid').map(mapChat); }
-  async searchChatIds(q: string): Promise<string[]> { const needle = `%${q.trim().replace(/[\\%_]/g, '\\$&')}%`; if (needle === '%%') return []; return this.rows("SELECT DISTINCT c.id FROM chats c LEFT JOIN chat_nodes n ON n.chat_id=c.id AND n.is_current=1 WHERE c.title LIKE ? ESCAPE '\\' OR n.content LIKE ? ESCAPE '\\'", needle, needle).map((row) => row.id as string); }
+  async searchChatIds(q: string): Promise<string[]> { const needle = `%${q.trim().replace(/[\\%_]/g, '\\$&')}%`; if (needle === '%%') return []; return this.rows("SELECT DISTINCT c.id FROM chats c LEFT JOIN chat_nodes n ON n.chat_id=c.id AND n.is_current=1 AND n.deleted_at IS NULL WHERE c.title LIKE ? ESCAPE '\\' OR n.content LIKE ? ESCAPE '\\'", needle, needle).map((row) => row.id as string); }
   async createChat(title: string, projectId: string | null = null): Promise<Chat> { if (projectId) this.requireRow('project', projectId, 'projects'); const id = randomUUID(); const ts = now(); this.db.prepare('INSERT INTO chats(id,title,project_id,node_number,created_at,updated_at) VALUES(?,?,?,?,?,?)').run(id, title, projectId, 0, ts, ts); return this.chat(id); }
-  async cloneChat(chatId: string): Promise<Chat> { const source = this.chat(chatId); const id = randomUUID(); const ts = now(); const sourceNodes = this.rows('SELECT * FROM chat_nodes WHERE chat_id=? ORDER BY rowid', chatId); const ids = new Map(sourceNodes.map((row) => [row.id as string, randomUUID()])); const tx = this.db.transaction(() => { this.db.prepare('INSERT INTO chats SELECT ?, title || ?, project_id, chat_parameters_id, node_number, ?, ? FROM chats WHERE id=?').run(id, ' (copy)', ts, ts, chatId); const insert = this.db.prepare('INSERT INTO chat_nodes(id,chat_id,parent_id,role,content,thinking,model_id,provider_id,version,previous_version_id,prompt_tokens,completion_tokens,attachments,is_current,created_at,updated_at,chat_parameters_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'); for (const row of sourceNodes) insert.run(ids.get(row.id as string), id, row.parent_id ? ids.get(row.parent_id as string) ?? null : null, row.role, row.content, row.thinking, row.model_id, row.provider_id, row.version, row.previous_version_id ? ids.get(row.previous_version_id as string) ?? null : null, row.prompt_tokens, row.completion_tokens, row.attachments, row.is_current, ts, ts, row.chat_parameters_id); }); tx(); return this.chat(id); }
+  async cloneChat(chatId: string): Promise<Chat> { const source = this.chat(chatId); const id = randomUUID(); const ts = now(); const sourceNodes = this.rows('SELECT * FROM chat_nodes WHERE chat_id=? ORDER BY rowid', chatId); const ids = new Map(sourceNodes.map((row) => [row.id as string, randomUUID()])); const tx = this.db.transaction(() => { this.db.prepare('INSERT INTO chats SELECT ?, title || ?, project_id, chat_parameters_id, node_number, ?, ? FROM chats WHERE id=?').run(id, ' (copy)', ts, ts, chatId); const insert = this.db.prepare('INSERT INTO chat_nodes(id,chat_id,parent_id,role,content,thinking,model_id,provider_id,version,previous_version_id,prompt_tokens,completion_tokens,attachments,is_current,created_at,updated_at,chat_parameters_id,deleted_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'); for (const row of sourceNodes) insert.run(ids.get(row.id as string), id, row.parent_id ? ids.get(row.parent_id as string) ?? null : null, row.role, row.content, row.thinking, row.model_id, row.provider_id, row.version, row.previous_version_id ? ids.get(row.previous_version_id as string) ?? null : null, row.prompt_tokens, row.completion_tokens, row.attachments, row.is_current, ts, ts, row.chat_parameters_id, row.deleted_at); }); tx(); return this.chat(id); }
   async deleteChat(id: string): Promise<void> { this.chat(id); this.db.prepare('DELETE FROM chats WHERE id=?').run(id); }
   async patchChat(id: string, data: PatchChatRequest): Promise<Chat> { const old = this.chat(id); if (data.projectId) this.requireRow('project', data.projectId, 'projects'); this.db.prepare('UPDATE chats SET title=?,project_id=?,chat_parameters_id=?,updated_at=? WHERE id=?').run(data.title ?? old.title, data.projectId !== undefined ? data.projectId : old.projectId, data.chatParametersId !== undefined ? data.chatParametersId : old.chatParametersId, now(), id); return this.chat(id); }
 
-  async getNodes(chatId: string): Promise<ChatNode[]> { this.chat(chatId); return this.rows('SELECT * FROM chat_nodes WHERE chat_id=? ORDER BY rowid', chatId).map(mapNode); }
+  async getNodes(chatId: string): Promise<ChatNode[]> { this.chat(chatId); return this.rows('SELECT * FROM chat_nodes WHERE chat_id=? AND deleted_at IS NULL ORDER BY rowid', chatId).map(mapNode); }
   async createNode(chatId: string, data: CreateNodeRequest): Promise<ChatNode> { this.chat(chatId); const id = randomUUID(); const ts = now(); this.db.prepare('INSERT INTO chat_nodes(id,chat_id,parent_id,role,content,thinking,model_id,provider_id,version,previous_version_id,is_current,created_at,updated_at,attachments,chat_parameters_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)').run(id, chatId, data.parentId ?? null, data.role, data.content, data.thinking ?? null, data.modelId ?? null, data.providerId ?? null, 1, null, 1, ts, ts, JSON.stringify(data.attachments ?? []), data.chatParametersId ?? null); this.db.prepare('UPDATE chats SET node_number=node_number+1,updated_at=? WHERE id=?').run(ts, chatId); return mapNode(this.row('SELECT * FROM chat_nodes WHERE id=?', id) as Row); }
   async editAssistant(chatId: string, nodeId: string, content: string, attachments?: NodeAttachment[], thinking?: string): Promise<ChatNode> { return this.versionNode(chatId, nodeId, 'assistant', content, attachments, thinking); }
   async editUser(chatId: string, nodeId: string, content: string, attachments?: NodeAttachment[]): Promise<ChatNode> { return this.versionNode(chatId, nodeId, 'user', content, attachments); }
@@ -229,7 +232,53 @@ export class SqlitePersistence implements PersistencePort {
     }
     const id = randomUUID(); const tx = this.db.transaction(() => { this.db.prepare('UPDATE chat_nodes SET is_current=0,updated_at=? WHERE id=?').run(ts, nodeId); this.db.prepare("INSERT INTO chat_nodes(id,chat_id,parent_id,role,content,thinking,model_id,provider_id,version,previous_version_id,prompt_tokens,completion_tokens,attachments,is_current,created_at,updated_at,chat_parameters_id) SELECT ?,chat_id,parent_id,role,?,?,?,?,version+1,?,prompt_tokens,completion_tokens,?,?,?, ?,chat_parameters_id FROM chat_nodes WHERE id=?").run(id, content, thinking !== undefined ? thinking : old.thinking, old.model_id, old.provider_id, nodeId, JSON.stringify(attachments ?? oldAttachments), 1, ts, ts, nodeId); this.db.prepare('UPDATE chat_nodes SET parent_id=? WHERE parent_id=? AND id<>?').run(id, nodeId, id); this.db.prepare('UPDATE chats SET node_number=node_number+1,updated_at=? WHERE id=?').run(ts, chatId); }); tx(); return mapNode(this.row('SELECT * FROM chat_nodes WHERE id=?', id) as Row); }
   async patchNode(chatId: string, nodeId: string, data: PatchNodeRequest): Promise<ChatNode> { this.node(chatId, nodeId); const old = this.row('SELECT * FROM chat_nodes WHERE id=?', nodeId) as Row; this.db.prepare('UPDATE chat_nodes SET content=?,thinking=?,attachments=?,model_id=?,provider_id=?,parent_id=?,updated_at=? WHERE id=?').run(data.content ?? old.content, data.thinking !== undefined ? data.thinking : old.thinking, data.attachments ? JSON.stringify(data.attachments) : old.attachments, data.modelId !== undefined ? data.modelId : old.model_id, data.providerId !== undefined ? data.providerId : old.provider_id, data.parentId !== undefined ? data.parentId : old.parent_id, now(), nodeId); return mapNode(this.row('SELECT * FROM chat_nodes WHERE id=?', nodeId) as Row); }
-  async deleteNode(chatId: string, nodeId: string, options?: { keepChildren?: boolean }): Promise<void> { const node = this.node(chatId, nodeId); const tx = this.db.transaction(() => { if (options?.keepChildren) { this.db.prepare('UPDATE chat_nodes SET parent_id=? WHERE parent_id=?').run(node.parent_id, nodeId); this.db.prepare('DELETE FROM chat_nodes WHERE id=?').run(nodeId); return; } const ids = [nodeId]; for (let i = 0; i < ids.length; i++) ids.push(...this.rows('SELECT id FROM chat_nodes WHERE parent_id=?', ids[i]).map((row) => row.id as string)); this.db.prepare(`DELETE FROM chat_nodes WHERE id IN (${ids.map(() => '?').join(',')})`).run(...ids); }); tx(); }
+  async deleteNode(chatId: string, nodeId: string, options?: { keepChildren?: boolean }): Promise<void> {
+    const node = this.node(chatId, nodeId);
+    const ts = now();
+    const tx = this.db.transaction(() => {
+      if (options?.keepChildren) {
+        // Soft-delete only this node; children stay live and are reparented.
+        this.db.prepare('UPDATE chat_nodes SET parent_id=? WHERE parent_id=?').run(node.parent_id, nodeId);
+        this.db.prepare('UPDATE chat_nodes SET deleted_at=? WHERE id=?').run(ts, nodeId);
+        return;
+      }
+      // Soft-delete the whole subtree (tombstone) so it can be restored later.
+      const ids = [nodeId];
+      for (let i = 0; i < ids.length; i++) ids.push(...this.rows('SELECT id FROM chat_nodes WHERE parent_id=?', ids[i]).map((row) => row.id as string));
+      this.db.prepare(`UPDATE chat_nodes SET deleted_at=? WHERE id IN (${ids.map(() => '?').join(',')})`).run(ts, ...ids);
+    });
+    tx();
+  }
+
+  /** Deleted branch roots: deleted nodes whose parent is not deleted. */
+  async getDeletedNodes(chatId: string): Promise<ChatNode[]> {
+    this.chat(chatId);
+    const rows = this.rows('SELECT * FROM chat_nodes WHERE chat_id=? AND deleted_at IS NOT NULL ORDER BY deleted_at DESC', chatId);
+    const deletedIds = new Set(rows.map((row) => row.id as string));
+    return rows
+      .filter((row) => !row.parent_id || !deletedIds.has(row.parent_id as string))
+      .map(mapNode);
+  }
+
+  /** Restore a soft-deleted branch: clear the tombstone on it and its descendants. */
+  async restoreNode(chatId: string, nodeId: string): Promise<void> {
+    this.node(chatId, nodeId);
+    const ids = [nodeId];
+    for (let i = 0; i < ids.length; i++) ids.push(...this.rows('SELECT id FROM chat_nodes WHERE parent_id=?', ids[i]).map((row) => row.id as string));
+    const tx = this.db.transaction(() => {
+      this.db.prepare(`UPDATE chat_nodes SET deleted_at=NULL WHERE id IN (${ids.map(() => '?').join(',')})`).run(...ids);
+      this.db.prepare('UPDATE chats SET updated_at=? WHERE id=?').run(now(), chatId);
+    });
+    tx();
+  }
+
+  /** Permanently remove a soft-deleted branch and all its descendants. */
+  async purgeNode(chatId: string, nodeId: string): Promise<void> {
+    this.node(chatId, nodeId);
+    const ids = [nodeId];
+    for (let i = 0; i < ids.length; i++) ids.push(...this.rows('SELECT id FROM chat_nodes WHERE parent_id=?', ids[i]).map((row) => row.id as string));
+    this.db.prepare(`DELETE FROM chat_nodes WHERE id IN (${ids.map(() => '?').join(',')})`).run(...ids);
+  }
 
   async getPersonas(): Promise<Persona[]> { return this.rows('SELECT * FROM personas ORDER BY rowid').map(mapPersona); }
   async createPersona(data: CreatePersonaRequest): Promise<Persona> { const id = randomUUID(); const ts = now(); this.db.prepare('INSERT INTO personas(id,name,short_name,description,avatar,main_topic_id,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)').run(id, data.name, data.shortName, data.description ?? '', data.avatar ?? '', data.mainTopicId ?? null, ts, ts); return mapPersona(this.requireRow('persona', id, 'personas')); }

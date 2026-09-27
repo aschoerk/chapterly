@@ -334,6 +334,15 @@ export const openApiSpec: OpenApiDocument = {
         responses: created(ref('ChatNode')),
       },
     },
+    '/api/chats/{id}/nodes/deleted': {
+      get: {
+        tags: ['Nodes'],
+        summary: 'List soft-deleted branch roots of a chat (trash)',
+        operationId: 'getDeletedNodes',
+        parameters: [idParam()],
+        responses: ok({ type: 'array', items: ref('ChatNode') }),
+      },
+    },
     '/api/chats/{id}/nodes/{nodeId}/edit-assistant': {
       post: {
         tags: ['Nodes'],
@@ -408,6 +417,24 @@ export const openApiSpec: OpenApiDocument = {
             description: 'Reparent children instead of deleting the subtree',
           },
         ],
+        responses: noContent,
+      },
+    },
+    '/api/chats/{id}/nodes/{nodeId}/restore': {
+      post: {
+        tags: ['Nodes'],
+        summary: 'Restore a soft-deleted branch from the trash',
+        operationId: 'restoreNode',
+        parameters: [idParam(), idParam('nodeId')],
+        responses: noContent,
+      },
+    },
+    '/api/chats/{id}/nodes/{nodeId}/purge': {
+      delete: {
+        tags: ['Nodes'],
+        summary: 'Permanently delete a soft-deleted branch',
+        operationId: 'purgeNode',
+        parameters: [idParam(), idParam('nodeId')],
         responses: noContent,
       },
     },
@@ -788,6 +815,7 @@ export const openApiSpec: OpenApiDocument = {
           isCurrent: { type: 'boolean' },
           createdAt: { type: 'string', format: 'date-time' },
           updatedAt: { type: 'string', format: 'date-time', nullable: true },
+          deletedAt: { type: 'string', format: 'date-time', nullable: true },
           promptTokens: { type: 'number', nullable: true },
           completionTokens: { type: 'number', nullable: true },
           attachments: { type: 'array', items: ref('NodeAttachment') },
