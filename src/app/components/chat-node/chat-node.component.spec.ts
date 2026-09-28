@@ -22,10 +22,7 @@ const attachment = makeAttachment;
 function seedSettings(api: InMemoryChatApi): void {
   seedApi(api, {
     providers: [{ id: 'prov-1' }],
-    models: [
-      { id: 'm-1' },
-      { id: 'm-2', displayName: 'Beta', modelId: 'beta/model' }
-    ]
+    models: [{ id: 'm-1' }, { id: 'm-2', displayName: 'Beta', modelId: 'beta/model' }],
   });
 }
 
@@ -52,7 +49,10 @@ describe('ChatNodeComponent', () => {
 
     vi.spyOn(window, 'alert').mockImplementation(() => {});
     if (typeof window.requestAnimationFrame !== 'function') {
-      (window as any).requestAnimationFrame = (cb: FrameRequestCallback) => { cb(0); return 0; };
+      (window as any).requestAnimationFrame = (cb: FrameRequestCallback) => {
+        cb(0);
+        return 0;
+      };
     }
     if (typeof window.cancelAnimationFrame !== 'function') {
       (window as any).cancelAnimationFrame = () => {};
@@ -70,32 +70,34 @@ describe('ChatNodeComponent', () => {
             askLlm: vi.fn(async () => ({ content: 'Generated structure', thinking: '' })),
             resolveForCurrentChat: vi.fn(async () => ({ stream: false })),
             toLlmExtras: vi.fn(() => ({})),
-            streamAnswer: vi.fn(async (
-              chatId: string,
-              questionNodeId: string,
-              _provider: unknown,
-              model: ModelEntry,
-              _messages: unknown,
-              _onChunk?: unknown,
-              opts?: { adoptNodeIds?: string[] }
-            ) => {
-              const saved = await chatService.addNode(chatId, {
-                parentId: questionNodeId,
-                role: 'assistant',
-                content: 'Generated',
-                modelId: model?.modelId ?? 'alpha/model',
-                providerId: model?.providerId ?? 'prov-1'
-              });
-              chatService.setActiveChild(questionNodeId, saved.id);
-              if (opts?.adoptNodeIds?.length) {
-                await chatService.reparentNodes(chatId, opts.adoptNodeIds, saved.id);
-                chatService.setActiveChild(saved.id, opts.adoptNodeIds[0]);
-              }
-              return saved;
-            })
-          }
-        }
-      ]
+            streamAnswer: vi.fn(
+              async (
+                chatId: string,
+                questionNodeId: string,
+                _provider: unknown,
+                model: ModelEntry,
+                _messages: unknown,
+                _onChunk?: unknown,
+                opts?: { adoptNodeIds?: string[] },
+              ) => {
+                const saved = await chatService.addNode(chatId, {
+                  parentId: questionNodeId,
+                  role: 'assistant',
+                  content: 'Generated',
+                  modelId: model?.modelId ?? 'alpha/model',
+                  providerId: model?.providerId ?? 'prov-1',
+                });
+                chatService.setActiveChild(questionNodeId, saved.id);
+                if (opts?.adoptNodeIds?.length) {
+                  await chatService.reparentNodes(chatId, opts.adoptNodeIds, saved.id);
+                  chatService.setActiveChild(saved.id, opts.adoptNodeIds[0]);
+                }
+                return saved;
+              },
+            ),
+          },
+        },
+      ],
     }).compileComponents();
 
     chatService = TestBed.inject(ChatService);
@@ -132,7 +134,7 @@ describe('ChatNodeComponent', () => {
       projectId: null,
       node_number: tree.length,
       created_at: now,
-      updated_at: now
+      updated_at: now,
     });
     api.nodes = tree;
     await chatService.loadChats();
@@ -145,15 +147,17 @@ describe('ChatNodeComponent', () => {
   }
 
   function buttons(): HTMLButtonElement[] {
-    return Array.from(fixture.nativeElement.querySelectorAll('button') as NodeListOf<HTMLButtonElement>);
+    return Array.from(
+      fixture.nativeElement.querySelectorAll('button') as NodeListOf<HTMLButtonElement>,
+    );
   }
 
   function findButton(text: string): HTMLButtonElement | null {
-    return buttons().find(b => (b.textContent || '').includes(text)) ?? null;
+    return buttons().find((b) => (b.textContent || '').includes(text)) ?? null;
   }
 
   function titleButton(title: string): HTMLButtonElement | null {
-    return buttons().find(b => b.getAttribute('title') === title) ?? null;
+    return buttons().find((b) => b.getAttribute('title') === title) ?? null;
   }
 
   function confirmResolves(value: boolean): void {
@@ -199,7 +203,9 @@ describe('ChatNodeComponent', () => {
 
     it('emits the data-node-id attribute', () => {
       createFixture(node({ id: 'custom-42' }));
-      expect(fixture.nativeElement.querySelector('.node')?.getAttribute('data-node-id')).toBe('custom-42');
+      expect(fixture.nativeElement.querySelector('.node')?.getAttribute('data-node-id')).toBe(
+        'custom-42',
+      );
     });
 
     it('exposes the node through the node input signal', () => {
@@ -225,7 +231,8 @@ describe('ChatNodeComponent', () => {
       await openChat([q1, q2]);
       createFixture(q1, q2.id);
       expect(fixture.nativeElement.querySelector('.branch-switcher')).not.toBeNull();
-      const text = (fixture.nativeElement.querySelector('.branch-count') as HTMLElement).textContent ?? '';
+      const text =
+        (fixture.nativeElement.querySelector('.branch-count') as HTMLElement).textContent ?? '';
       expect(text).toContain('2 / 2');
     });
 
@@ -260,8 +267,8 @@ describe('ChatNodeComponent', () => {
       const q3 = node({ id: 'q3', content: 'Third' });
       await openChat([q1, q2, q3]);
       createFixture(q1, q2.id);
-      const prev = titleButton('Previous branch');
-      const next = titleButton('Next branch');
+      const prev = titleButton('Previous continuation');
+      const next = titleButton('Next continuation');
       expect(prev).not.toBeNull();
       expect(next).not.toBeNull();
 
@@ -281,8 +288,12 @@ describe('ChatNodeComponent', () => {
   describe('delete & remove buttons', () => {
     it('renders delete and remove buttons for a user node', () => {
       createFixture(node({ content: 'Hello' }));
-      expect(titleButton('Delete this node and its subtree')).not.toBeNull();
-      expect(titleButton('Delete this node only. Children stay and attach to its parent.')).not.toBeNull();
+      expect(titleButton('Delete this section and all following text')).not.toBeNull();
+      expect(
+        titleButton(
+          'Delete this section only. Following text stays and attaches to its predecessor.',
+        ),
+      ).not.toBeNull();
     });
 
     it('deletes the node and its subtree after confirmation', async () => {
@@ -294,9 +305,9 @@ describe('ChatNodeComponent', () => {
       await component.deleteNode();
       fixture.detectChanges();
 
-      expect(chatService.nodes().find(n => n.id === 'q1')).toBeUndefined();
+      expect(chatService.nodes().find((n) => n.id === 'q1')).toBeUndefined();
       // the app guarantees the active path ends on an empty question
-      expect(chatService.nodes().some(n => n.role === 'user' && !n.content?.trim())).toBe(true);
+      expect(chatService.nodes().some((n) => n.role === 'user' && !n.content?.trim())).toBe(true);
     });
 
     it('keeps the node when confirmation is declined', async () => {
@@ -308,7 +319,7 @@ describe('ChatNodeComponent', () => {
       await component.deleteNode();
       fixture.detectChanges();
 
-      expect(chatService.nodes().find(n => n.id === 'q1')).not.toBeUndefined();
+      expect(chatService.nodes().find((n) => n.id === 'q1')).not.toBeUndefined();
     });
 
     it('does not ask for confirmation on a trivial (empty) node', async () => {
@@ -321,12 +332,18 @@ describe('ChatNodeComponent', () => {
       fixture.detectChanges();
 
       expect(confirm.ask).not.toHaveBeenCalled();
-      expect(chatService.nodes().find(n => n.id === 'q1')).toBeUndefined();
+      expect(chatService.nodes().find((n) => n.id === 'q1')).toBeUndefined();
     });
 
     it('remove keeps the children and reparents them to the parent', async () => {
       const q1 = node({ id: 'q1', content: 'Hello' });
-      const a1 = node({ id: 'a1', chatId: 'chat-1', parentId: 'q1', role: 'assistant', content: 'Answer' });
+      const a1 = node({
+        id: 'a1',
+        chatId: 'chat-1',
+        parentId: 'q1',
+        role: 'assistant',
+        content: 'Answer',
+      });
       await openChat([q1, a1]);
       confirmResolves(true);
       createFixture(q1);
@@ -334,8 +351,8 @@ describe('ChatNodeComponent', () => {
       await component.deleteNodeOnly();
       fixture.detectChanges();
 
-      expect(chatService.nodes().find(n => n.id === 'q1')).toBeUndefined();
-      expect(chatService.nodes().find(n => n.id === 'a1')?.parentId).toBeNull();
+      expect(chatService.nodes().find((n) => n.id === 'q1')).toBeUndefined();
+      expect(chatService.nodes().find((n) => n.id === 'a1')?.parentId).toBeNull();
       // after removal the remaining child becomes active
       expect(emitted).toContain('a1');
     });
@@ -343,7 +360,7 @@ describe('ChatNodeComponent', () => {
     it('disables the delete button while a generation is running', () => {
       chatService.startGeneration('n1');
       createFixture(node({ id: 'n1', content: 'Hello' }));
-      expectButtonDisabled(titleButton('Delete this node and its subtree'));
+      expectButtonDisabled(titleButton('Delete this section and all following text'));
       chatService.stopGeneration();
     });
   });
@@ -397,16 +414,30 @@ describe('ChatNodeComponent', () => {
 
   describe('prior versions toggle', () => {
     it('shows prior versions when opened', async () => {
-      const prev = node({ id: 'v1', chatId: 'chat-1', parentId: null, role: 'assistant',
-        content: 'Older', previousVersionId: null, version: 1 });
-      const cur = node({ id: 'v2', chatId: 'chat-1', parentId: null, role: 'assistant',
-        content: 'Newer', previousVersionId: 'v1', version: 2 });
+      const prev = node({
+        id: 'v1',
+        chatId: 'chat-1',
+        parentId: null,
+        role: 'assistant',
+        content: 'Older',
+        previousVersionId: null,
+        version: 1,
+      });
+      const cur = node({
+        id: 'v2',
+        chatId: 'chat-1',
+        parentId: null,
+        role: 'assistant',
+        content: 'Newer',
+        previousVersionId: 'v1',
+        version: 2,
+      });
 
       api.nodes = [prev, cur];
       await chatService.loadNodes('chat-1');
       createFixture(cur);
 
-      expect(component.priorVersions().map(v => v.id)).toEqual(['v1']);
+      expect(component.priorVersions().map((v) => v.id)).toEqual(['v1']);
 
       const toggle = fixture.nativeElement.querySelector('.prior-toggle') as HTMLButtonElement;
       expect(toggle).not.toBeNull();
@@ -435,7 +466,7 @@ describe('ChatNodeComponent', () => {
 
     it('opens the editor from the edit button', async () => {
       createFixture(node({ content: 'Hello' }));
-      const edit = titleButton('Edit this node in place');
+      const edit = titleButton('Edit this section in place');
       expect(edit).not.toBeNull();
       edit!.click();
       await fixture.whenStable();
@@ -498,24 +529,38 @@ describe('ChatNodeComponent', () => {
 
     it('Ctrl+Enter saves a version from the editor', async () => {
       const q1 = node({ id: 'q1', content: 'Hello' });
-      const a1 = node({ id: 'a1', chatId: 'chat-1', parentId: 'q1', role: 'assistant', content: 'Answer' });
+      const a1 = node({
+        id: 'a1',
+        chatId: 'chat-1',
+        parentId: 'q1',
+        role: 'assistant',
+        content: 'Answer',
+      });
       await openChat([q1, a1]);
       createFixture(q1);
       await startEditing(q1);
       component.onDraftText('Edited via shortcut');
 
-      const textarea = fixture.nativeElement.querySelector('.editor-textarea') as HTMLTextAreaElement;
-      textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true }));
+      const textarea = fixture.nativeElement.querySelector(
+        '.editor-textarea',
+      ) as HTMLTextAreaElement;
+      textarea.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true }),
+      );
       await fixture.whenStable();
       fixture.detectChanges();
 
-      expect(chatService.nodes().some(n => n.role === 'user' && n.content === 'Edited via shortcut')).toBe(true);
+      expect(
+        chatService.nodes().some((n) => n.role === 'user' && n.content === 'Edited via shortcut'),
+      ).toBe(true);
     });
 
     it('Escape cancels the editor', async () => {
       createFixture(node({ content: 'Hello' }));
       await startEditing(node({ content: 'Hello' }));
-      const textarea = fixture.nativeElement.querySelector('.editor-textarea') as HTMLTextAreaElement;
+      const textarea = fixture.nativeElement.querySelector(
+        '.editor-textarea',
+      ) as HTMLTextAreaElement;
       textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
       await fixture.whenStable();
       fixture.detectChanges();
@@ -530,7 +575,13 @@ describe('ChatNodeComponent', () => {
   describe('editing: save as version', () => {
     it('saves an edited user question as a new version and activates it', async () => {
       const q1 = node({ id: 'q1', content: 'Original question' });
-      const a1 = node({ id: 'a1', chatId: 'chat-1', parentId: 'q1', role: 'assistant', content: 'Answer' });
+      const a1 = node({
+        id: 'a1',
+        chatId: 'chat-1',
+        parentId: 'q1',
+        role: 'assistant',
+        content: 'Answer',
+      });
       await openChat([q1, a1]);
       createFixture(q1);
       await startEditing(q1);
@@ -540,7 +591,9 @@ describe('ChatNodeComponent', () => {
       fixture.detectChanges();
 
       expect(component.isEditing()).toBe(false);
-      const saved = chatService.nodes().find(n => n.role === 'user' && n.content === 'Rewritten question');
+      const saved = chatService
+        .nodes()
+        .find((n) => n.role === 'user' && n.content === 'Rewritten question');
       expect(saved).not.toBeUndefined();
       expect(saved!.id).not.toBe('q1');
       expect(emitted).toContain(saved!.id);
@@ -548,7 +601,13 @@ describe('ChatNodeComponent', () => {
 
     it('saves an edited assistant answer as a new version', async () => {
       const q1 = node({ id: 'q1', content: 'Question' });
-      const a1 = node({ id: 'a1', chatId: 'chat-1', parentId: 'q1', role: 'assistant', content: 'Old answer' });
+      const a1 = node({
+        id: 'a1',
+        chatId: 'chat-1',
+        parentId: 'q1',
+        role: 'assistant',
+        content: 'Old answer',
+      });
       await openChat([q1, a1]);
       createFixture(a1);
       await startEditing(a1);
@@ -557,7 +616,9 @@ describe('ChatNodeComponent', () => {
       await component.saveAsVersion();
       fixture.detectChanges();
 
-      const saved = chatService.nodes().find(n => n.role === 'assistant' && n.content === 'New answer');
+      const saved = chatService
+        .nodes()
+        .find((n) => n.role === 'assistant' && n.content === 'New answer');
       expect(saved).not.toBeUndefined();
       expect(saved!.id).not.toBe('a1');
       expect(emitted).toContain(saved!.id);
@@ -565,7 +626,13 @@ describe('ChatNodeComponent', () => {
 
     it('closes the editor without a new node when nothing changed', async () => {
       const q1 = node({ id: 'q1', content: 'Same' });
-      const a1 = node({ id: 'a1', chatId: 'chat-1', parentId: 'q1', role: 'assistant', content: 'Answer' });
+      const a1 = node({
+        id: 'a1',
+        chatId: 'chat-1',
+        parentId: 'q1',
+        role: 'assistant',
+        content: 'Answer',
+      });
       await openChat([q1, a1]);
       createFixture(q1);
       await startEditing(q1);
@@ -574,12 +641,20 @@ describe('ChatNodeComponent', () => {
       fixture.detectChanges();
 
       expect(component.isEditing()).toBe(false);
-      expect(chatService.nodes().filter(n => n.role === 'user' && n.content?.trim()).length).toBe(1);
+      expect(chatService.nodes().filter((n) => n.role === 'user' && n.content?.trim()).length).toBe(
+        1,
+      );
     });
 
     it('the OK button is disabled while the editor draft is empty', async () => {
       const q1 = node({ id: 'q1', content: 'Hello' });
-      const a1 = node({ id: 'a1', chatId: 'chat-1', parentId: 'q1', role: 'assistant', content: 'Answer' });
+      const a1 = node({
+        id: 'a1',
+        chatId: 'chat-1',
+        parentId: 'q1',
+        role: 'assistant',
+        content: 'Answer',
+      });
       await openChat([q1, a1]);
       createFixture(q1);
       await startEditing(q1);
@@ -618,7 +693,7 @@ describe('ChatNodeComponent', () => {
       await component.sendDraft();
       fixture.detectChanges();
 
-      expect(chatService.nodes().find(n => n.id === 'q1')?.content).toBe('Tell me a story');
+      expect(chatService.nodes().find((n) => n.id === 'q1')?.content).toBe('Tell me a story');
       expect(emitted).toContain('q1');
       expect(llm.streamAnswer).toHaveBeenCalled();
       expect(component.isEditing()).toBe(false);
@@ -633,7 +708,7 @@ describe('ChatNodeComponent', () => {
       await component.sendDraft();
       fixture.detectChanges();
 
-      expect(chatService.chats().find(c => c.id === 'chat-1')?.title).toBe('My brand new story');
+      expect(chatService.chats().find((c) => c.id === 'chat-1')?.title).toBe('My brand new story');
     });
 
     it('the send button is disabled for an empty draft', async () => {
@@ -652,7 +727,7 @@ describe('ChatNodeComponent', () => {
       await component.continueDraft();
       fixture.detectChanges();
 
-      expect(chatService.nodes().find(n => n.id === 'q1')?.content).toBe('continue');
+      expect(chatService.nodes().find((n) => n.id === 'q1')?.content).toBe('continue');
       expect(emitted).toContain('q1');
       expect(component.isEditing()).toBe(false);
     });
@@ -677,7 +752,13 @@ describe('ChatNodeComponent', () => {
   describe('branch', () => {
     it('branches an edited question into a new sibling before streaming', async () => {
       const q1 = node({ id: 'q1', content: 'Original' });
-      const a1 = node({ id: 'a1', chatId: 'chat-1', parentId: 'q1', role: 'assistant', content: 'Answer' });
+      const a1 = node({
+        id: 'a1',
+        chatId: 'chat-1',
+        parentId: 'q1',
+        role: 'assistant',
+        content: 'Answer',
+      });
       await openChat([q1, a1]);
       createFixture(q1);
       await startEditing(q1);
@@ -686,7 +767,9 @@ describe('ChatNodeComponent', () => {
       await component.saveAsBranchAndSend();
       fixture.detectChanges();
 
-      const branch = chatService.nodes().find(n => n.role === 'user' && n.content === 'Alternative path');
+      const branch = chatService
+        .nodes()
+        .find((n) => n.role === 'user' && n.content === 'Alternative path');
       expect(branch).not.toBeUndefined();
       expect(branch!.id).not.toBe('q1');
       expect(branch!.parentId).toBeNull(); // sibling of q1
@@ -696,7 +779,13 @@ describe('ChatNodeComponent', () => {
 
     it('branches from an assistant answer by adding a child question', async () => {
       const q1 = node({ id: 'q1', content: 'Question' });
-      const a1 = node({ id: 'a1', chatId: 'chat-1', parentId: 'q1', role: 'assistant', content: 'Answer' });
+      const a1 = node({
+        id: 'a1',
+        chatId: 'chat-1',
+        parentId: 'q1',
+        role: 'assistant',
+        content: 'Answer',
+      });
       await openChat([q1, a1]);
       createFixture(a1);
       component.onDraftText('Continue from here');
@@ -704,7 +793,9 @@ describe('ChatNodeComponent', () => {
       await component.saveAsBranchAndSend();
       fixture.detectChanges();
 
-      const branch = chatService.nodes().find(n => n.role === 'user' && n.content === 'Continue from here');
+      const branch = chatService
+        .nodes()
+        .find((n) => n.role === 'user' && n.content === 'Continue from here');
       expect(branch).not.toBeUndefined();
       expect(branch!.parentId).toBe('a1');
       expect(emitted).toContain(branch!.id);
@@ -719,7 +810,13 @@ describe('ChatNodeComponent', () => {
   describe('insert', () => {
     it('inserts a new question above and hangs the old one under the new answer', async () => {
       const q1 = node({ id: 'q1', content: 'Earlier question' });
-      const a1 = node({ id: 'a1', chatId: 'chat-1', parentId: 'q1', role: 'assistant', content: 'Old answer' });
+      const a1 = node({
+        id: 'a1',
+        chatId: 'chat-1',
+        parentId: 'q1',
+        role: 'assistant',
+        content: 'Old answer',
+      });
 
       await openChat([q1, a1]);
       createFixture(q1);
@@ -729,19 +826,29 @@ describe('ChatNodeComponent', () => {
       await component.saveAsInsertAndSend();
       fixture.detectChanges();
 
-      const inserted = chatService.nodes().find(n => n.role === 'user' && n.content === 'Inserted question');
+      const inserted = chatService
+        .nodes()
+        .find((n) => n.role === 'user' && n.content === 'Inserted question');
       expect(inserted).not.toBeUndefined();
       expect(inserted!.parentId).toBeNull();
       // the new assistant answer hangs under the inserted question
-      const answer = chatService.nodes().find(n => n.role === 'assistant' && n.parentId === inserted!.id);
+      const answer = chatService
+        .nodes()
+        .find((n) => n.role === 'assistant' && n.parentId === inserted!.id);
       expect(answer).not.toBeUndefined();
       // the old question now hangs under the new answer
-      expect(chatService.nodes().find(n => n.id === 'q1')?.parentId).toBe(answer!.id);
+      expect(chatService.nodes().find((n) => n.id === 'q1')?.parentId).toBe(answer!.id);
     });
 
     it('does nothing when called on an assistant node', async () => {
       const q1 = node({ id: 'q1', content: 'Question' });
-      const a1 = node({ id: 'a1', chatId: 'chat-1', parentId: 'q1', role: 'assistant', content: 'Answer' });
+      const a1 = node({
+        id: 'a1',
+        chatId: 'chat-1',
+        parentId: 'q1',
+        role: 'assistant',
+        content: 'Answer',
+      });
       await openChat([q1, a1]);
       createFixture(a1);
       component.onDraftText('Should not insert');
@@ -750,7 +857,10 @@ describe('ChatNodeComponent', () => {
       fixture.detectChanges();
 
       expect(llm.streamAnswer).not.toHaveBeenCalled();
-      expect(chatService.nodes().filter(n => n.role === 'user' && n.content === 'Should not insert').length).toBe(0);
+      expect(
+        chatService.nodes().filter((n) => n.role === 'user' && n.content === 'Should not insert')
+          .length,
+      ).toBe(0);
     });
   });
 
@@ -765,39 +875,69 @@ describe('ChatNodeComponent', () => {
 
     it('replaces the existing heading node for the same answer', async () => {
       const q1 = node({ id: 'q1', content: 'Story context' });
-      const h1 = node({ id: 'h1', chatId: 'chat-1', parentId: 'q1', role: 'structural', content: 'Old heading' });
-      const a1 = node({ id: 'a1', chatId: 'chat-1', parentId: 'h1', role: 'assistant', content: 'Chapter text' });
+      const h1 = node({
+        id: 'h1',
+        chatId: 'chat-1',
+        parentId: 'q1',
+        role: 'structural',
+        content: 'Old heading',
+      });
+      const a1 = node({
+        id: 'a1',
+        chatId: 'chat-1',
+        parentId: 'h1',
+        role: 'assistant',
+        content: 'Chapter text',
+      });
       await openChat([q1, h1, a1]);
       createFixture(a1);
 
       await component.generateHeading();
 
-      expect(chatService.nodes().filter(n => n.role === 'structural')).toHaveLength(1);
-      expect(chatService.nodes().find(n => n.id === 'h1')?.content).toBe('Generated structure');
-      expect(chatService.nodes().find(n => n.id === 'a1')?.parentId).toBe('h1');
+      expect(chatService.nodes().filter((n) => n.role === 'structural')).toHaveLength(1);
+      expect(chatService.nodes().find((n) => n.id === 'h1')?.content).toBe('Generated structure');
+      expect(chatService.nodes().find((n) => n.id === 'a1')?.parentId).toBe('h1');
     });
 
     it('generates a chapter heading that wraps the assistant answer', async () => {
       const q1 = node({ id: 'q1', content: 'Story context' });
-      const a1 = node({ id: 'a1', chatId: 'chat-1', parentId: 'q1', role: 'assistant', content: 'Chapter text' });
+      const a1 = node({
+        id: 'a1',
+        chatId: 'chat-1',
+        parentId: 'q1',
+        role: 'assistant',
+        content: 'Chapter text',
+      });
       await openChat([q1, a1]);
       createFixture(a1);
 
       await component.generateHeading();
 
-      const generated = chatService.nodes().find(n => n.role === 'structural');
+      const generated = chatService.nodes().find((n) => n.role === 'structural');
       expect(generated?.content).toBe('Generated structure');
       expect(generated?.parentId).toBe('q1');
       expect(generated?.modelId).toBe('alpha/model');
-      expect(chatService.nodes().find(n => n.id === 'a1')?.parentId).toBe(generated?.id);
+      expect(chatService.nodes().find((n) => n.id === 'a1')?.parentId).toBe(generated?.id);
       expect(llm.askLlm).toHaveBeenCalled();
       expect(emitted).toContain(generated?.id);
     });
 
     it('uses only the current node text as context', async () => {
       const q1 = node({ id: 'q1', content: 'Story context' });
-      const a1 = node({ id: 'a1', chatId: 'chat-1', parentId: 'q1', role: 'assistant', content: 'Sole context' });
-      const a2 = node({ id: 'a2', chatId: 'chat-1', parentId: 'q1', role: 'assistant', content: 'Other answer' });
+      const a1 = node({
+        id: 'a1',
+        chatId: 'chat-1',
+        parentId: 'q1',
+        role: 'assistant',
+        content: 'Sole context',
+      });
+      const a2 = node({
+        id: 'a2',
+        chatId: 'chat-1',
+        parentId: 'q1',
+        role: 'assistant',
+        content: 'Other answer',
+      });
       await openChat([q1, a1, a2]);
       createFixture(a1);
 
@@ -818,7 +958,7 @@ describe('ChatNodeComponent', () => {
       await component.generateHeading();
 
       expect(llm.askLlm).not.toHaveBeenCalled();
-      expect(chatService.nodes().filter(n => n.role === 'structural').length).toBe(0);
+      expect(chatService.nodes().filter((n) => n.role === 'structural').length).toBe(0);
     });
   });
 
@@ -829,7 +969,14 @@ describe('ChatNodeComponent', () => {
   describe('regenerate', () => {
     it('deletes the answer and its subtree, activates the parent, and re-streams', async () => {
       const q1 = node({ id: 'q1', content: 'Question' });
-      const a1 = node({ id: 'a1', chatId: 'chat-1', parentId: 'q1', role: 'assistant', content: 'Answer', modelId: 'alpha/model' });
+      const a1 = node({
+        id: 'a1',
+        chatId: 'chat-1',
+        parentId: 'q1',
+        role: 'assistant',
+        content: 'Answer',
+        modelId: 'alpha/model',
+      });
       const d = node({ id: 'd', chatId: 'chat-1', parentId: 'a1', role: 'user', content: '' });
       await openChat([q1, a1, d]);
       confirmResolves(true);
@@ -838,15 +985,21 @@ describe('ChatNodeComponent', () => {
       await component.regenerateAnswer();
       fixture.detectChanges();
 
-      expect(chatService.nodes().find(n => n.id === 'a1')).toBeUndefined();
-      expect(chatService.nodes().find(n => n.id === 'd')).toBeUndefined();
+      expect(chatService.nodes().find((n) => n.id === 'a1')).toBeUndefined();
+      expect(chatService.nodes().find((n) => n.id === 'd')).toBeUndefined();
       expect(emitted).toContain('q1');
       expect(llm.streamAnswer).toHaveBeenCalled();
     });
 
     it('does nothing while already loading or generating', async () => {
       const q1 = node({ id: 'q1', content: 'Question' });
-      const a1 = node({ id: 'a1', chatId: 'chat-1', parentId: 'q1', role: 'assistant', content: 'Answer' });
+      const a1 = node({
+        id: 'a1',
+        chatId: 'chat-1',
+        parentId: 'q1',
+        role: 'assistant',
+        content: 'Answer',
+      });
       await openChat([q1, a1]);
       chatService.startGeneration('a1');
       createFixture(a1);
@@ -865,7 +1018,10 @@ describe('ChatNodeComponent', () => {
 
   describe('attachments', () => {
     it('renders read-only attachment chips with a file link', () => {
-      const cn = node({ content: 'With file', attachments: [attachment({ mimeType: 'text/plain' })] });
+      const cn = node({
+        content: 'With file',
+        attachments: [attachment({ mimeType: 'text/plain' })],
+      });
       createFixture(cn);
       expect(fixture.nativeElement.querySelector('.attachment-chips.read-only')).not.toBeNull();
       expect(fixture.nativeElement.querySelector('.file-link')).not.toBeNull();
@@ -874,7 +1030,14 @@ describe('ChatNodeComponent', () => {
     it('renders an image thumbnail for image attachments', () => {
       const cn = node({
         content: 'With image',
-        attachments: [attachment({ id: 'img', name: 'pic.png', mimeType: 'image/png', dataUrl: 'data:image/png;base64,AAAA' })]
+        attachments: [
+          attachment({
+            id: 'img',
+            name: 'pic.png',
+            mimeType: 'image/png',
+            dataUrl: 'data:image/png;base64,AAAA',
+          }),
+        ],
       });
       createFixture(cn);
       expect(fixture.nativeElement.querySelector('.thumb')).not.toBeNull();
@@ -892,7 +1055,9 @@ describe('ChatNodeComponent', () => {
 
       expect(component.editAttachments().length).toBe(1);
       expect(component.editAttachments()[0].name).toBe('hello.txt');
-      expect(fixture.nativeElement.querySelector('.attachment-chips.editable .chip')).not.toBeNull();
+      expect(
+        fixture.nativeElement.querySelector('.attachment-chips.editable .chip'),
+      ).not.toBeNull();
     });
 
     it('removes an attachment via the chip × button', async () => {
@@ -923,7 +1088,11 @@ describe('ChatNodeComponent', () => {
 
       const file = new File(['dropped'], 'drop.txt', { type: 'text/plain' });
       const dt = { files: [file] };
-      const event = { preventDefault: vi.fn(), stopPropagation: vi.fn(), dataTransfer: dt } as unknown as DragEvent;
+      const event = {
+        preventDefault: vi.fn(),
+        stopPropagation: vi.fn(),
+        dataTransfer: dt,
+      } as unknown as DragEvent;
       await component.onEditorDrop(event);
 
       expect(component.editAttachments().length).toBe(1);
@@ -1000,7 +1169,13 @@ describe('ChatNodeComponent', () => {
   describe('helper API', () => {
     it('isLeafNode / isQuestion / hasSiblings reflect the tree', async () => {
       const q1 = node({ id: 'q1', content: 'Question' });
-      const a1 = node({ id: 'a1', chatId: 'chat-1', parentId: 'q1', role: 'assistant', content: '' });
+      const a1 = node({
+        id: 'a1',
+        chatId: 'chat-1',
+        parentId: 'q1',
+        role: 'assistant',
+        content: '',
+      });
       await openChat([q1, a1]);
       createFixture(a1);
 

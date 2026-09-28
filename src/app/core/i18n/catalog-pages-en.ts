@@ -132,7 +132,7 @@ export const EN_PAGES = {
     policyCreate: 'Always create new copies',
     kindBundle: 'Bundle',
     bundleDetail:
-      'personas +{{personas}} / reused {{personasReused}}; projects +{{projects}} / reused {{projectsReused}}; topics +{{topics}} / reused {{topicsReused}}; chats +{{chats}}; nodes +{{nodes}}',
+      'personas +{{personas}} / reused {{personasReused}}; projects +{{projects}} / reused {{projectsReused}}; topics +{{topics}} / reused {{topicsReused}}; chats +{{chats}}; sections +{{sections}}',
     exportEmpty: 'Nothing to export for this scope.',
     exported:
       'Exported {{personas}} persona(s), {{projects}} project(s), {{topics}} topic(s), {{chats}} chat(s).',
@@ -154,7 +154,8 @@ export const EN_PAGES = {
     mdExported: 'Exported “{{title}}” as Markdown ({{chapters}} chapters).',
     docRecent: 'most recent',
     docPickerTitle: 'Which document?',
-    docPickerHint: 'This chat has several story paths. Choose which one to export — the most recent is preselected.',
+    docPickerHint:
+      'This chat has several story paths. Choose which one to export — the most recent is preselected.',
     docPickExport: 'Export',
     dropTitle: 'Drop JSON file(s) here',
     dropHint:
@@ -179,7 +180,7 @@ export const EN_PAGES = {
     kindProjects: 'Projects',
     kindChat: 'Chat',
     projectsCount: 'project(s)',
-    nodesCount: 'node(s)',
+    nodesCount: 'section(s)',
     clear: 'Clear',
     goProjects: 'Go to Projects',
     goChat: 'Go to Chat',

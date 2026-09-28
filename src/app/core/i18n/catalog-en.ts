@@ -23,7 +23,7 @@ export const EN = {
     none: 'none',
     unknown: 'Unknown',
     untitled: 'Untitled',
-    admin: 'admin'
+    admin: 'admin',
   },
   nav: {
     brandTitle: 'A chat client that would rather write the next chapter',
@@ -44,7 +44,7 @@ export const EN = {
     settings: 'Settings',
     settingsTitle: 'Settings',
     signOut: 'Sign out',
-    aria: 'Application'
+    aria: 'Application',
   },
   login: {
     hint: 'Temporary local login. Uses chat-server authorize → code → access token.',
@@ -55,27 +55,27 @@ export const EN = {
     skip: 'Continue without token',
     google: 'Sign in with Google',
     invalid: 'Invalid credentials',
-    failed: 'Login failed'
+    failed: 'Login failed',
   },
   chat: {
     selectOrCreate: 'Select a chat or create a new one',
     resizeSidebar: 'Drag to resize sidebar',
     trash: 'Trash',
-    trashTitle: 'Deleted branches',
+    trashTitle: 'Deleted continuations',
     trashLoading: 'Loading…',
-    trashEmpty: 'No deleted branches',
+    trashEmpty: 'No deleted continuations',
     trashEmptyContent: '(empty)',
     trashRestore: 'Restore',
-    trashRestoreTitle: 'Restore this deleted branch',
+    trashRestoreTitle: 'Restore this deleted continuation',
     trashRestoreFailed: 'Restore failed: {{error}}',
     trashPurge: 'Delete forever',
-    trashPurgeTitle: 'Permanently delete this branch',
+    trashPurgeTitle: 'Permanently delete this continuation',
     trashPurgeAsk: 'Delete forever?',
-    trashPurgeMsg: 'This permanently deletes the branch and cannot be undone.',
+    trashPurgeMsg: 'This permanently deletes the continuation and cannot be undone.',
     trashPurgeFailed: 'Delete failed: {{error}}',
     followStreaming: 'follow streaming',
     followThinking: 'follow thinking',
-    alwaysOpenAtLeaf: 'always open at leaf',
+    alwaysOpenAtLeaf: 'always open at the last section',
     paceAfterComplete: 'keep pacing after LLM',
     generating: 'Generating…',
     reveal: 'reveal',
@@ -94,17 +94,19 @@ export const EN = {
     headingsTitle: 'Generate a heading for every chapter',
     elaborate: 'Elaborate',
     elaborateTitle: 'Elaborate chapters',
-    elaborateHint: 'The last answer describes chapters 1..n. Elaborate each chosen chapter — optionally from the point of view of named characters (comma separated).',
+    elaborateHint:
+      'The last answer describes chapters 1..n. Elaborate each chosen chapter — optionally from the point of view of named characters (comma separated).',
     elaborateFirst: 'First chapter',
     elaborateLast: 'Last chapter',
     elaborateNames: 'Characters',
     elaborateNamesPlaceholder: 'e.g. Anna, Ben (comma separated, optional)',
     elaborateModel: 'Model',
-    elaborateModelTitle: 'Model used for the elaborations (initially the one of the most recent answer)',
+    elaborateModelTitle:
+      'Model used for the elaborations (initially the one of the most recent answer)',
     elaborateConfirm: 'Elaborate',
     elaborateNoAnchor: 'There is no assistant answer yet to elaborate on',
     elaborateNoModel: 'No model is available for elaboration',
-    elaborateFailed: 'Elaboration failed: {{error}}'
+    elaborateFailed: 'Elaboration failed: {{error}}',
   },
   reader: {
     columns: 'Columns',
@@ -126,7 +128,7 @@ export const EN = {
     fontSizeAria: 'Font size in pixels',
     done: 'Done',
     roleUser: 'direction',
-    roleAssistant: 'chapter'
+    roleAssistant: 'chapter',
   },
   sidebar: {
     stories: 'Stories',
@@ -135,7 +137,7 @@ export const EN = {
     editTopic: 'Edit current topic',
     filterPh: 'Filter environments & stories…',
     searchInContent: 'in text',
-    searchInContentHint: 'Also match current node content (SQL LIKE on the server)',
+    searchInContentHint: 'Also match current section content (SQL LIKE on the server)',
     collapseAll: 'Collapse all environments',
     sortNewest: 'Sorted by newest – click for A-Z',
     sortAlpha: 'Sorted A-Z – click for newest first',
@@ -148,8 +150,8 @@ export const EN = {
     moveUnassigned: 'Move to Unassigned',
     moveEnvironment: 'Move to another environment',
     cloneStory: 'Clone story',
-    nodesCountOne: '{{count}} node',
-    nodesCountMany: '{{count}} nodes',
+    nodesCountOne: '{{count}} section',
+    nodesCountMany: '{{count}} sections',
     unassignedOption: '— Unassigned —',
     noChats: 'No chats yet',
     noBooks: 'No books yet. Create one to organize your drafts.',
@@ -160,17 +162,18 @@ export const EN = {
     cloneFailed: 'Clone failed: {{error}}',
     deleteEnvTitle: 'Delete environment',
     deleteEnvEmpty: 'Delete environment “{{name}}”?',
-    deleteEnvWithStories: 'Environment “{{name}}” contains {{count}} {{stories}}.\n\nDelete will remove the environment AND all of its stories.',
+    deleteEnvWithStories:
+      'Environment “{{name}}” contains {{count}} {{stories}}.\n\nDelete will remove the environment AND all of its stories.',
     storyWord: 'story',
     storiesWord: 'stories',
     deleteStoryTitle: 'Delete story',
     deleteStoryMsg: 'Delete story “{{title}}”?\nThis cannot be undone.',
     untitledStory: 'Untitled story',
-    beatsOne: '{{count}} beat',
-    beatsMany: '{{count}} beats',
+    beatsOne: '{{count}} section',
+    beatsMany: '{{count}} sections',
     created: 'Created: {{when}}',
     updated: 'Updated: {{when}}',
-    defaultModel: 'Default model: {{model}}'
+    defaultModel: 'Default model: {{model}}',
   },
   node: {
     dir: 'Dir',
@@ -178,21 +181,24 @@ export const EN = {
     chars: '{{count}} chars',
     version: 'v{{n}}',
     priorVersions: '{{n}} previous version(s)',
-    priorVersionsWarn: 'These older versions are kept for you to read. They are not on the active path and will not be sent to the LLM as context.',
+    priorVersionsWarn:
+      'These older versions are kept for you to read. They are not on the active path and will not be sent to the LLM as context.',
     stop: 'Stop',
     stopTitle: 'Stop generation',
-    prevBranch: 'Previous branch',
-    nextBranch: 'Next branch',
+    prevBranch: 'Previous continuation',
+    nextBranch: 'Next continuation',
     delete: 'Delete',
-    deleteTitle: 'Delete this node and its subtree',
+    deleteTitle: 'Delete this section and all following text',
+    deleteBranch: 'Delete\nContinuation',
     remove: 'Remove',
-    removeTitle: 'Delete this node only. Children stay and attach to its parent.',
-    branchModel: 'Model used when branching',
+    removeTitle: 'Delete this section only. Following text stays and attaches to its predecessor.',
+    removeNode: 'Remove\nSection',
+    branchModel: 'Model used when creating a continuation',
     hidePreview: 'Hide Preview',
     showPreview: 'Show Preview',
     addAttachment: 'Add attachment',
     placeholderDraft: 'Write the next direction…',
-    placeholderEdit: 'Edit this beat…',
+    placeholderEdit: 'Edit this section…',
     send: 'Send',
     sending: 'Sending…',
     sendTitle: 'Save this question and send it to the LLM',
@@ -201,12 +207,13 @@ export const EN = {
     continueTitle: 'Fill “continue” and send to the default model',
     saving: 'Saving…',
     ok: 'OK',
-    versionTitle: 'Save as a new version of this node (no LLM call)',
-    branch: 'Branch',
-    branchTitle: 'Save as a new leaf and send it to the LLM',
+    versionTitle: 'Save as a new version of this section (no LLM call)',
+    branch: 'Continuation',
+    branchTitle: 'Create a new continuation and send it to the LLM',
     insert: 'Insert',
     inserting: 'Inserting…',
-    insertTitle: 'Insert this question above the current one. The previous version and its siblings hang under the new answer.',
+    insertTitle:
+      'Insert this question above the current one. The previous version and its following text hang under the new answer.',
     hintDraft: 'Ctrl+Enter sends · Esc cancels',
     hintEdit: 'Ctrl+Enter saves a version · Esc cancels',
     thinking: 'Thinking…',
@@ -217,13 +224,13 @@ export const EN = {
     stopped: 'Generation stopped',
     regenerate: 'Regenerate',
     regenerating: 'Regenerating…',
-    regenerateTitle: 'Delete this answer and everything below, then resend the last user request',
+    regenerateTitle: 'Delete this answer and all following text, then resend the last user request',
     copy: 'Copy',
     copied: 'Copied',
     copyTitle: 'Copy to clipboard',
     copiedTitle: 'Copied!',
     edit: 'Edit',
-    editTitle: 'Edit this node in place',
+    editTitle: 'Edit this section in place',
     discardTitle: 'Discard edits?',
     discardMsg: 'Close this editor without saving?',
     saveFailed: 'Save failed: {{error}}',
@@ -231,17 +238,21 @@ export const EN = {
     providerMissing: 'Provider not found',
     failed: 'Failed: {{error}}',
     regenerateTitleAsk: 'Regenerate answer?',
-    regenerateMsgExtra: 'This answer has {{count}} descendant node(s). Regenerating deletes them and sends the last user request again.',
-    regenerateMsg: 'This answer has child nodes. Regenerating deletes them and sends the last user request again.',
-    regenerateNoParent: 'Cannot regenerate: parent question not found',
+    regenerateMsgExtra:
+      'This answer has {{count}} following text(s). Regenerating deletes them and sends the last user request again.',
+    regenerateMsg:
+      'This answer has following text. Regenerating deletes it and sends the last user request again.',
+    regenerateNoParent: 'Cannot regenerate: preceding question not found',
     regenerateFailed: 'Regenerate failed: {{error}}',
-    removeTitleAsk: 'Remove this node?',
-    removeMsgChildren: 'Delete this {{role}} node only. Its {{count}} child node(s) stay and attach to the parent.',
-    removeMsg: 'Delete this {{role}} node? Child nodes, if any, stay in the thread.',
-    removeFailed: 'Failed to remove node: {{error}}',
-    deleteTitleAsk: 'Delete node?',
-    deleteMsgExtra: 'Delete this {{role}} node and its {{count}} descendant(s)? {{filled}} node(s) have content.',
-    deleteMsg: 'Delete this {{role}} node? It has content.',
+    removeTitleAsk: 'Remove this section?',
+    removeMsgChildren:
+      'Delete this {{role}} section only. Its {{count}} following text(s) stay and attach to the predecessor.',
+    removeMsg: 'Delete this {{role}} section? Following text, if any, stays in the thread.',
+    removeFailed: 'Failed to remove section: {{error}}',
+    deleteTitleAsk: 'Delete section?',
+    deleteMsgExtra:
+      'Delete this {{role}} section and its {{count}} following text(s)? {{filled}} section(s) have content.',
+    deleteMsg: 'Delete this {{role}} section? It has content.',
     deleteFailed: 'Failed to delete: {{error}}',
     copyFailed: 'Copy failed',
     fileTooLarge: '{{name}} is too large (max 4 MB)',
@@ -254,7 +265,7 @@ export const EN = {
     generatingStructure: 'Generating…',
     structureModelMissing: 'No model is available for structure generation',
     structureEmpty: 'The model returned no structure text',
-    structureFailed: 'Structure generation failed: {{error}}'
+    structureFailed: 'Structure generation failed: {{error}}',
   },
   params: {
     override: 'Override generation settings',
@@ -271,31 +282,40 @@ export const EN = {
     yes: 'Yes',
     no: 'No',
     inheritPh: 'inherit',
-    hintFooter: 'Empty fields keep the parent value. Thinking level maps to OpenAI reasoning_effort.',
+    hintFooter:
+      'Empty fields keep the parent value. Thinking level maps to OpenAI reasoning_effort.',
     sourceDefault: 'built-in defaults',
     hintOverrideTitle: 'Override generation settings',
-    hintOverrideBody: 'Off: this topic, project, model or chat inherits values from the next parent (model → topic → project → chat). On: store a dedicated parameter set on this item. Empty fields still inherit.',
+    hintOverrideBody:
+      'Off: this topic, project, model or chat inherits values from the next parent (model → topic → project → chat). On: store a dedicated parameter set on this item. Empty fields still inherit.',
     hintEffectiveTitle: 'Effective values',
-    hintEffectiveBody: 'What will actually be sent after merging parents. The label in parentheses is the closest owner that set a value. Built-in defaults are temperature 0.7 and streaming on.',
+    hintEffectiveBody:
+      'What will actually be sent after merging parents. The label in parentheses is the closest owner that set a value. Built-in defaults are temperature 0.7 and streaming on.',
     hintTemperatureTitle: 'Temperature',
-    hintTemperatureBody: 'OpenAI temperature, usually 0–2. Lower is more deterministic; higher is more varied. Leave empty to inherit. Default if nothing is set: 0.7.',
+    hintTemperatureBody:
+      'OpenAI temperature, usually 0–2. Lower is more deterministic; higher is more varied. Leave empty to inherit. Default if nothing is set: 0.7.',
     hintTopKTitle: 'top_k',
-    hintTopKBody: 'Limits sampling to the K most likely tokens. Used by many OpenAI-compatible providers (OpenRouter, Groq, local servers). OpenAI itself ignores this. Empty means inherit / omit.',
+    hintTopKBody:
+      'Limits sampling to the K most likely tokens. Used by many OpenAI-compatible providers (OpenRouter, Groq, local servers). OpenAI itself ignores this. Empty means inherit / omit.',
     hintTopMTitle: 'top_m / top_p',
-    hintTopMBody: 'Nucleus sampling. Stored as top_m and sent as OpenAI top_p (0–1). 0.9 keeps the smallest set of tokens whose probabilities add up to 90%. Empty means inherit / omit.',
+    hintTopMBody:
+      'Nucleus sampling. Stored as top_m and sent as OpenAI top_p (0–1). 0.9 keeps the smallest set of tokens whose probabilities add up to 90%. Empty means inherit / omit.',
     hintStreamTitle: 'Stream',
-    hintStreamBody: 'Yes streams tokens as they arrive. No waits for the full reply as one JSON message — useful for models that mishandle SSE. Inherit uses the parent, then streaming on.',
+    hintStreamBody:
+      'Yes streams tokens as they arrive. No waits for the full reply as one JSON message — useful for models that mishandle SSE. Inherit uses the parent, then streaming on.',
     hintThinkingTitle: 'Thinking',
-    hintThinkingBody: 'Ask the model for a reasoning / thinking trace (include_reasoning). Shown on the answer node when the provider returns it. No disables reasoning extras even if the model supports them.',
+    hintThinkingBody:
+      'Ask the model for a reasoning / thinking trace (include_reasoning). Shown on the answer section when the provider returns it. No disables reasoning extras even if the model supports them.',
     hintThinkingLevelTitle: 'Thinking level',
-    hintThinkingLevelBody: 'Maps to OpenAI reasoning_effort: none, minimal, low, medium, high. Used when thinking is on. none turns reasoning off. Empty inherits the model catalog default if any.'
+    hintThinkingLevelBody:
+      'Maps to OpenAI reasoning_effort: none, minimal, low, medium, high. Used when thinking is on. none turns reasoning off. Empty inherits the model catalog default if any.',
   },
   config: {
     nav: {
       label: 'Settings',
       appearance: 'Appearance',
       providers: 'Providers / Models',
-      tasks: 'Generation Tasks'
+      tasks: 'Generation Tasks',
     },
     appearance: {
       title: 'Appearance',
@@ -305,11 +325,11 @@ export const EN = {
       themeSystem: 'System',
       themeActive: 'Active: {{theme}}',
       language: 'Language',
-      languageHint: 'User interface language. Stories, prompts and model replies stay unchanged.'
+      languageHint: 'User interface language. Stories, prompts and model replies stay unchanged.',
     },
     theme: {
       light: 'light',
-      dark: 'dark'
+      dark: 'dark',
     },
     providers: {
       title: 'Providers',
@@ -333,7 +353,7 @@ export const EN = {
       deleteConfirm: 'Delete this provider and all its models/presets?',
       fetchFailed: 'Failed to fetch models: {{error}}',
       testOk: 'Connection successful',
-      testFail: 'Connection failed'
+      testFail: 'Connection failed',
     },
     models: {
       title: 'Available Models / Presets',
@@ -378,14 +398,14 @@ export const EN = {
       unexpected: 'Unexpected response from model',
       testFailed: 'Test failed',
       generationTitle: 'Generation settings',
-      save: 'Save'
+      save: 'Save',
     },
     modality: {
       text: 'Text',
       image: 'Image',
       audio: 'Audio',
       video: 'Video',
-      file: 'File'
+      file: 'File',
     },
     generation: {
       title: 'Generation tasks',
@@ -404,15 +424,16 @@ export const EN = {
         headings: 'Headings',
         overview: 'Overviews',
         'image-create': 'Image creation',
-        'image-interpret': 'Image interpretation'
+        'image-interpret': 'Image interpretation',
       },
       hints: {
         title: 'Used to suggest or generate titles. Model must output plain text.',
         headings: 'Used to generate chapter / section headings. Model must output plain text.',
         overview: 'Used to create summaries / overviews. Model must output plain text.',
-        'image-create': 'Used to generate images from a description. Model must accept image output.',
-        'image-interpret': 'Used to describe / interpret images. Model must accept image input.'
-      }
-    }
-  }
+        'image-create':
+          'Used to generate images from a description. Model must accept image output.',
+        'image-interpret': 'Used to describe / interpret images. Model must accept image input.',
+      },
+    },
+  },
 };

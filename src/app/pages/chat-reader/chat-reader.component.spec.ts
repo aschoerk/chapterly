@@ -55,7 +55,7 @@ describe('ChatReaderComponent', () => {
           columnGap: '4px',
           paddingLeft: '6px',
           paddingRight: '6px',
-          columnCount: '2'
+          columnCount: '2',
         } as unknown as CSSStyleDeclaration;
       }
       return realGetComputedStyle(target);
@@ -67,8 +67,8 @@ describe('ChatReaderComponent', () => {
         provideZonelessChangeDetection(),
         provideHttpClient(),
         { provide: CHAT_API, useValue: api },
-        { provide: Router, useValue: router }
-      ]
+        { provide: Router, useValue: router },
+      ],
     }).compileComponents();
 
     i18n = TestBed.inject(I18nService);
@@ -118,15 +118,21 @@ describe('ChatReaderComponent', () => {
    */
   function setReaderGeometry(opts: { clientWidth?: number; scrollWidth?: number } = {}): void {
     const el = readerEl();
-    Object.defineProperty(el, 'clientWidth', { value: opts.clientWidth ?? 500, configurable: true });
-    Object.defineProperty(el, 'scrollWidth', { value: opts.scrollWidth ?? 400, configurable: true });
+    Object.defineProperty(el, 'clientWidth', {
+      value: opts.clientWidth ?? 500,
+      configurable: true,
+    });
+    Object.defineProperty(el, 'scrollWidth', {
+      value: opts.scrollWidth ?? 400,
+      configurable: true,
+    });
   }
 
   function key(event: { key: string; target?: EventTarget | null }): void {
     component.onKey({
       key: event.key,
       target: event.target ?? null,
-      preventDefault: vi.fn()
+      preventDefault: vi.fn(),
     } as unknown as KeyboardEvent);
   }
 
@@ -148,12 +154,18 @@ describe('ChatReaderComponent', () => {
   });
 
   it('shows the chat title', async () => {
-    await openChat([{ id: 'q1', chatId: 'chat-1', parentId: null, role: 'user', content: 'Q' }], 'The Lighthouse');
+    await openChat(
+      [{ id: 'q1', chatId: 'chat-1', parentId: null, role: 'user', content: 'Q' }],
+      'The Lighthouse',
+    );
     expect(component.title()).toBe('The Lighthouse');
   });
 
   it('falls back to "Untitled" for a chat without a title', async () => {
-    await openChat([{ id: 'q1', chatId: 'chat-1', parentId: null, role: 'user', content: 'Q' }], '');
+    await openChat(
+      [{ id: 'q1', chatId: 'chat-1', parentId: null, role: 'user', content: 'Q' }],
+      '',
+    );
     expect(component.title()).toBe(i18n.t('common.untitled'));
   });
 
@@ -175,27 +187,27 @@ describe('ChatReaderComponent', () => {
   it('builds one document per root-to-leaf usable path', async () => {
     await openChat([
       { id: 'q1', parentId: null, role: 'user', content: 'Q1', createdAt: t(1) },
-      { id: 'a1', parentId: 'q1', role: 'assistant', content: 'A1', version: 1, createdAt: t(2) }
+      { id: 'a1', parentId: 'q1', role: 'assistant', content: 'A1', version: 1, createdAt: t(2) },
     ]);
-    expect(component.documents().map(p => p.map(n => n.id))).toEqual([['q1', 'a1']]);
+    expect(component.documents().map((p) => p.map((n) => n.id))).toEqual([['q1', 'a1']]);
   });
 
   it('drops empty childless leaves (draft nodes)', async () => {
     await openChat([
       { id: 'q1', parentId: null, role: 'user', content: 'Q1', createdAt: t(1) },
       { id: 'a1', parentId: 'q1', role: 'assistant', content: 'A1', version: 1, createdAt: t(2) },
-      { id: 'draft', parentId: 'a1', role: 'user', content: '', createdAt: t(3) }
+      { id: 'draft', parentId: 'a1', role: 'user', content: '', createdAt: t(3) },
     ]);
-    expect(component.documents().map(p => p.map(n => n.id))).toEqual([['q1', 'a1']]);
+    expect(component.documents().map((p) => p.map((n) => n.id))).toEqual([['q1', 'a1']]);
   });
 
   it('keeps an empty structural parent in the chain without putting it in the book', async () => {
     await openChat([
       { id: 'e', parentId: null, role: 'structural', content: '', createdAt: t(1) },
       { id: 'q1', parentId: 'e', role: 'user', content: 'Q1', createdAt: t(2) },
-      { id: 'a1', parentId: 'q1', role: 'assistant', content: 'A1', version: 1, createdAt: t(3) }
+      { id: 'a1', parentId: 'q1', role: 'assistant', content: 'A1', version: 1, createdAt: t(3) },
     ]);
-    const paths = component.documents().map(p => p.map(n => n.id));
+    const paths = component.documents().map((p) => p.map((n) => n.id));
     // the empty parent connects the chain but is not part of the document
     expect(paths).toEqual([['q1', 'a1']]);
     expect(component.bookHtml()).not.toContain('book-structural');
@@ -205,11 +217,11 @@ describe('ChatReaderComponent', () => {
     await openChat([
       { id: 'q1', parentId: null, role: 'user', content: 'Q1', createdAt: t(1) },
       { id: 'a1', parentId: 'q1', role: 'assistant', content: 'A1', version: 1, createdAt: t(2) },
-      { id: 'a2', parentId: 'q1', role: 'assistant', content: 'A2', version: 1, createdAt: t(3) }
+      { id: 'a2', parentId: 'q1', role: 'assistant', content: 'A2', version: 1, createdAt: t(3) },
     ]);
-    expect(component.documents().map(p => p.map(n => n.id))).toEqual([
+    expect(component.documents().map((p) => p.map((n) => n.id))).toEqual([
       ['q1', 'a1'],
-      ['q1', 'a2']
+      ['q1', 'a2'],
     ]);
   });
 
@@ -217,25 +229,50 @@ describe('ChatReaderComponent', () => {
     await openChat([
       { id: 'q1', parentId: null, role: 'user', content: 'Q1', createdAt: t(1) },
       { id: 'a1', parentId: 'q1', role: 'assistant', content: 'v1', version: 1, createdAt: t(2) },
-      { id: 'a2', parentId: 'q1', role: 'assistant', content: 'v2', version: 2, previousVersionId: 'a1', createdAt: t(3) }
+      {
+        id: 'a2',
+        parentId: 'q1',
+        role: 'assistant',
+        content: 'v2',
+        version: 2,
+        previousVersionId: 'a1',
+        createdAt: t(3),
+      },
     ]);
-    const paths = component.documents().map(p => p.map(n => n.id));
+    const paths = component.documents().map((p) => p.map((n) => n.id));
     expect(paths).toEqual([['q1', 'a2']]);
     const html = component.bookHtml();
-    expect(html).toContain('chapter · v2');   // only the newest answer renders
+    expect(html).toContain('chapter · v2'); // only the newest answer renders
     expect(html).not.toContain('chapter · v1'); // the older version is skipped
   });
 
   it('re-homes children of an older version under its youngest version', async () => {
     await openChat([
       { id: 'q1', parentId: null, role: 'user', content: 'Q1', createdAt: t(1) },
-      { id: 'a1', parentId: 'q1', role: 'assistant', content: 'v1', version: 1, isCurrent: false, createdAt: t(2) },
-      { id: 'a2', parentId: 'q1', role: 'assistant', content: 'v2', version: 2, previousVersionId: 'a1', isCurrent: true, createdAt: t(3) },
+      {
+        id: 'a1',
+        parentId: 'q1',
+        role: 'assistant',
+        content: 'v1',
+        version: 1,
+        isCurrent: false,
+        createdAt: t(2),
+      },
+      {
+        id: 'a2',
+        parentId: 'q1',
+        role: 'assistant',
+        content: 'v2',
+        version: 2,
+        previousVersionId: 'a1',
+        isCurrent: true,
+        createdAt: t(3),
+      },
       // q2 hangs off the OLD a1 → must fold under the youngest (a2)
       { id: 'q2', parentId: 'a1', role: 'user', content: 'Q2', createdAt: t(4) },
-      { id: 'a3', parentId: 'q2', role: 'assistant', content: 'A3', version: 1, createdAt: t(5) }
+      { id: 'a3', parentId: 'q2', role: 'assistant', content: 'A3', version: 1, createdAt: t(5) },
     ]);
-    const paths = component.documents().map(p => p.map(n => n.id));
+    const paths = component.documents().map((p) => p.map((n) => n.id));
     expect(paths).toEqual([['q1', 'a2', 'q2', 'a3']]);
   });
 
@@ -249,12 +286,12 @@ describe('ChatReaderComponent', () => {
       { id: 'b2', parentId: 'q2', role: 'assistant', content: 'B2', version: 1, createdAt: t(6) },
       // deeper continuation of the second branch only
       { id: 'q3', parentId: 'b2', role: 'user', content: 'Q3', createdAt: t(7) },
-      { id: 'a3', parentId: 'q3', role: 'assistant', content: 'A3', version: 1, createdAt: t(8) }
+      { id: 'a3', parentId: 'q3', role: 'assistant', content: 'A3', version: 1, createdAt: t(8) },
     ]);
     // Each branch gets its own complete document incl. the full shared prefix.
-    expect(component.documents().map(p => p.map(n => n.id))).toEqual([
+    expect(component.documents().map((p) => p.map((n) => n.id))).toEqual([
       ['q1', 'a1', 'a2', 'q2', 'b1'],
-      ['q1', 'a1', 'a2', 'q2', 'b2', 'q3', 'a3']
+      ['q1', 'a1', 'a2', 'q2', 'b2', 'q3', 'a3'],
     ]);
   });
 
@@ -264,12 +301,19 @@ describe('ChatReaderComponent', () => {
       { id: 'a1', parentId: 'q1', role: 'assistant', content: 'A1', version: 1, createdAt: t(2) },
       // orphan: parent id does not exist in this chat
       { id: 'orphanQ', parentId: 'missing-parent', role: 'user', content: 'OQ', createdAt: t(3) },
-      { id: 'orphanA', parentId: 'orphanQ', role: 'assistant', content: 'OA', version: 1, createdAt: t(4) }
+      {
+        id: 'orphanA',
+        parentId: 'orphanQ',
+        role: 'assistant',
+        content: 'OA',
+        version: 1,
+        createdAt: t(4),
+      },
     ]);
-    const paths = component.documents().map(p => p.map(n => n.id));
+    const paths = component.documents().map((p) => p.map((n) => n.id));
     expect(paths).toEqual([
       ['q1', 'a1'],
-      ['orphanQ', 'orphanA']
+      ['orphanQ', 'orphanA'],
     ]);
   });
 
@@ -281,27 +325,27 @@ describe('ChatReaderComponent', () => {
     await openChat([
       { id: 'q1', parentId: null, role: 'user', content: 'Q1', createdAt: t(1) },
       { id: 'a1', parentId: 'q1', role: 'assistant', content: 'A1', version: 1, createdAt: t(2) },
-      { id: 'a2', parentId: 'q1', role: 'assistant', content: 'A2', version: 1, createdAt: t(3) }
+      { id: 'a2', parentId: 'q1', role: 'assistant', content: 'A2', version: 1, createdAt: t(3) },
     ]);
-    expect(component.docLabel()).toBe('C v1 · branch 1');
+    expect(component.docLabel()).toBe('C v1 · continuation 1');
     component.nextDoc();
-    expect(component.docLabel()).toBe('C v1 · branch 2');
+    expect(component.docLabel()).toBe('C v1 · continuation 2');
   });
 
   it('walks the document pager within bounds', async () => {
     await openChat([
       { id: 'q1', parentId: null, role: 'user', content: 'Q1', createdAt: t(1) },
       { id: 'a1', parentId: 'q1', role: 'assistant', content: 'A1', version: 1, createdAt: t(2) },
-      { id: 'a2', parentId: 'q1', role: 'assistant', content: 'A2', version: 1, createdAt: t(3) }
+      { id: 'a2', parentId: 'q1', role: 'assistant', content: 'A2', version: 1, createdAt: t(3) },
     ]);
 
     expect(component.docIndex()).toBe(0);
-    component.prevDoc();        // clamped at 0
+    component.prevDoc(); // clamped at 0
     expect(component.docIndex()).toBe(0);
 
     component.nextDoc();
     expect(component.docIndex()).toBe(1);
-    component.nextDoc();        // clamped at last
+    component.nextDoc(); // clamped at last
     expect(component.docIndex()).toBe(1);
 
     component.goFirstDoc();
@@ -313,7 +357,7 @@ describe('ChatReaderComponent', () => {
   it('renders the doc folio with the label caption', async () => {
     await openChat([
       { id: 'q1', parentId: null, role: 'user', content: 'Q1', createdAt: t(1) },
-      { id: 'a1', parentId: 'q1', role: 'assistant', content: 'A1', version: 1, createdAt: t(2) }
+      { id: 'a1', parentId: 'q1', role: 'assistant', content: 'A1', version: 1, createdAt: t(2) },
     ]);
     const html = fixture.nativeElement.querySelector('.doc-pager') as HTMLElement;
     expect(html.textContent).toContain('Doc 1 / 1');
@@ -329,12 +373,20 @@ describe('ChatReaderComponent', () => {
   it('renders role/meta kickers and the markdown body', async () => {
     await openChat([
       { id: 'q1', parentId: null, role: 'user', content: '**Hello**', createdAt: t(1) },
-      { id: 'a1', parentId: 'q1', role: 'assistant', content: 'Answer', modelId: 'm-1', version: 2, createdAt: t(2) }
+      {
+        id: 'a1',
+        parentId: 'q1',
+        role: 'assistant',
+        content: 'Answer',
+        modelId: 'm-1',
+        version: 2,
+        createdAt: t(2),
+      },
     ]);
     const html = component.bookHtml();
     expect(html).toContain('class="book-node book-user"');
     expect(html).toContain('class="book-node book-assistant"');
-    expect(html).toContain('direction · v1');      // chapter kicker meta
+    expect(html).toContain('direction · v1'); // chapter kicker meta
     expect(html).toContain('chapter · m-1 · v2');
     expect(html).toContain('<p><strong>Hello</strong></p>');
   });
@@ -343,10 +395,15 @@ describe('ChatReaderComponent', () => {
     await openChat([
       { id: 'q1', parentId: null, role: 'user', content: 'Q1', createdAt: t(1) },
       {
-        id: 'a1', parentId: 'q1', role: 'assistant', content: 'A1',
-        modelId: 'x<1>&', version: 1, createdAt: t(2),
-        attachments: [makeAttachment({ name: 'notes<>.txt' })]
-      }
+        id: 'a1',
+        parentId: 'q1',
+        role: 'assistant',
+        content: 'A1',
+        modelId: 'x<1>&',
+        version: 1,
+        createdAt: t(2),
+        attachments: [makeAttachment({ name: 'notes<>.txt' })],
+      },
     ]);
     const html = component.bookHtml();
     expect(html).toContain('chapter · x&lt;1&gt;&amp; · v1');
@@ -356,7 +413,7 @@ describe('ChatReaderComponent', () => {
   it('hides question (direction) nodes when hideQuestions is set', async () => {
     await openChat([
       { id: 'q1', parentId: null, role: 'user', content: 'Q1', createdAt: t(1) },
-      { id: 'a1', parentId: 'q1', role: 'assistant', content: 'A1', version: 1, createdAt: t(2) }
+      { id: 'a1', parentId: 'q1', role: 'assistant', content: 'A1', version: 1, createdAt: t(2) },
     ]);
     expect(component.bookHtml()).toContain('book-user');
     component.toggleQuestions();
@@ -370,7 +427,14 @@ describe('ChatReaderComponent', () => {
   it('builds the type preview from the start of the open document', async () => {
     await openChat([
       { id: 'q1', parentId: null, role: 'user', content: 'Q1', createdAt: t(1) },
-      { id: 'a1', parentId: 'q1', role: 'assistant', content: 'Answer', version: 1, createdAt: t(2) }
+      {
+        id: 'a1',
+        parentId: 'q1',
+        role: 'assistant',
+        content: 'Answer',
+        version: 1,
+        createdAt: t(2),
+      },
     ]);
     const preview = component.previewHtml();
     expect(preview).toContain('class="book-node book-user"');
@@ -378,9 +442,7 @@ describe('ChatReaderComponent', () => {
   });
 
   it('shows a placeholder preview when nothing is usable', async () => {
-    await openChat([
-      { id: 'q1', parentId: null, role: 'user', content: '', createdAt: t(1) }
-    ]);
+    await openChat([{ id: 'q1', parentId: null, role: 'user', content: '', createdAt: t(1) }]);
     expect(component.previewHtml()).toContain('class="empty"');
   });
 
@@ -391,7 +453,7 @@ describe('ChatReaderComponent', () => {
   it('sets and persists the column count, resetting the page', async () => {
     await openChat([
       { id: 'q1', parentId: null, role: 'user', content: 'Q1', createdAt: t(1) },
-      { id: 'a1', parentId: 'q1', role: 'assistant', content: 'A1', version: 1, createdAt: t(2) }
+      { id: 'a1', parentId: 'q1', role: 'assistant', content: 'A1', version: 1, createdAt: t(2) },
     ]);
     component.nextPage(); // page becomes 1 (or clamps) — doesn't matter
     component.setColumnCount(1);
@@ -403,9 +465,7 @@ describe('ChatReaderComponent', () => {
   });
 
   it('selects a font face, falling back to the first choice', async () => {
-    await openChat([
-      { id: 'q1', parentId: null, role: 'user', content: 'Q1', createdAt: t(1) }
-    ]);
+    await openChat([{ id: 'q1', parentId: null, role: 'user', content: 'Q1', createdAt: t(1) }]);
     component.setFontId('palatino');
     expect(component.fontId()).toBe('palatino');
     expect(component.font()).toBeDefined();
@@ -417,9 +477,7 @@ describe('ChatReaderComponent', () => {
   });
 
   it('clamps and rounds font size, persisting it', async () => {
-    await openChat([
-      { id: 'q1', parentId: null, role: 'user', content: 'Q1', createdAt: t(1) }
-    ]);
+    await openChat([{ id: 'q1', parentId: null, role: 'user', content: 'Q1', createdAt: t(1) }]);
     component.setFontSize(999);
     expect(component.fontSize()).toBe(28);
     // 0 is falsy → Number(0) || 16 falls back to the default 16
@@ -517,7 +575,7 @@ describe('ChatReaderComponent', () => {
   it('spaces through pages with arrow/space/paging keys', async () => {
     await openChat([
       { id: 'q1', parentId: null, role: 'user', content: 'Q1', createdAt: t(1) },
-      { id: 'a1', parentId: 'q1', role: 'assistant', content: 'A1', version: 1, createdAt: t(2) }
+      { id: 'a1', parentId: 'q1', role: 'assistant', content: 'A1', version: 1, createdAt: t(2) },
     ]);
     setReaderGeometry({ scrollWidth: 1000 }); // 2 pages
     key({ key: 'ArrowRight' }); // layout() computes pageCount = 2
@@ -545,7 +603,7 @@ describe('ChatReaderComponent', () => {
   it('wheel scrolling turns pages', async () => {
     await openChat([
       { id: 'q1', parentId: null, role: 'user', content: 'Q1', createdAt: t(1) },
-      { id: 'a1', parentId: 'q1', role: 'assistant', content: 'A1', version: 1, createdAt: t(2) }
+      { id: 'a1', parentId: 'q1', role: 'assistant', content: 'A1', version: 1, createdAt: t(2) },
     ]);
     setReaderGeometry({ scrollWidth: 1000 }); // 2 pages
     const prevented = vi.fn();

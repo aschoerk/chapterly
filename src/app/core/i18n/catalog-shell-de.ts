@@ -23,7 +23,7 @@ export const DE_SHELL = {
     none: 'keine',
     unknown: 'Unbekannt',
     untitled: 'Ohne Titel',
-    admin: 'Admin'
+    admin: 'Admin',
   },
   nav: {
     brandTitle: 'Ein Chat-Client, der lieber das nächste Kapitel schreibt',
@@ -44,7 +44,7 @@ export const DE_SHELL = {
     settings: 'Einstellungen',
     settingsTitle: 'Einstellungen',
     signOut: 'Abmelden',
-    aria: 'Anwendung'
+    aria: 'Anwendung',
   },
   login: {
     hint: 'Vorläufige lokale Anmeldung. Nutzt chat-server authorize → Code → Zugriffstoken.',
@@ -55,14 +55,14 @@ export const DE_SHELL = {
     skip: 'Ohne Token fortfahren',
     google: 'Mit Google anmelden',
     invalid: 'Ungültige Anmeldedaten',
-    failed: 'Anmeldung fehlgeschlagen'
+    failed: 'Anmeldung fehlgeschlagen',
   },
   chat: {
     selectOrCreate: 'Wählen Sie eine Geschichte oder legen Sie eine neue an',
     resizeSidebar: 'Ziehen, um die Seitenleiste zu verändern',
     followStreaming: 'Streaming folgen',
     followThinking: 'Denkspur folgen',
-    alwaysOpenAtLeaf: 'immer am Blatt öffnen',
+    alwaysOpenAtLeaf: 'immer am letzten Abschnitt öffnen',
     generating: 'Wird erzeugt…',
     reveal: 'anzeigen',
     charsPerSec: 'Zeichen/s',
@@ -71,7 +71,7 @@ export const DE_SHELL = {
     params: 'Parameter',
     applyToChat: 'Auf Geschichte anwenden',
     bookView: 'Buchansicht',
-    bookViewTitle: 'Buchansicht öffnen (Strg-B)'
+    bookViewTitle: 'Buchansicht öffnen (Strg-B)',
   },
   reader: {
     columns: 'Spalten',
@@ -86,11 +86,12 @@ export const DE_SHELL = {
     showDirections: 'Anweisungen einblenden (d)',
     hideDirections: 'Anweisungen ausblenden (d)',
     type: 'Schrift',
-    typeSub: 'Schriftart und Größe für diese Leseransicht. Die Vorschau nutzt das geöffnete Dokument.',
+    typeSub:
+      'Schriftart und Größe für diese Leseransicht. Die Vorschau nutzt das geöffnete Dokument.',
     typefaces: 'Schriftarten',
     size: 'Größe',
     sizePresets: 'Größenvorgaben',
     fontSizeAria: 'Schriftgröße in Pixel',
-    done: 'Fertig'
-  }
+    done: 'Fertig',
+  },
 };

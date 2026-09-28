@@ -133,7 +133,7 @@ export const DE_PAGES = {
     policyCreate: 'Immer neue Kopien anlegen',
     kindBundle: 'Bündel',
     bundleDetail:
-      'Personas +{{personas}} / wiederverwendet {{personasReused}}; Projekte +{{projects}} / wiederverwendet {{projectsReused}}; Themen +{{topics}} / wiederverwendet {{topicsReused}}; Geschichten +{{chats}}; Knoten +{{nodes}}',
+      'Personas +{{personas}} / wiederverwendet {{personasReused}}; Projekte +{{projects}} / wiederverwendet {{projectsReused}}; Themen +{{topics}} / wiederverwendet {{topicsReused}}; Geschichten +{{chats}}; Abschnitte +{{sections}}',
     exportEmpty: 'Für diesen Bereich gibt es nichts zu exportieren.',
     exported:
       '{{personas}} Persona(s), {{projects}} Projekt(e), {{topics}} Thema/Themen, {{chats}} Geschichte(n) exportiert.',
@@ -155,7 +155,8 @@ export const DE_PAGES = {
     mdExported: '„{{title}}“ als Markdown exportiert ({{chapters}} Kapitel).',
     docRecent: 'neueste',
     docPickerTitle: 'Welches Dokument?',
-    docPickerHint: 'Diese Geschichte hat mehrere Story-Pfade. Wählen Sie, welcher exportiert werden soll — der neueste ist vorausgewählt.',
+    docPickerHint:
+      'Diese Geschichte hat mehrere Story-Pfade. Wählen Sie, welcher exportiert werden soll — der neueste ist vorausgewählt.',
     docPickExport: 'Exportieren',
     dropTitle: 'JSON-Datei(en) hier ablegen',
     dropHint:
@@ -180,7 +181,7 @@ export const DE_PAGES = {
     kindProjects: 'Projekte',
     kindChat: 'Geschichte',
     projectsCount: 'Projekt(e)',
-    nodesCount: 'Knoten',
+    nodesCount: 'Abschnitt(e)',
     clear: 'Leeren',
     goProjects: 'Zu Projekte',
     goChat: 'Zu Geschichten',

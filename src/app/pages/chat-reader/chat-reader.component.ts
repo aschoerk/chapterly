@@ -1,6 +1,15 @@
 import {
-  Component, ElementRef, HostListener, OnDestroy, OnInit,
-  afterNextRender, computed, effect, inject, signal, viewChild
+  Component,
+  ElementRef,
+  HostListener,
+  OnDestroy,
+  OnInit,
+  afterNextRender,
+  computed,
+  effect,
+  inject,
+  signal,
+  viewChild,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -9,11 +18,7 @@ import { ChatService } from '../../core/chat.service';
 import { MarkdownService } from '../../core/markdown.service';
 import { ChatNode } from '../../models/chat';
 import { I18nService } from '../../core/i18n/i18n.service';
-import {
-  enumerateStoryDocuments,
-  isUsableNode,
-  storyNodeTimestamp,
-} from '../../core/story-paths';
+import { enumerateStoryDocuments, isUsableNode, storyNodeTimestamp } from '../../core/story-paths';
 
 export interface ReaderFont {
   id: string;
@@ -27,7 +32,7 @@ export interface ReaderFont {
   standalone: true,
   imports: [CommonModule, FormsModule],
   templateUrl: './chat-reader.component.html',
-  styleUrl: './chat-reader.component.css'
+  styleUrl: './chat-reader.component.css',
 })
 export class ChatReaderComponent implements OnInit, OnDestroy {
   private readonly chatService = inject(ChatService);
@@ -54,56 +59,56 @@ export class ChatReaderComponent implements OnInit, OnDestroy {
       id: 'georgia',
       label: 'Georgia',
       stack: 'Georgia, "Times New Roman", Times, serif',
-      sample: 'The lamp was still warm.'
+      sample: 'The lamp was still warm.',
     },
     {
       id: 'palatino',
       label: 'Palatino',
       stack: 'Palatino, "Palatino Linotype", "Book Antiqua", "URW Palladio L", serif',
-      sample: 'Rain ticked the glass.'
+      sample: 'Rain ticked the glass.',
     },
     {
       id: 'garamond',
       label: 'Garamond',
       stack: 'Garamond, "EB Garamond", "Palatino Linotype", "Times New Roman", serif',
-      sample: 'She folded the letter twice.'
+      sample: 'She folded the letter twice.',
     },
     {
       id: 'times',
       label: 'Times',
       stack: '"Times New Roman", Times, "Liberation Serif", serif',
-      sample: 'Nobody spoke for a while.'
+      sample: 'Nobody spoke for a while.',
     },
     {
       id: 'system',
       label: 'System UI',
       stack: 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif',
-      sample: 'The hallway lights hummed.'
+      sample: 'The hallway lights hummed.',
     },
     {
       id: 'helvetica',
       label: 'Helvetica',
       stack: 'Helvetica, "Helvetica Neue", Arial, "Nimbus Sans", sans-serif',
-      sample: 'He checked the lock again.'
+      sample: 'He checked the lock again.',
     },
     {
       id: 'verdana',
       label: 'Verdana',
       stack: 'Verdana, Geneva, Tahoma, sans-serif',
-      sample: 'A chair scraped the floor.'
+      sample: 'A chair scraped the floor.',
     },
     {
       id: 'trebuchet',
       label: 'Trebuchet',
       stack: '"Trebuchet MS", "Lucida Grande", "Lucida Sans Unicode", sans-serif',
-      sample: 'The kettle clicked off.'
+      sample: 'The kettle clicked off.',
     },
     {
       id: 'mono',
       label: 'Typewriter',
       stack: 'ui-monospace, "Cascadia Mono", "Courier New", Courier, monospace',
-      sample: 'Draft 3 — scene break.'
-    }
+      sample: 'Draft 3 — scene break.',
+    },
   ] as const;
 
   readonly sizeChoices = [14, 16, 18, 20, 22, 24] as const;
@@ -114,8 +119,8 @@ export class ChatReaderComponent implements OnInit, OnDestroy {
   readonly fontSize = signal<number>(this.readStoredFontSize());
   readonly typeModalOpen = signal(false);
 
-  readonly font = computed(() =>
-    this.fontChoices.find(f => f.id === this.fontId()) ?? this.fontChoices[0]
+  readonly font = computed(
+    () => this.fontChoices.find((f) => f.id === this.fontId()) ?? this.fontChoices[0],
   );
 
   readonly fontStack = computed(() => this.font().stack);
@@ -132,7 +137,7 @@ export class ChatReaderComponent implements OnInit, OnDestroy {
   private readStoredFontId(): string {
     try {
       const id = localStorage.getItem(ChatReaderComponent.FONT_KEY);
-      return this.fontChoices.some(f => f.id === id) ? id! : 'georgia';
+      return this.fontChoices.some((f) => f.id === id) ? id! : 'georgia';
     } catch {
       return 'georgia';
     }
@@ -161,22 +166,29 @@ export class ChatReaderComponent implements OnInit, OnDestroy {
   }
 
   setFontId(id: string): void {
-    if (!this.fontChoices.some(f => f.id === id)) return;
+    if (!this.fontChoices.some((f) => f.id === id)) return;
     if (this.fontId() === id) return;
     this.fontId.set(id);
     try {
       localStorage.setItem(ChatReaderComponent.FONT_KEY, id);
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
     queueMicrotask(() => this.layout());
   }
 
   setFontSize(n: number): void {
-    const next = Math.min(this.maxFontSize, Math.max(this.minFontSize, Math.round(Number(n) || 16)));
+    const next = Math.min(
+      this.maxFontSize,
+      Math.max(this.minFontSize, Math.round(Number(n) || 16)),
+    );
     if (this.fontSize() === next) return;
     this.fontSize.set(next);
     try {
       localStorage.setItem(ChatReaderComponent.SIZE_KEY, String(next));
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
     queueMicrotask(() => this.layout());
   }
 
@@ -202,8 +214,9 @@ export class ChatReaderComponent implements OnInit, OnDestroy {
   }
 
   private allChildren(parentId: string | null): ChatNode[] {
-    return this.chatService.currentNodes()
-      .filter(n => (n.parentId ?? null) === parentId && this.isUsable(n))
+    return this.chatService
+      .currentNodes()
+      .filter((n) => (n.parentId ?? null) === parentId && this.isUsable(n))
       .sort((a, b) => this.ts(a) - this.ts(b));
   }
 
@@ -221,8 +234,8 @@ export class ChatReaderComponent implements OnInit, OnDestroy {
   readonly bookHtml = computed(() => {
     const hideQ = this.hideQuestions();
     return this.currentDoc()
-      .filter(n => !(hideQ && n.role === 'user'))
-      .map(n => this.nodeToHtml(n))
+      .filter((n) => !(hideQ && n.role === 'user'))
+      .map((n) => this.nodeToHtml(n))
       .join('');
   });
 
@@ -245,31 +258,35 @@ export class ChatReaderComponent implements OnInit, OnDestroy {
     const path = this.currentDoc();
     if (!path.length) return '';
     const tip = path[path.length - 1];
-    const kind = tip.role === 'user' ? 'D' : (tip.role === 'assistant' ? 'C' : 'S');
-    const branch = this.allChildren(tip.parentId).length > 1
-      ? ` · branch ${this.allChildren(tip.parentId).findIndex(n => n.id === tip.id) + 1}`
-      : '';
+    const kind = tip.role === 'user' ? 'D' : tip.role === 'assistant' ? 'C' : 'S';
+    const branch =
+      this.allChildren(tip.parentId).length > 1
+        ? ` · continuation ${this.allChildren(tip.parentId).findIndex((n) => n.id === tip.id) + 1}`
+        : '';
     return `${kind} v${tip.version}${branch}`;
   });
 
   prevDoc() {
-    this.docIndex.update(i => Math.max(0, i - 1));
+    this.docIndex.update((i) => Math.max(0, i - 1));
     this.page.set(0);
   }
 
   nextDoc() {
-    this.docIndex.update(i => Math.min(this.documents().length - 1, i + 1));
+    this.docIndex.update((i) => Math.min(this.documents().length - 1, i + 1));
     this.page.set(0);
   }
 
-  goFirstDoc() { this.docIndex.set(0); this.page.set(0); }
+  goFirstDoc() {
+    this.docIndex.set(0);
+    this.page.set(0);
+  }
   goLastDoc() {
     this.docIndex.set(Math.max(0, this.documents().length - 1));
     this.page.set(0);
   }
 
   toggleQuestions(): void {
-    this.hideQuestions.update(v => !v);
+    this.hideQuestions.update((v) => !v);
     this.page.set(0);
     queueMicrotask(() => this.layout());
   }
@@ -298,18 +315,17 @@ export class ChatReaderComponent implements OnInit, OnDestroy {
    *   - plain DFS that CLONES the path from the root at every fork,
    *   - empty connectors kept, empty drafts dropped, orphans become roots.
    */
-  readonly documents = computed(() =>
-    enumerateStoryDocuments(this.chatService.currentNodes())
-  );
+  readonly documents = computed(() => enumerateStoryDocuments(this.chatService.currentNodes()));
 
   private resizeObserver?: ResizeObserver;
 
   readonly title = computed(() => {
     const id = this.currentChatId();
     this.i18n.locale();
-    return this.chatService.chats().find(c => c.id === id)?.title || this.i18n.t('common.untitled');
+    return (
+      this.chatService.chats().find((c) => c.id === id)?.title || this.i18n.t('common.untitled')
+    );
   });
-
 
   constructor() {
     effect(() => {
@@ -359,7 +375,6 @@ export class ChatReaderComponent implements OnInit, OnDestroy {
     else this.prevPage();
   }
 
-
   private gap(el: HTMLElement): number {
     const g = parseFloat(getComputedStyle(el).columnGap);
     return Number.isFinite(g) ? g : 0;
@@ -394,7 +409,7 @@ export class ChatReaderComponent implements OnInit, OnDestroy {
     const next = Math.min(pages - 1, Math.max(0, index));
     this.page.set(next);
     this.pageCount.set(pages);
-    el.scrollLeft = next * advance;   // absolute, never +=
+    el.scrollLeft = next * advance; // absolute, never +=
   }
 
   private layout() {
@@ -405,11 +420,12 @@ export class ChatReaderComponent implements OnInit, OnDestroy {
   }
 
   private nodeToHtml(node: ChatNode): string {
-    const kind = node.role === 'user' ? this.i18n.t('reader.roleUser') : this.i18n.t('reader.roleAssistant');
+    const kind =
+      node.role === 'user' ? this.i18n.t('reader.roleUser') : this.i18n.t('reader.roleAssistant');
     const meta = [kind, node.modelId, `v${node.version}`].filter(Boolean).join(' · ');
     const body = this.markdown.toHtml(node.content || '');
     const files = (node.attachments || [])
-      .map(a => `<div class="book-file">${this.esc(a.name)}</div>`)
+      .map((a) => `<div class="book-file">${this.esc(a.name)}</div>`)
       .join('');
     return (
       `<section class="book-node book-${node.role}">` +
@@ -421,18 +437,20 @@ export class ChatReaderComponent implements OnInit, OnDestroy {
   }
 
   private esc(s: string): string {
-    return s.replace(/[&<>"']/g, c => (
-      { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!
-    ));
+    return s.replace(
+      /[&<>"']/g,
+      (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!,
+    );
   }
 
   private isTyping(event: KeyboardEvent): boolean {
     const t = event.target as HTMLElement | null;
-    return !!t && (
-      t.tagName === 'INPUT' ||
-      t.tagName === 'TEXTAREA' ||
-      t.tagName === 'SELECT' ||
-      t.isContentEditable
+    return (
+      !!t &&
+      (t.tagName === 'INPUT' ||
+        t.tagName === 'TEXTAREA' ||
+        t.tagName === 'SELECT' ||
+        t.isContentEditable)
     );
   }
 

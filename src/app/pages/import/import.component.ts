@@ -116,9 +116,12 @@ export class ImportComponent {
   readonly showDocPicker = signal(false);
   readonly docPickOptions = signal<Array<{ index: number; label: string; isRecent: boolean }>>([]);
   readonly docPickIndex = signal(0);
-  private pendingDocExport:
-    | { kind: 'docx' | 'markdown'; title: string; nodes: ChatNode[]; paths: ChatNode[][] }
-    | null = null;
+  private pendingDocExport: {
+    kind: 'docx' | 'markdown';
+    title: string;
+    nodes: ChatNode[];
+    paths: ChatNode[][];
+  } | null = null;
 
   constructor() {
     void this.bundleService.loadAll().then(() => {
@@ -1681,7 +1684,7 @@ export class ImportComponent {
       topics: imported.createdTopics,
       topicsReused: imported.reusedTopics,
       chats: imported.createdChats,
-      nodes: imported.createdNodes,
+      sections: imported.createdNodes,
     });
   }
 
@@ -1811,13 +1814,14 @@ export class ImportComponent {
 
   private documentLabel(index: number, path: ChatNode[], isRecent: boolean): string {
     const tip = path.length ? path[path.length - 1] : null;
-    const kind = tip?.role === 'assistant'
-      ? this.i18n.t('reader.roleAssistant')
-      : tip?.role === 'user'
-        ? this.i18n.t('reader.roleUser')
-        : tip?.role === 'system'
-          ? this.i18n.t('node.roleSystem')
-          : this.i18n.t('node.structure');
+    const kind =
+      tip?.role === 'assistant'
+        ? this.i18n.t('reader.roleAssistant')
+        : tip?.role === 'user'
+          ? this.i18n.t('reader.roleUser')
+          : tip?.role === 'system'
+            ? this.i18n.t('node.roleSystem')
+            : this.i18n.t('node.structure');
     const version = tip ? ` · v${tip.version ?? 1}` : '';
     const tipText = tip?.content?.trim()?.slice(0, 40) || '';
     const recent = isRecent ? ` — ${this.i18n.t('import.docRecent')}` : '';
@@ -1832,12 +1836,17 @@ export class ImportComponent {
   ): void {
     const recent = pickDocumentPath(paths);
     const recentId = recent.map((n) => n.id).join('|');
-    this.docPickOptions.set(paths.map((p, i) => ({
-      index: i,
-      isRecent: p.map((n) => n.id).join('|') === recentId,
-      label: this.documentLabel(i, p, p.map((n) => n.id).join('|') === recentId),
-    })));
-    const defaultIdx = Math.max(0, this.docPickOptions().findIndex((o) => o.isRecent));
+    this.docPickOptions.set(
+      paths.map((p, i) => ({
+        index: i,
+        isRecent: p.map((n) => n.id).join('|') === recentId,
+        label: this.documentLabel(i, p, p.map((n) => n.id).join('|') === recentId),
+      })),
+    );
+    const defaultIdx = Math.max(
+      0,
+      this.docPickOptions().findIndex((o) => o.isRecent),
+    );
     this.docPickIndex.set(defaultIdx);
     this.pendingDocExport = { kind, title, nodes, paths };
     this.showDocPicker.set(true);
@@ -1878,7 +1887,12 @@ export class ImportComponent {
   }
 
   /** Build the file and trigger the browser download. */
-  private downloadDoc(kind: 'docx' | 'markdown', title: string, nodes: ChatNode[], path: ChatNode[]): void {
+  private downloadDoc(
+    kind: 'docx' | 'markdown',
+    title: string,
+    nodes: ChatNode[],
+    path: ChatNode[],
+  ): void {
     if (kind === 'docx') {
       const blob = buildDocxBlob(title, nodes, { path });
       const a = document.createElement('a');

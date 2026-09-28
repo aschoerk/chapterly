@@ -802,7 +802,11 @@ export class ChatComponent implements OnInit {
         // With names → one elaboration per name, in first person.
         const prompts = names.length > 0
           ? names.map(name =>
-            `elaborate on chapter ${chapter} out of the view of ${name} in first person`)
+            `elaborate on chapter ${chapter} out of the view of ${name} in first person
+            
+            STRICT MIRRORING RULE:
+              * Do never repeat spoken dialogue verbatim from previous views on the same chapter.`
+        )
           : [`elaborate on chapter ${chapter}`];
 
         for (const prompt of prompts) {

@@ -23,7 +23,7 @@ export const DE = {
     none: 'keine',
     unknown: 'Unbekannt',
     untitled: 'Ohne Titel',
-    admin: 'Admin'
+    admin: 'Admin',
   },
   nav: {
     brandTitle: 'Ein Chat-Client, der lieber das nächste Kapitel schreibt',
@@ -44,7 +44,7 @@ export const DE = {
     settings: 'Einstellungen',
     settingsTitle: 'Einstellungen',
     signOut: 'Abmelden',
-    aria: 'Anwendung'
+    aria: 'Anwendung',
   },
   login: {
     hint: 'Vorläufige lokale Anmeldung. Nutzt chat-server authorize → Code → Zugriffstoken.',
@@ -55,27 +55,28 @@ export const DE = {
     skip: 'Ohne Token fortfahren',
     google: 'Mit Google anmelden',
     invalid: 'Ungültige Anmeldedaten',
-    failed: 'Anmeldung fehlgeschlagen'
+    failed: 'Anmeldung fehlgeschlagen',
   },
   chat: {
     selectOrCreate: 'Wählen Sie eine Story oder legen Sie eine neue an',
     resizeSidebar: 'Ziehen, um die Seitenleiste zu verändern',
     trash: 'Papierkorb',
-    trashTitle: 'Gelöschte Zweige',
+    trashTitle: 'Gelöschte Fortsetzungen',
     trashLoading: 'Wird geladen…',
-    trashEmpty: 'Keine gelöschten Zweige',
+    trashEmpty: 'Keine gelöschten Fortsetzungen',
     trashEmptyContent: '(leer)',
     trashRestore: 'Wiederherstellen',
-    trashRestoreTitle: 'Diesen gelöschten Zweig wiederherstellen',
+    trashRestoreTitle: 'Diese gelöschte Fortsetzung wiederherstellen',
     trashRestoreFailed: 'Wiederherstellen fehlgeschlagen: {{error}}',
     trashPurge: 'Endgültig löschen',
-    trashPurgeTitle: 'Diesen Zweig endgültig löschen',
+    trashPurgeTitle: 'Diese Fortsetzung endgültig löschen',
     trashPurgeAsk: 'Endgültig löschen?',
-    trashPurgeMsg: 'Dies löscht den Zweig endgültig und kann nicht rückgängig gemacht werden.',
+    trashPurgeMsg:
+      'Dies löscht die Fortsetzung endgültig und kann nicht rückgängig gemacht werden.',
     trashPurgeFailed: 'Löschen fehlgeschlagen: {{error}}',
     followStreaming: 'Streaming folgen',
     followThinking: 'Denkspur folgen',
-    alwaysOpenAtLeaf: 'immer am Blatt öffnen',
+    alwaysOpenAtLeaf: 'immer am letzten Abschnitt öffnen',
     paceAfterComplete: 'nach LLM weiter im Tempo',
     generating: 'Wird erzeugt…',
     reveal: 'anzeigen',
@@ -94,7 +95,8 @@ export const DE = {
     headingsTitle: 'Überschrift für jedes Kapitel erzeugen',
     elaborate: 'Ausarbeiten',
     elaborateTitle: 'Kapitel ausarbeiten',
-    elaborateHint: 'Die letzte Antwort beschreibt die Kapitel 1..n. Arbeiten Sie jedes gewählte Kapitel aus — optional aus der Sicht der genannten Figuren (durch Kommas getrennt).',
+    elaborateHint:
+      'Die letzte Antwort beschreibt die Kapitel 1..n. Arbeiten Sie jedes gewählte Kapitel aus — optional aus der Sicht der genannten Figuren (durch Kommas getrennt).',
     elaborateFirst: 'Erstes Kapitel',
     elaborateLast: 'Letztes Kapitel',
     elaborateNames: 'Figuren',
@@ -104,7 +106,7 @@ export const DE = {
     elaborateConfirm: 'Ausarbeiten',
     elaborateNoAnchor: 'Es gibt noch keine Antwort zum Ausarbeiten',
     elaborateNoModel: 'Kein Modell für die Ausarbeitung verfügbar',
-    elaborateFailed: 'Ausarbeitung fehlgeschlagen: {{error}}'
+    elaborateFailed: 'Ausarbeitung fehlgeschlagen: {{error}}',
   },
   reader: {
     columns: 'Spalten',
@@ -119,14 +121,15 @@ export const DE = {
     showDirections: 'Anweisungen einblenden (d)',
     hideDirections: 'Anweisungen ausblenden (d)',
     type: 'Schrift',
-    typeSub: 'Schriftart und Größe für diese Leseransicht. Die Vorschau nutzt das geöffnete Dokument.',
+    typeSub:
+      'Schriftart und Größe für diese Leseransicht. Die Vorschau nutzt das geöffnete Dokument.',
     typefaces: 'Schriftarten',
     size: 'Größe',
     sizePresets: 'Größenvorgaben',
     fontSizeAria: 'Schriftgröße in Pixel',
     done: 'Fertig',
     roleUser: 'Anweisung',
-    roleAssistant: 'Kapitel'
+    roleAssistant: 'Kapitel',
   },
   sidebar: {
     stories: 'Stories',
@@ -135,7 +138,7 @@ export const DE = {
     editTopic: 'Aktuelles Thema bearbeiten',
     filterPh: 'Umgebungen & Stories filtern…',
     searchInContent: 'im Text',
-    searchInContentHint: 'Auch aktuellen Knoteninhalt durchsuchen (SQL LIKE auf dem Server)',
+    searchInContentHint: 'Auch aktuellen Abschnittsinhalt durchsuchen (SQL LIKE auf dem Server)',
     collapseAll: 'Alle Umgebungen einklappen',
     sortNewest: 'Nach Neueste sortiert – klicken für A–Z',
     sortAlpha: 'A–Z sortiert – klicken für neueste zuerst',
@@ -148,8 +151,8 @@ export const DE = {
     moveUnassigned: 'Nach Unzugeordnet verschieben',
     moveEnvironment: 'In eine andere Umgebung verschieben',
     cloneStory: 'Story klonen',
-    nodesCountOne: '{{count}} Knoten',
-    nodesCountMany: '{{count}} Knoten',
+    nodesCountOne: '{{count}} Abschnitt',
+    nodesCountMany: '{{count}} Abschnitte',
     unassignedOption: '— Unzugeordnet —',
     noChats: 'Noch keine Stories',
     noBooks: 'Noch keine Bücher. Legen Sie eines an, um Entwürfe zu ordnen.',
@@ -160,7 +163,8 @@ export const DE = {
     cloneFailed: 'Klonen fehlgeschlagen: {{error}}',
     deleteEnvTitle: 'Umgebung löschen',
     deleteEnvEmpty: 'Umgebung „{{name}}“ löschen?',
-    deleteEnvWithStories: 'Umgebung „{{name}}“ enthält {{count}} {{stories}}.\n\nLöschen entfernt die Umgebung UND alle ihre Stories.',
+    deleteEnvWithStories:
+      'Umgebung „{{name}}“ enthält {{count}} {{stories}}.\n\nLöschen entfernt die Umgebung UND alle ihre Stories.',
     storyWord: 'Story',
     storiesWord: 'Stories',
     deleteStoryTitle: 'Story löschen',
@@ -170,7 +174,7 @@ export const DE = {
     beatsMany: '{{count}} Abschnitte',
     created: 'Erstellt: {{when}}',
     updated: 'Aktualisiert: {{when}}',
-    defaultModel: 'Standardmodell: {{model}}'
+    defaultModel: 'Standardmodell: {{model}}',
   },
   node: {
     dir: 'An',
@@ -178,16 +182,19 @@ export const DE = {
     chars: '{{count}} Zeichen',
     version: 'v{{n}}',
     priorVersions: '{{n}} frühere Version(en)',
-    priorVersionsWarn: 'Diese älteren Versionen bleiben zum Nachlesen sichtbar. Sie liegen nicht auf dem aktiven Pfad und werden dem LLM nicht als Kontext geschickt.',
+    priorVersionsWarn:
+      'Diese älteren Versionen bleiben zum Nachlesen sichtbar. Sie liegen nicht auf dem aktiven Pfad und werden dem LLM nicht als Kontext geschickt.',
     stop: 'Stopp',
     stopTitle: 'Erzeugung stoppen',
-    prevBranch: 'Vorheriger Zweig',
-    nextBranch: 'Nächster Zweig',
-    delete: 'Löschen',
-    deleteTitle: 'Diesen Knoten und seinen Teilbaum löschen',
+    prevBranch: 'Vorherige Fortsetzung',
+    nextBranch: 'Nächste Fortsetzung',
+    delete: 'Lösche',
+    deleteTitle: 'Diesen Abschnitt und alle Folgetexte löschen',
+    deleteBranch: 'Lösche\nFortsetzung',
     remove: 'Entfernen',
-    removeTitle: 'Nur diesen Knoten löschen. Kinder bleiben und hängen am Elternknoten.',
-    branchModel: 'Modell beim Verzweigen',
+    removeTitle: 'Nur diesen Abschnitt löschen. Folgetexte bleiben und hängen am Vorgänger.',
+    removeNode: 'Entferne\nAbschnitt',
+    branchModel: 'Modell für neue Fortsetzungen',
     hidePreview: 'Vorschau ausblenden',
     showPreview: 'Vorschau einblenden',
     addAttachment: 'Anhang hinzufügen',
@@ -201,12 +208,13 @@ export const DE = {
     continueTitle: '„Weiter“ einfügen und an das Standardmodell senden',
     saving: 'Wird gespeichert…',
     ok: 'OK',
-    versionTitle: 'Als neue Version dieses Knotens speichern (kein LLM-Aufruf)',
-    branch: 'Zweig',
-    branchTitle: 'Als neues Blatt speichern und an das LLM senden',
+    versionTitle: 'Als neue Version dieses Abschnitts speichern (kein LLM-Aufruf)',
+    branch: 'Fortsetzung',
+    branchTitle: 'Als neue Fortsetzung speichern und an das LLM senden',
     insert: 'Einfügen',
     inserting: 'Wird eingefügt…',
-    insertTitle: 'Diese Frage oberhalb der aktuellen einfügen. Die vorherige Version und ihre Geschwister hängen unter der neuen Antwort.',
+    insertTitle:
+      'Diese Frage oberhalb der aktuellen einfügen. Die vorherige Version und ihre Folgetexte hängen unter der neuen Antwort.',
     hintDraft: 'Strg+Enter sendet · Esc bricht ab',
     hintEdit: 'Strg+Enter speichert eine Version · Esc bricht ab',
     thinking: 'Denkt nach…',
@@ -217,13 +225,14 @@ export const DE = {
     stopped: 'Erzeugung gestoppt',
     regenerate: 'Neu erzeugen',
     regenerating: 'Wird neu erzeugt…',
-    regenerateTitle: 'Diese Antwort und alles darunter löschen und die letzte Benutzeranfrage erneut senden',
+    regenerateTitle:
+      'Diese Antwort und alle Folgetexte löschen und die letzte Benutzeranfrage erneut senden',
     copy: 'Kopieren',
     copied: 'Kopiert',
     copyTitle: 'In die Zwischenablage kopieren',
     copiedTitle: 'Kopiert!',
     edit: 'Bearbeiten',
-    editTitle: 'Diesen Knoten an Ort und Stelle bearbeiten',
+    editTitle: 'Diesen Abschnitt an Ort und Stelle bearbeiten',
     discardTitle: 'Änderungen verwerfen?',
     discardMsg: 'Diesen Editor ohne Speichern schließen?',
     saveFailed: 'Speichern fehlgeschlagen: {{error}}',
@@ -231,17 +240,21 @@ export const DE = {
     providerMissing: 'Anbieter nicht gefunden',
     failed: 'Fehlgeschlagen: {{error}}',
     regenerateTitleAsk: 'Antwort neu erzeugen?',
-    regenerateMsgExtra: 'Diese Antwort hat {{count}} Nachfolgerknoten. Neu erzeugen löscht sie und sendet die letzte Benutzeranfrage erneut.',
-    regenerateMsg: 'Diese Antwort hat Kindknoten. Neu erzeugen löscht sie und sendet die letzte Benutzeranfrage erneut.',
-    regenerateNoParent: 'Neu erzeugen nicht möglich: übergeordnete Frage nicht gefunden',
+    regenerateMsgExtra:
+      'Diese Antwort hat {{count}} Folgetexte. Neu erzeugen löscht sie und sendet die letzte Benutzeranfrage erneut.',
+    regenerateMsg:
+      'Diese Antwort hat Folgetexte. Neu erzeugen löscht sie und sendet die letzte Benutzeranfrage erneut.',
+    regenerateNoParent: 'Neu erzeugen nicht möglich: vorherige Frage nicht gefunden',
     regenerateFailed: 'Neu erzeugen fehlgeschlagen: {{error}}',
-    removeTitleAsk: 'Diesen Knoten entfernen?',
-    removeMsgChildren: 'Nur diesen {{role}}-Knoten löschen. Seine {{count}} Kindknoten bleiben und hängen am Elternknoten.',
-    removeMsg: 'Diesen {{role}}-Knoten löschen? Kindknoten bleiben in der Linie.',
-    removeFailed: 'Knoten konnte nicht entfernt werden: {{error}}',
-    deleteTitleAsk: 'Knoten löschen?',
-    deleteMsgExtra: 'Diesen {{role}}-Knoten und seine {{count}} Nachfolger löschen? {{filled}} Knoten haben Inhalt.',
-    deleteMsg: 'Diesen {{role}}-Knoten löschen? Er hat Inhalt.',
+    removeTitleAsk: 'Diesen Abschnitt entfernen?',
+    removeMsgChildren:
+      'Nur diesen {{role}}-Abschnitt löschen. Seine {{count}} Folgetexte bleiben und hängen am Vorgänger.',
+    removeMsg: 'Diesen {{role}}-Abschnitt löschen? Folgetexte bleiben in der Linie.',
+    removeFailed: 'Abschnitt konnte nicht entfernt werden: {{error}}',
+    deleteTitleAsk: 'Abschnitt löschen?',
+    deleteMsgExtra:
+      'Diesen {{role}}-Abschnitt und seine {{count}} Folgetexte löschen? {{filled}} Abschnitte haben Inhalt.',
+    deleteMsg: 'Diesen {{role}}-Abschnitt löschen? Er hat Inhalt.',
     deleteFailed: 'Löschen fehlgeschlagen: {{error}}',
     copyFailed: 'Kopieren fehlgeschlagen',
     fileTooLarge: '{{name}} ist zu groß (max. 4 MB)',
@@ -254,7 +267,7 @@ export const DE = {
     generatingStructure: 'Wird erzeugt…',
     structureModelMissing: 'Kein Modell für die Strukturerzeugung verfügbar',
     structureEmpty: 'Das Modell hat keinen Strukturtext zurückgegeben',
-    structureFailed: 'Strukturerzeugung fehlgeschlagen: {{error}}'
+    structureFailed: 'Strukturerzeugung fehlgeschlagen: {{error}}',
   },
   params: {
     override: 'Generierungseinstellungen überschreiben',
@@ -271,31 +284,40 @@ export const DE = {
     yes: 'Ja',
     no: 'Nein',
     inheritPh: 'erben',
-    hintFooter: 'Leere Felder behalten den Elternwert. Die Denkebene entspricht OpenAI reasoning_effort.',
+    hintFooter:
+      'Leere Felder behalten den Elternwert. Die Denkebene entspricht OpenAI reasoning_effort.',
     sourceDefault: 'eingebaute Vorgaben',
     hintOverrideTitle: 'Generierungseinstellungen überschreiben',
-    hintOverrideBody: 'Aus: dieses Thema, diese Umgebung, dieses Modell oder diese Story erbt Werte vom nächsten Elternteil (Modell → Thema → Umgebung → Story). Ein: speichert einen eigenen Parametersatz. Leere Felder erben weiterhin.',
+    hintOverrideBody:
+      'Aus: dieses Thema, diese Umgebung, dieses Modell oder diese Story erbt Werte vom nächsten Elternteil (Modell → Thema → Umgebung → Story). Ein: speichert einen eigenen Parametersatz. Leere Felder erben weiterhin.',
     hintEffectiveTitle: 'Wirksame Werte',
-    hintEffectiveBody: 'Was nach dem Zusammenführen der Eltern tatsächlich gesendet wird. Die Klammer nennt den nächsten Ursprung eines Wertes. Eingebaute Vorgaben: Temperatur 0,7 und Streaming ein.',
+    hintEffectiveBody:
+      'Was nach dem Zusammenführen der Eltern tatsächlich gesendet wird. Die Klammer nennt den nächsten Ursprung eines Wertes. Eingebaute Vorgaben: Temperatur 0,7 und Streaming ein.',
     hintTemperatureTitle: 'Temperatur',
-    hintTemperatureBody: 'OpenAI-Temperatur, üblicherweise 0–2. Niedriger ist deterministischer, höher vielfältiger. Leer lassen zum Erben. Vorgabe, wenn nichts gesetzt ist: 0,7.',
+    hintTemperatureBody:
+      'OpenAI-Temperatur, üblicherweise 0–2. Niedriger ist deterministischer, höher vielfältiger. Leer lassen zum Erben. Vorgabe, wenn nichts gesetzt ist: 0,7.',
     hintTopKTitle: 'top_k',
-    hintTopKBody: 'Begrenzt die Auswahl auf die K wahrscheinlichsten Token. Viele OpenAI-kompatible Anbieter (OpenRouter, Groq, lokale Server) nutzen das. OpenAI selbst ignoriert es. Leer bedeutet erben / weglassen.',
+    hintTopKBody:
+      'Begrenzt die Auswahl auf die K wahrscheinlichsten Token. Viele OpenAI-kompatible Anbieter (OpenRouter, Groq, lokale Server) nutzen das. OpenAI selbst ignoriert es. Leer bedeutet erben / weglassen.',
     hintTopMTitle: 'top_m / top_p',
-    hintTopMBody: 'Nucleus-Sampling. Gespeichert als top_m, gesendet als OpenAI top_p (0–1). 0,9 behält die kleinste Tokenmenge, deren Wahrscheinlichkeiten 90 % ergeben. Leer bedeutet erben / weglassen.',
+    hintTopMBody:
+      'Nucleus-Sampling. Gespeichert als top_m, gesendet als OpenAI top_p (0–1). 0,9 behält die kleinste Tokenmenge, deren Wahrscheinlichkeiten 90 % ergeben. Leer bedeutet erben / weglassen.',
     hintStreamTitle: 'Stream',
-    hintStreamBody: 'Ja streamt Token beim Eintreffen. Nein wartet auf die vollständige Antwort als eine JSON-Nachricht — nützlich bei Modellen mit SSE-Problemen. Erben nutzt den Elternwert, danach Streaming ein.',
+    hintStreamBody:
+      'Ja streamt Token beim Eintreffen. Nein wartet auf die vollständige Antwort als eine JSON-Nachricht — nützlich bei Modellen mit SSE-Problemen. Erben nutzt den Elternwert, danach Streaming ein.',
     hintThinkingTitle: 'Denken',
-    hintThinkingBody: 'Fordert eine Denkspur (include_reasoning). Wird am Antwortknoten gezeigt, wenn der Anbieter sie liefert. Nein schaltet Denk-Zusätze auch dann aus, wenn das Modell sie unterstützt.',
+    hintThinkingBody:
+      'Fordert eine Denkspur (include_reasoning). Wird am Antwortabschnitt gezeigt, wenn der Anbieter sie liefert. Nein schaltet Denk-Zusätze auch dann aus, wenn das Modell sie unterstützt.',
     hintThinkingLevelTitle: 'Denkebene',
-    hintThinkingLevelBody: 'Entspricht OpenAI reasoning_effort: none, minimal, low, medium, high. Wird genutzt, wenn Denken aktiv ist. none schaltet Reasoning aus. Leer erbt die Katalogvorgabe des Modells, falls vorhanden.'
+    hintThinkingLevelBody:
+      'Entspricht OpenAI reasoning_effort: none, minimal, low, medium, high. Wird genutzt, wenn Denken aktiv ist. none schaltet Reasoning aus. Leer erbt die Katalogvorgabe des Modells, falls vorhanden.',
   },
   config: {
     nav: {
       label: 'Einstellungen',
       appearance: 'Darstellung',
       providers: 'Anbieter / Modelle',
-      tasks: 'Generierungsaufgaben'
+      tasks: 'Generierungsaufgaben',
     },
     appearance: {
       title: 'Darstellung',
@@ -305,11 +327,12 @@ export const DE = {
       themeSystem: 'System',
       themeActive: 'Aktiv: {{theme}}',
       language: 'Sprache',
-      languageHint: 'Sprache der Benutzeroberfläche. Stories, Eingaben und Modellantworten bleiben unverändert.'
+      languageHint:
+        'Sprache der Benutzeroberfläche. Stories, Eingaben und Modellantworten bleiben unverändert.',
     },
     theme: {
       light: 'hell',
-      dark: 'dunkel'
+      dark: 'dunkel',
     },
     providers: {
       title: 'Anbieter',
@@ -333,7 +356,7 @@ export const DE = {
       deleteConfirm: 'Diesen Anbieter und alle zugehörigen Modelle/Voreinstellungen löschen?',
       fetchFailed: 'Modelle konnten nicht geladen werden: {{error}}',
       testOk: 'Verbindung erfolgreich',
-      testFail: 'Verbindung fehlgeschlagen'
+      testFail: 'Verbindung fehlgeschlagen',
     },
     models: {
       title: 'Verfügbare Modelle / Voreinstellungen',
@@ -341,7 +364,8 @@ export const DE = {
       search: 'Modelle suchen…',
       enabledOnly: 'Nur aktivierte',
       disabledOnly: 'Nur nicht aktivierte',
-      empty: 'Noch keine Modelle. Laden Sie Modelle von einem Anbieter oder fügen Sie eine Voreinstellung hinzu.',
+      empty:
+        'Noch keine Modelle. Laden Sie Modelle von einem Anbieter oder fügen Sie eine Voreinstellung hinzu.',
       colProvider: 'Anbieter',
       colName: 'Anzeigename / Modell-ID',
       colType: 'Typ',
@@ -372,20 +396,21 @@ export const DE = {
       saveEdit: 'Änderungen speichern',
       needNameAndId: 'Anzeigename und Modell-ID sind erforderlich',
       needProvider: 'Bitte wählen Sie einen Anbieter',
-      needModelAndProvider: 'Bitte geben Sie zuerst eine Modell-ID ein und wählen Sie einen Anbieter',
+      needModelAndProvider:
+        'Bitte geben Sie zuerst eine Modell-ID ein und wählen Sie einen Anbieter',
       providerMissing: 'Anbieter nicht gefunden',
       modelWorks: 'Modell „{{modelId}}“ funktioniert',
       unexpected: 'Unerwartete Antwort vom Modell',
       testFailed: 'Test fehlgeschlagen',
       generationTitle: 'Generierungseinstellungen',
-      save: 'Speichern'
+      save: 'Speichern',
     },
     modality: {
       text: 'Text',
       image: 'Bild',
       audio: 'Audio',
       video: 'Video',
-      file: 'Datei'
+      file: 'Datei',
     },
     generation: {
       title: 'Generierungsaufgaben',
@@ -395,24 +420,31 @@ export const DE = {
       provider: 'Anbieter',
       model: 'Modell',
       modelPh: 'Modell wählen oder ID eingeben',
-      noModels: 'Keine aktivierten Modelle für diesen Anbieter. Aktivieren Sie welche in der obigen Liste.',
+      noModels:
+        'Keine aktivierten Modelle für diesen Anbieter. Aktivieren Sie welche in der obigen Liste.',
       prompt: 'Prompt',
       promptPh: 'Optionaler Prompt-Vorlagentext für diese Aufgabe',
-      emptyProviders: 'Fügen Sie einen Anbieter hinzu und aktivieren Sie Modelle, um Generierungsaufgaben zu konfigurieren.',
+      emptyProviders:
+        'Fügen Sie einen Anbieter hinzu und aktivieren Sie Modelle, um Generierungsaufgaben zu konfigurieren.',
       tasks: {
         title: 'Titel',
         headings: 'Überschriften',
         overview: 'Überblicke',
         'image-create': 'Bilderzeugung',
-        'image-interpret': 'Bildinterpretation'
+        'image-interpret': 'Bildinterpretation',
       },
       hints: {
-        title: 'Wird zum Vorschlagen oder Erzeugen von Titeln verwendet. Das Modell muss Klartext ausgeben.',
-        headings: 'Wird zur Erzeugung von Kapitel-/Abschnittsüberschriften verwendet. Das Modell muss Klartext ausgeben.',
-        overview: 'Wird zur Erstellung von Zusammenfassungen/Überblicken verwendet. Das Modell muss Klartext ausgeben.',
-        'image-create': 'Wird zur Erzeugung von Bildern aus einer Beschreibung verwendet. Das Modell muss Bildausgabe unterstützen.',
-        'image-interpret': 'Wird zur Beschreibung/Interpretation von Bildern verwendet. Das Modell muss Bildeingabe unterstützen.'
-      }
-    }
-  }
+        title:
+          'Wird zum Vorschlagen oder Erzeugen von Titeln verwendet. Das Modell muss Klartext ausgeben.',
+        headings:
+          'Wird zur Erzeugung von Kapitel-/Abschnittsüberschriften verwendet. Das Modell muss Klartext ausgeben.',
+        overview:
+          'Wird zur Erstellung von Zusammenfassungen/Überblicken verwendet. Das Modell muss Klartext ausgeben.',
+        'image-create':
+          'Wird zur Erzeugung von Bildern aus einer Beschreibung verwendet. Das Modell muss Bildausgabe unterstützen.',
+        'image-interpret':
+          'Wird zur Beschreibung/Interpretation von Bildern verwendet. Das Modell muss Bildeingabe unterstützen.',
+      },
+    },
+  },
 };

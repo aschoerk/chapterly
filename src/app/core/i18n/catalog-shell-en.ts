@@ -23,7 +23,7 @@ export const EN_SHELL = {
     none: 'none',
     unknown: 'Unknown',
     untitled: 'Untitled',
-    admin: 'admin'
+    admin: 'admin',
   },
   nav: {
     brandTitle: 'A chat client that would rather write the next chapter',
@@ -44,7 +44,7 @@ export const EN_SHELL = {
     settings: 'Settings',
     settingsTitle: 'Settings',
     signOut: 'Sign out',
-    aria: 'Application'
+    aria: 'Application',
   },
   login: {
     hint: 'Temporary local login. Uses chat-server authorize → code → access token.',
@@ -55,14 +55,14 @@ export const EN_SHELL = {
     skip: 'Continue without token',
     google: 'Sign in with Google',
     invalid: 'Invalid credentials',
-    failed: 'Login failed'
+    failed: 'Login failed',
   },
   chat: {
     selectOrCreate: 'Select a chat or create a new one',
     resizeSidebar: 'Drag to resize sidebar',
     followStreaming: 'follow streaming',
     followThinking: 'follow thinking',
-    alwaysOpenAtLeaf: 'always open at leaf',
+    alwaysOpenAtLeaf: 'always open at the last section',
     generating: 'Generating…',
     reveal: 'reveal',
     charsPerSec: 'chars/s',
@@ -71,7 +71,7 @@ export const EN_SHELL = {
     params: 'Params',
     applyToChat: 'Apply to chat',
     bookView: 'Book View',
-    bookViewTitle: 'Open book view (Ctrl-B)'
+    bookViewTitle: 'Open book view (Ctrl-B)',
   },
   reader: {
     columns: 'Columns',
@@ -91,6 +91,6 @@ export const EN_SHELL = {
     size: 'Size',
     sizePresets: 'Size presets',
     fontSizeAria: 'Font size in pixels',
-    done: 'Done'
-  }
+    done: 'Done',
+  },
 };

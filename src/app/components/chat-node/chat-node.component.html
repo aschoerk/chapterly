@@ -61,6 +61,16 @@
           {{ isLoading() && pendingAction() === 'structure' ? i18n.t('node.generatingStructure') : i18n.t('node.addHeading') }}
         </button>
       }
+      <button class="btn-icon danger remove-node-btn" type="button"
+              [title]="i18n.t('node.removeTitle')"
+              [disabled]="isLoading() || chatService.isGenerating(node().id)"
+              (click)="deleteNodeOnly(); $event.stopPropagation()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="9"/>
+          <line x1="8" y1="12" x2="16" y2="12"/>
+        </svg>
+        <span>{{ i18n.t('node.removeNode') }}</span>
+      </button>
       <button class="btn-icon danger delete-btn" type="button"
               [title]="i18n.t('node.deleteTitle')"
               [disabled]="isLoading() || chatService.isGenerating(node().id)"
@@ -71,17 +81,7 @@
           <path d="M10 11v6M14 11v6"/>
           <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
         </svg>
-        <span>{{ i18n.t('node.delete') }}</span>
-      </button>
-      <button class="btn-icon danger remove-node-btn" type="button"
-              [title]="i18n.t('node.removeTitle')"
-              [disabled]="isLoading() || chatService.isGenerating(node().id)"
-              (click)="deleteNodeOnly(); $event.stopPropagation()">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="12" cy="12" r="9"/>
-          <line x1="8" y1="12" x2="16" y2="12"/>
-        </svg>
-        <span>{{ i18n.t('node.remove') }}</span>
+        <span>{{ i18n.t('node.deleteBranch') }}</span>
       </button>
     </div>
   </div>

@@ -290,6 +290,13 @@
   margin-left: 0;
 }
 
+.delete-btn span,
+.remove-node-btn span {
+  /* .btn-icon sets white-space: nowrap; a literal \n in the translated
+     label (e.g. "Remove\nNode") needs pre-line to render as a line break. */
+  white-space: pre-line;
+}
+
 .empty-answer {
   color: var(--text-muted, #94a3b8);
   font-size: 0.9rem;
@@ -354,7 +361,7 @@
   gap: 0.35rem;
   height: 28px;
   padding: 0 0.55rem;
-  border: 1px solid transparent;
+  border: 1px solid var(--color-input-border, #cbd5e1);
   border-radius: 6px;
   background: transparent;
   color: var(--text-muted, #64748b);
@@ -378,6 +385,7 @@
 
 .btn-icon.danger {
   color: var(--color-danger, #b91c1c);
+  border-color: var(--color-danger-border, #fca5a5);
 }
 
 .btn-icon.danger:hover:not(:disabled) {
