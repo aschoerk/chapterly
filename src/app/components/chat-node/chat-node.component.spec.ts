@@ -1013,6 +1013,120 @@ describe('ChatNodeComponent', () => {
   });
 
   // ------------------------------------------------------------------
+  // Regenerate in place (rewrite this answer, keep following text)
+  // ------------------------------------------------------------------
+
+  describe('regenerateInPlace', () => {
+    it('replaces only this answer and re-hangs the following text under the new one', async () => {
+      const q1 = node({ id: 'q1', content: 'Question' });
+      const a1 = node({
+        id: 'a1',
+        chatId: 'chat-1',
+        parentId: 'q1',
+        role: 'assistant',
+        content: 'Answer',
+        modelId: 'alpha/model',
+      });
+      const d1 = node({
+        id: 'd1', chatId: 'chat-1', parentId: 'a1', role: 'user', content: 'Direction',
+      });
+      const a2 = node({
+        id: 'a2',
+        chatId: 'chat-1',
+        parentId: 'd1',
+        role: 'assistant',
+        content: 'Following text',
+        modelId: 'alpha/model',
+      });
+      await openChat([q1, a1, d1, a2]);
+      confirmResolves(true);
+      createFixture(a1);
+
+      await component.regenerateInPlace();
+      fixture.detectChanges();
+
+      // Only the regenerated answer is gone…
+      expect(chatService.nodes().find((n) => n.id === 'a1')).toBeUndefined();
+      // …the following text survives intact.
+      expect(chatService.nodes().find((n) => n.id === 'd1')).toBeDefined();
+      expect(chatService.nodes().find((n) => n.id === 'a2')).toBeDefined();
+
+      // A fresh answer hangs under the question and adopts the preserved subtree.
+      const newAnswer = chatService.getChildren('q1').find((n) => n.role === 'assistant')!;
+      expect(newAnswer).toBeDefined();
+      expect(newAnswer.id).not.toBe('a1');
+      expect(chatService.getChildren(newAnswer.id).map((n) => n.id)).toContain('d1');
+      expect(chatService.getActiveChild(newAnswer.id)?.id).toBe('d1');
+
+      expect(emitted).toContain('q1');
+      expect(llm.streamAnswer).toHaveBeenCalledWith(
+        'chat-1', 'q1', expect.anything(), expect.anything(), expect.anything(), undefined,
+        expect.objectContaining({ adoptNodeIds: ['d1'] }),
+      );
+    });
+
+    it('with no following text it behaves like a plain regenerate', async () => {
+      const older = new Date(Date.now() - 60_000).toISOString();
+      const newer = new Date().toISOString();
+      const q1 = node({ id: 'q1', content: 'Question', createdAt: older, updatedAt: older });
+      const a1 = node({
+        id: 'a1',
+        chatId: 'chat-1',
+        parentId: 'q1',
+        role: 'assistant',
+        content: 'Answer',
+        modelId: 'alpha/model',
+        createdAt: older,
+        updatedAt: older,
+      });
+      // A later sibling question under q1 so the active path ends on it, not
+      // on a1 — otherwise selectChat auto-adds a draft question under a1.
+      const q2 = node({
+        id: 'q2',
+        parentId: 'q1',
+        content: 'Question 2',
+        createdAt: newer,
+        updatedAt: newer,
+      });
+      await openChat([q1, a1, q2]);
+      createFixture(a1);
+
+      await component.regenerateInPlace();
+      fixture.detectChanges();
+
+      expect(chatService.nodes().find((n) => n.id === 'a1')).toBeUndefined();
+      const newAnswer = chatService.getChildren('q1').find((n) => n.role === 'assistant')!;
+      expect(newAnswer).toBeDefined();
+      expect(newAnswer.id).not.toBe('a1');
+      expect(llm.streamAnswer).toHaveBeenCalled();
+    });
+
+    it('asks for confirmation when there is following text; aborting keeps the node', async () => {
+      const q1 = node({ id: 'q1', content: 'Question' });
+      const a1 = node({
+        id: 'a1',
+        chatId: 'chat-1',
+        parentId: 'q1',
+        role: 'assistant',
+        content: 'Answer',
+        modelId: 'alpha/model',
+      });
+      const d1 = node({
+        id: 'd1', chatId: 'chat-1', parentId: 'a1', role: 'user', content: 'Direction',
+      });
+      await openChat([q1, a1, d1]);
+      confirmResolves(false);
+      createFixture(a1);
+
+      await component.regenerateInPlace();
+      fixture.detectChanges();
+
+      expect(chatService.nodes().find((n) => n.id === 'a1')).toBeDefined();
+      expect(llm.streamAnswer).not.toHaveBeenCalled();
+    });
+  });
+
+  // ------------------------------------------------------------------
   // Attachments
   // ------------------------------------------------------------------
 

@@ -697,6 +697,77 @@ export class ChatNodeComponent {
     }
   }
 
+  /**
+   * Re-generate THIS answer in place: same LLM call / context as regenerate,
+   * but the following text (this node's subtree) is preserved — only this
+   * answer's content is replaced. Works by removing just this node
+   * ({@link ChatService.deleteNode keepChildren}) and re-hanging the
+   * preserved following text under the freshly generated answer.
+   */
+  async regenerateInPlace(): Promise<void> {
+    const node = this.node();
+    if (node.role !== 'assistant' || this.isLoading() || this.chatService.isGenerating(node.id)) {
+      return;
+    }
+
+    const children = this.chatService.getChildren(node.id);
+    if (children.length > 0) {
+      const ok = await this.confirm.ask({
+        title: this.i18n.t('node.regenerateInPlaceTitleAsk'),
+        message: this.i18n.t('node.regenerateInPlaceMsgExtra', { count: children.length }),
+        confirmLabel: this.i18n.t('node.regenerateInPlace'),
+        cancelLabel: this.i18n.t('common.cancel'),
+        danger: true
+      });
+      if (!ok) return;
+    }
+
+    const chatId = this.chatService.currentChatId();
+    if (!chatId) return;
+
+    const question = node.parentId
+      ? this.chatService.nodes().find(n => n.id === node.parentId)
+      : undefined;
+    if (!question || question.role !== 'user') {
+      alert(this.i18n.t('node.regenerateNoParent'));
+      return;
+    }
+
+    const modelId = node.modelId || question.modelId || this.resolvePreferredModelId(question);
+    const model = this.enabledModels().find(m => m.modelId === modelId || m.id === modelId);
+    if (!model) {
+      alert(this.i18n.t('node.modelMissing'));
+      return;
+    }
+
+    const provider = this.settings.providers().find(p => p.id === model.providerId);
+    if (!provider) {
+      alert(this.i18n.t('node.providerMissing'));
+      return;
+    }
+
+    // Following text stays: remember the direct children (roots of the
+    // preserved subtree) so they can be hung under the new answer.
+    const adoptNodeIds = children.map(c => c.id);
+
+    this.isLoading.set(true);
+    this.pendingAction.set('send');
+    try {
+      await this.chatService.deleteNode(chatId, node.id, { keepChildren: true });
+      this.activate.emit(question.id);
+      await this.streamForQuestion(
+        chatId, question, question.parentId, provider, model,
+        adoptNodeIds.length ? { adoptNodeIds } : undefined
+      );
+    } catch (err: any) {
+      console.error(err);
+      alert(this.i18n.t('node.regenerateFailed', { error: err?.message || err }));
+    } finally {
+      this.isLoading.set(false);
+      this.pendingAction.set(null);
+    }
+  }
+
   async deleteNodeOnly(): Promise<void> {
     const node = this.node();
     if (this.isLoading() || this.chatService.isGenerating(node.id)) return;

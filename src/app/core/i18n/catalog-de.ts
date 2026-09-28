@@ -227,6 +227,11 @@ export const DE = {
     regenerating: 'Wird neu erzeugt…',
     regenerateTitle:
       'Diese Antwort und alle Folgetexte löschen und die letzte Benutzeranfrage erneut senden',
+    regenerateInPlace: 'Vor Ort neu schreiben',
+    regenerateInPlaceTitle: 'Nur diese Antwort neu erzeugen – Folgetexte bleiben erhalten',
+    regenerateInPlaceTitleAsk: 'Diese Antwort an Ort und Stelle neu schreiben?',
+    regenerateInPlaceMsgExtra:
+      'Diese Antwort hat {{count}} Folgetexte. Neu schreiben ersetzt nur diese Antwort – die Folgetexte hängen weiterhin am neuen Ergebnis.',
     copy: 'Kopieren',
     copied: 'Kopiert',
     copyTitle: 'In die Zwischenablage kopieren',

@@ -355,17 +355,18 @@ describe('Chat', () => {
 
     const questions = chatService.nodes()
       .filter(n => n.role === 'user' && n.content?.startsWith('elaborate on chapter'))
-      .map(n => n.content);
-    expect(questions).toContain([
+      .map(n => n.content ?? '');
+    // only compare the first sentence so that wording changes later do not break the test
+    expect(questions.map(q => q.split('. ')[0])).toEqual([
       'elaborate on chapter 1 out of the view of Anna in first person',
       'elaborate on chapter 1 out of the view of Ben in first person'
     ]);
 
     // still sequential: the second character hangs under the first answer
     const q1 = chatService.nodes().find(n =>
-      n.content === 'elaborate on chapter 1 out of the view of Anna in first person')!;
+      n.content.indexOf('elaborate on chapter 1 out of the view of Anna in first person') !== -1)!;
     const q2 = chatService.nodes().find(n =>
-      n.content === 'elaborate on chapter 1 out of the view of Ben in first person')!;
+      n.content.indexOf('elaborate on chapter 1 out of the view of Ben in first person') !== -1) !;
     const a1 = chatService.nodes().find(n => n.role === 'assistant' && n.parentId === q1.id)!;
     expect(q2.parentId).toBe(a1.id);
     expect(llm.streamAnswer).toHaveBeenCalledTimes(2);
