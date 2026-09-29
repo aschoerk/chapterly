@@ -55,6 +55,44 @@
   min-width: 0;
 }
 
+/* ---------- Sort controls ---------- */
+.sort-controls {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.sort-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.3rem;
+  padding: 0.3rem 0.55rem;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  background: var(--panel, #fff);
+  color: var(--text, #111827);
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.sort-btn:hover:not(:disabled) {
+  background: #f9fafb;
+}
+
+.sort-btn.active {
+  background: #2563eb;
+  border-color: #2563eb;
+  color: #fff;
+}
+
+.sort-btn svg {
+  display: block;
+}
+
 .current-topic-control .hint {
   color: #6b7280;
   font-size: 0.8rem;
@@ -103,17 +141,18 @@
   color: #111827;
 }
 
-/* Badge shown on the topic card that is currently selected */
+/* Small oval badge shown on the topic card that is currently selected */
 .current-badge {
   position: absolute;
   top: 0.5rem;
   left: 0.5rem;
   background: #2563eb;
   color: white;
-  font-size: 0.7rem;
+  font-size: 0.65rem;
   font-weight: 600;
-  padding: 0.15rem 0.45rem;
-  border-radius: 6px;
+  line-height: 1;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
   z-index: 5;
 }
 
@@ -478,16 +517,4 @@
   .topic-grid {
     grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
   }
-}
-
-.current-badge {
-  position: absolute;
-  bottom: 0.5rem;
-  left: 0.5rem;
-  background: #2563eb;
-  color: white;
-  font-size: 0.7rem;
-  font-weight: 600;
-  padding: 0.15rem 0.45rem;
-  border-radius: 6px;
 }

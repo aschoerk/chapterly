@@ -55,7 +55,18 @@ export class SideBarComponent implements OnInit {
   readonly editName = signal('');
   readonly editSystemPrompt = signal('');
   readonly editDefaultModelId = signal<string | null>(null);
-  readonly sortByNewest = signal(true);
+  // Project list sorting (harmonized with the Topics / Projects pages).
+  readonly sortMode = signal<'alpha' | 'updated'>('alpha');
+  /** true: A→Z, false: Z→A */
+  readonly alphaAsc = signal(true);
+  /** true: most recent first, false: oldest first */
+  readonly updatedDesc = signal(true);
+  /**
+   * The project pinned to the top by the last sort-button press (the "current"
+   * project at that moment). Pinning only happens on an explicit sort action,
+   * not just because a chat got opened.
+   */
+  readonly pinnedProjectId = signal<string | null>(null);
   readonly reassigningChatId = signal<string | null>(null);
   readonly editingChatId = signal<string | null>(null);
   readonly titleDraft = signal('');
@@ -121,18 +132,35 @@ export class SideBarComponent implements OnInit {
       );
     }
 
-    if (this.sortByNewest()) {
-      list = [...list].sort((a, b) => {
-        const ta = new Date(a.updatedAt || a.createdAt).getTime();
-        const tb = new Date(b.updatedAt || b.createdAt).getTime();
-        return tb - ta;
+    // Apply the selected sort mode (same as Topics / Projects pages).
+    list = [...list];
+    if (this.sortMode() === 'alpha') {
+      list.sort((a, b) => {
+        const cmp = a.name.localeCompare(b.name, this.i18n.localeId());
+        return this.alphaAsc() ? cmp : -cmp;
       });
     } else {
-      const loc = this.i18n.localeId();
-      list = [...list].sort((a, b) => a.name.localeCompare(b.name, loc));
+      list.sort((a, b) => this.projectTime(b) - this.projectTime(a));
+      if (!this.updatedDesc()) list.reverse();
     }
 
+    // A project that was pinned by pressing a sort button stays on top.
+    const pinnedId = this.pinnedProjectId();
+    if (pinnedId) {
+      const pinned = list.find(p => p.id === pinnedId);
+      if (pinned) {
+        return [pinned, ...list.filter(p => p.id !== pinnedId)];
+      }
+    }
     return list;
+  });
+
+  /** The project that owns the currently open chat, or null. */
+  readonly currentProjectId = computed<string | null>(() => {
+    const chatId = this.chatService.currentChatId();
+    if (!chatId) return null;
+    const chat = this.chatService.chats().find(c => c.id === chatId);
+    return chat?.projectId || null;
   });
 
   async ngOnInit() {
@@ -173,9 +201,37 @@ export class SideBarComponent implements OnInit {
     this.persistExpanded();
   }
 
-  toggleSortByNewest(event?: Event) {
-    event?.stopPropagation();
-    this.sortByNewest.update(v => !v);
+  toggleSort(mode: 'alpha' | 'updated'): void {
+    // An explicit sort press pins the current (last opened) project to the top.
+    this.pinnedProjectId.set(this.currentProjectId());
+
+    if (this.sortMode() === mode) {
+      if (mode === 'alpha') this.alphaAsc.update(v => !v);
+      else this.updatedDesc.update(v => !v);
+    } else {
+      this.sortMode.set(mode);
+      // First click always starts with the primary direction.
+      if (mode === 'alpha') this.alphaAsc.set(true);
+      else this.updatedDesc.set(true);
+    }
+  }
+
+  alphaLabel(): string {
+    return this.sortMode() === 'alpha' && !this.alphaAsc() ? 'Z–A' : 'A–Z';
+  }
+
+  alphaSortTitleKey(): string {
+    if (this.sortMode() !== 'alpha') return 'sort.alpha';
+    return this.alphaAsc() ? 'sort.alphaAZ' : 'sort.alphaZA';
+  }
+
+  updatedSortTitleKey(): string {
+    if (this.sortMode() !== 'updated') return 'sort.updated';
+    return this.updatedDesc() ? 'sort.updatedNew' : 'sort.updatedOld';
+  }
+
+  private projectTime(p: Project): number {
+    return new Date(p.updatedAt || p.createdAt).getTime() || 0;
   }
 
   editProject(project: Project, event?: Event) {
@@ -369,7 +425,6 @@ export class SideBarComponent implements OnInit {
     const q = this.searchQuery().trim().toLowerCase();
     let chats = this.chatsByProject().get(projectId) || [];
     if (q) chats = chats.filter(c => this.chatMatchesQuery(c, q));
-    if (!this.sortByNewest()) return chats;
     return [...chats].sort((a, b) => {
       const ta = new Date(a.updated_at || a.created_at).getTime();
       const tb = new Date(b.updated_at || b.created_at).getTime();
@@ -416,11 +471,7 @@ export class SideBarComponent implements OnInit {
   }
 
   isCurrentProject(projectId: string | null): boolean {
-    const chatId = this.currentChatId();
-    if (!chatId) return false;
-    const chat = this.chatService.chats().find(c => c.id === chatId);
-    if (!chat) return false;
-    return (chat.projectId || null) === (projectId || null);
+    return this.currentProjectId() === (projectId || null);
   }
 
   getAnswerCount(_chat: Chat): number {

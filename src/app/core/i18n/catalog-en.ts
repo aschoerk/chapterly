@@ -141,8 +141,6 @@ export const EN = {
     searchInContent: 'in text',
     searchInContentHint: 'Also match current section content (SQL LIKE on the server)',
     collapseAll: 'Collapse all environments',
-    sortNewest: 'Sorted by newest – click for A-Z',
-    sortAlpha: 'Sorted A-Z – click for newest first',
     editEnvironment: 'Edit environment',
     newStory: 'New story',
     deleteBook: 'Delete book',

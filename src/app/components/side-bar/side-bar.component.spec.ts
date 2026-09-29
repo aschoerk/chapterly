@@ -149,14 +149,14 @@ describe('SideBarComponent', () => {
       expect(projectBlock('Beta')).not.toBeNull();
     });
 
-    it('sorts projects by newest first by default', async () => {
+    it('sorts projects alphabetically by default', async () => {
       await setup(a => {
         const now = Date.now();
-        a.projects.push(project({ id: 'p-old', name: 'Old', createdAt: new Date(now - 5000).toISOString() }));
-        a.projects.push(project({ id: 'p-new', name: 'New', createdAt: new Date(now).toISOString() }));
+        a.projects.push(project({ id: 'p-z', name: 'Zeta', createdAt: new Date(now).toISOString() }));
+        a.projects.push(project({ id: 'p-a', name: 'Alpha', createdAt: new Date(now - 5000).toISOString() }));
       });
       const names = component.filteredProjects().map(p => p.name);
-      expect(names).toEqual(['New', 'Old']);
+      expect(names).toEqual(['Alpha', 'Zeta']);
     });
 
     it('shows the empty state when there are no projects', async () => {
@@ -465,37 +465,107 @@ describe('SideBarComponent', () => {
   // ------------------------------------------------------------------
 
   describe('sort', () => {
-    it('defaults to newest-first and shows the active class on the sort button', async () => {
+    function alphaBtn(): HTMLButtonElement {
+      const btns = Array.from(
+        fixture.nativeElement.querySelectorAll('.sidebar-search .sort-btn') as NodeListOf<HTMLButtonElement>
+      );
+      // The alphabetical button is the text-only one (no svg icon); its label
+      // flips between A–Z and Z–A depending on the direction.
+      return btns.find(b => !b.querySelector('svg'))!;
+    }
+
+    function updatedBtn(): HTMLButtonElement {
+      const btns = Array.from(
+        fixture.nativeElement.querySelectorAll('.sidebar-search .sort-btn') as NodeListOf<HTMLButtonElement>
+      );
+      return btns.find(b => !!b.querySelector('svg'))!;
+    }
+
+    it('defaults to A–Z and highlights the alphabetical sort button', async () => {
       await setup(a => {
         a.projects.push(project({ id: 'p-1' }));
       });
-      expect(component.sortByNewest()).toBe(true);
-      const sortBtn = fixture.nativeElement.querySelector('.sidebar-search button:not(.collapse-all-btn)') as HTMLButtonElement;
-      expect(sortBtn.classList.contains('active')).toBe(true);
-      expect(sortBtn.title).toBe(i18n.t('sidebar.sortNewest'));
+      expect(component.sortMode()).toBe('alpha');
+      expect(component.alphaAsc()).toBe(true);
+      const btn = alphaBtn();
+      expect(btn.classList.contains('active')).toBe(true);
+      expect(btn.title).toBe(i18n.t('sort.alphaAZ'));
     });
 
-    it('toggles to alphabetical order on click', async () => {
+    it('toggles the alphabetical direction (A-Z → Z-A) on click', async () => {
       await setup(a => {
-        const now = Date.now();
-        a.projects.push(project({ id: 'p-old', name: 'Zeta', createdAt: new Date(now - 9000).toISOString() }));
-        a.projects.push(project({ id: 'p-new', name: 'Alpha', createdAt: new Date(now).toISOString() }));
-        a.chats.push(chat({ id: 'c1', title: 'First', projectId: 'p-old', created_at: new Date(now - 5000).toISOString() }));
-        a.chats.push(chat({ id: 'c2', title: 'Second', projectId: 'p-new', created_at: new Date(now).toISOString() }));
+        a.projects.push(project({ id: 'p-z', name: 'Zeta' }));
+        a.projects.push(project({ id: 'p-a', name: 'Alpha' }));
       });
       expect(component.filteredProjects().map(p => p.name)).toEqual(['Alpha', 'Zeta']);
 
-      const sortBtn = fixture.nativeElement.querySelector('.sidebar-search button:not(.collapse-all-btn)') as HTMLButtonElement;
-      sortBtn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      alphaBtn().dispatchEvent(new MouseEvent('click', { bubbles: true }));
       await settle();
 
-      expect(component.sortByNewest()).toBe(false);
+      expect(component.alphaAsc()).toBe(false);
+      expect(component.filteredProjects().map(p => p.name)).toEqual(['Zeta', 'Alpha']);
+      expect(alphaBtn().title).toBe(i18n.t('sort.alphaZA'));
+
+      // Clicking again restores A–Z.
+      alphaBtn().dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await settle();
       expect(component.filteredProjects().map(p => p.name)).toEqual(['Alpha', 'Zeta']);
-      expect(sortBtn.classList.contains('active')).toBe(false);
-      expect(sortBtn.title).toBe(i18n.t('sidebar.sortAlpha'));
     });
 
-    it('sorts chats by newest first when newest mode is on', async () => {
+    it('switches to last-update sorting and toggles newest/oldest', async () => {
+      await setup(a => {
+        const now = Date.now();
+        a.projects.push(project({ id: 'p-old', name: 'Alpha', createdAt: new Date(now - 9000).toISOString() }));
+        a.projects.push(project({ id: 'p-new', name: 'Zeta', createdAt: new Date(now).toISOString() }));
+      });
+
+      updatedBtn().dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await settle();
+      expect(component.sortMode()).toBe('updated');
+      expect(component.filteredProjects().map(p => p.name)).toEqual(['Zeta', 'Alpha']);
+      expect(updatedBtn().classList.contains('active')).toBe(true);
+      expect(updatedBtn().title).toBe(i18n.t('sort.updatedNew'));
+
+      updatedBtn().dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await settle();
+      expect(component.updatedDesc()).toBe(false);
+      expect(component.filteredProjects().map(p => p.name)).toEqual(['Alpha', 'Zeta']);
+      expect(updatedBtn().title).toBe(i18n.t('sort.updatedOld'));
+    });
+
+    it('keeps sort order when a chat is merely opened (no pin)', async () => {
+      await setup(a => {
+        a.projects.push(project({ id: 'p-1', name: 'Alpha' }));
+        a.projects.push(project({ id: 'p-2', name: 'Zeta' }));
+        a.chats.push(chat({ id: 'c1', title: 'Story', projectId: 'p-2' }));
+      });
+      await chatService.selectChat('c1');
+      await settle();
+      // Opening a chat must not reorder the list.
+      expect(component.filteredProjects().map(p => p.id)).toEqual(['p-1', 'p-2']);
+    });
+
+    it('pins the current project to the top when a sort button is pressed', async () => {
+      await setup(a => {
+        a.projects.push(project({ id: 'p-1', name: 'Alpha' }));
+        a.projects.push(project({ id: 'p-2', name: 'Zeta' }));
+        a.chats.push(chat({ id: 'c1', title: 'Story', projectId: 'p-2' }));
+      });
+      await chatService.selectChat('c1');
+      await settle();
+
+      // Press a sort button twice so the direction returns to A–Z but the
+      // pin is still applied.
+      alphaBtn().dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await settle();
+      alphaBtn().dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await settle();
+
+      expect(component.pinnedProjectId()).toBe('p-2');
+      expect(component.filteredProjects().map(p => p.id)).toEqual(['p-2', 'p-1']);
+    });
+
+    it('sorts chats by newest first within a project', async () => {
       await setup(a => {
         a.projects.push(project({ id: 'p-1' }));
         a.chats.push(chat({ id: 'c1', title: 'Old', projectId: 'p-1', updated_at: '2020-01-01T00:00:00Z' }));

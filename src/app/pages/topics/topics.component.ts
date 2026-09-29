@@ -72,15 +72,80 @@ export class TopicsComponent implements OnInit {
 
   readonly filteredTopics = computed(() => {
     const term = this.searchTerm().toLowerCase().trim();
-    const list = this.topics();
-    if (!term) return list;
-    return list.filter(
-      t =>
-        t.name.toLowerCase().includes(term) ||
-        (t.description || '').toLowerCase().includes(term) ||
-        (t.defaultSystemPrompt || '').toLowerCase().includes(term)
-    );
+    let list = this.topics();
+    if (term) {
+      list = list.filter(
+        t =>
+          t.name.toLowerCase().includes(term) ||
+          (t.description || '').toLowerCase().includes(term) ||
+          (t.defaultSystemPrompt || '').toLowerCase().includes(term)
+      );
+    }
+    return this.applyTopicSort(list);
   });
+
+  // ------------------------------------------------------------
+  // Topic list sorting
+  // ------------------------------------------------------------
+  readonly sortMode = signal<'alpha' | 'updated'>('alpha');
+  /** true: A→Z, false: Z→A */
+  readonly alphaAsc = signal(true);
+  /** true: most recent first, false: oldest first */
+  readonly updatedDesc = signal(true);
+
+  toggleSort(mode: 'alpha' | 'updated'): void {
+    if (this.sortMode() === mode) {
+      if (mode === 'alpha') this.alphaAsc.update(v => !v);
+      else this.updatedDesc.update(v => !v);
+    } else {
+      this.sortMode.set(mode);
+      // First click always starts with the primary direction.
+      if (mode === 'alpha') this.alphaAsc.set(true);
+      else this.updatedDesc.set(true);
+    }
+  }
+
+  alphaLabel(): string {
+    return this.sortMode() === 'alpha' && !this.alphaAsc() ? 'Z–A' : 'A–Z';
+  }
+
+  alphaSortTitleKey(): string {
+    if (this.sortMode() !== 'alpha') return 'sort.alpha';
+    return this.alphaAsc() ? 'sort.alphaAZ' : 'sort.alphaZA';
+  }
+
+  updatedSortTitleKey(): string {
+    if (this.sortMode() !== 'updated') return 'sort.updated';
+    return this.updatedDesc() ? 'sort.updatedNew' : 'sort.updatedOld';
+  }
+
+  private topicTime(t: Topic): number {
+    return new Date(t.updatedAt || t.createdAt).getTime() || 0;
+  }
+
+  /** Sort by the active mode, then always keep the current topic first. */
+  private applyTopicSort(list: Topic[]): Topic[] {
+    list = [...list];
+    if (this.sortMode() === 'alpha') {
+      list.sort((a, b) => {
+        const cmp = a.name.localeCompare(b.name, this.i18n.localeId());
+        return this.alphaAsc() ? cmp : -cmp;
+      });
+    } else {
+      list.sort((a, b) => this.topicTime(b) - this.topicTime(a));
+      if (!this.updatedDesc()) list.reverse();
+    }
+
+    // The current topic always stays first.
+    const currentId = this.selectedTopicId();
+    if (currentId && currentId !== 'all' && currentId !== 'unassigned') {
+      const current = list.find(t => t.id === currentId);
+      if (current) {
+        return [current, ...list.filter(t => t.id !== currentId)];
+      }
+    }
+    return list;
+  }
 
   /** The topic currently selected as "current topic", or null if "all". */
   readonly currentTopic = computed<Topic | null>(() => {

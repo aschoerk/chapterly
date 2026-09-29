@@ -6,8 +6,6 @@ export const DE_WORK = {
     editTopic: 'Aktuelles Thema bearbeiten',
     filterPh: 'Umgebungen & Geschichten filtern…',
     collapseAll: 'Alle Umgebungen einklappen',
-    sortNewest: 'Nach Neueste sortiert – klicken für A–Z',
-    sortAlpha: 'A–Z sortiert – klicken für neueste zuerst',
     editEnvironment: 'Umgebung bearbeiten',
     newStory: 'Neue Geschichte',
     deleteBook: 'Buch löschen',

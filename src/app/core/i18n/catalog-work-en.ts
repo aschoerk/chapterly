@@ -6,8 +6,6 @@ export const EN_WORK = {
     editTopic: 'Edit current topic',
     filterPh: 'Filter environments & stories…',
     collapseAll: 'Collapse all environments',
-    sortNewest: 'Sorted by newest – click for A-Z',
-    sortAlpha: 'Sorted A-Z – click for newest first',
     editEnvironment: 'Edit environment',
     newStory: 'New story',
     deleteBook: 'Delete book',

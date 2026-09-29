@@ -65,6 +65,7 @@ export const EN_PAGES = {
     unfiledEnvironments: 'Unfiled environments',
     newEnvironment: '+ New environment',
     noTopic: 'No topic',
+    current: 'Current',
     removeFromTopic: 'Remove from this topic',
     addToTopic: 'Add environment to topic…',
     emptyUnassigned: 'All environments are assigned to at least one topic.',
@@ -113,6 +114,14 @@ export const EN_PAGES = {
     deleteTopicFailed: 'Could not delete topic: {{error}}',
     addFailed: 'Could not add environment to topic',
     removeFailed: 'Could not remove environment from topic',
+  },
+  sort: {
+    alpha: 'Sort A–Z',
+    alphaAZ: 'Sorted A–Z – click for Z–A',
+    alphaZA: 'Sorted Z–A – click for A–Z',
+    updated: 'Sort by last update',
+    updatedNew: 'Most recent first – click for oldest first',
+    updatedOld: 'Oldest first – click for most recent first',
   },
   import: {
     export: 'Export',

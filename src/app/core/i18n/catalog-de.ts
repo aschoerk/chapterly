@@ -142,8 +142,6 @@ export const DE = {
     searchInContent: 'im Text',
     searchInContentHint: 'Auch aktuellen Abschnittsinhalt durchsuchen (SQL LIKE auf dem Server)',
     collapseAll: 'Alle Umgebungen einklappen',
-    sortNewest: 'Nach Neueste sortiert – klicken für A–Z',
-    sortAlpha: 'A–Z sortiert – klicken für neueste zuerst',
     editEnvironment: 'Umgebung bearbeiten',
     newStory: 'Neue Story',
     deleteBook: 'Buch löschen',

@@ -349,6 +349,52 @@
   font-size: 0.85rem;
 }
 
+/* ---------- Sort controls (harmonized with Topics / Projects pages) ---------- */
+.sort-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin-left: auto;
+}
+
+.sort-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.3rem;
+  padding: 0.3rem 0.5rem;
+  border: 1px solid var(--color-input-border, var(--border));
+  border-radius: 7px;
+  background: var(--panel, var(--bg-input));
+  color: var(--text, #111827);
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.sort-btn:hover:not(:disabled) {
+  background: var(--bg-hover, #f9fafb);
+}
+
+.sort-btn.active {
+  background: #2563eb;
+  border-color: #2563eb;
+  color: #fff;
+}
+
+.sort-btn svg {
+  display: block;
+}
+
+@media (hover: none) {
+  .sort-btn:active {
+    background: #2563eb;
+    border-color: #2563eb;
+    color: #fff;
+  }
+}
+
 
 .item-count {
   flex: 0 0 var(--count-width, 3ch);

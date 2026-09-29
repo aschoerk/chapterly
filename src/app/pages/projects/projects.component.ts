@@ -463,10 +463,56 @@ export class ProjectsComponent implements OnInit {
     return isImageRef(icon);
   }
 
-  /** Topics sorted alphabetically */
-  readonly sortedTopics = computed(() =>
-    [...this.topics()].sort((a, b) => a.name.localeCompare(b.name, this.i18n.localeId()))
-  );
+  /** Topics sorted alphabetically, with the current topic pinned to the front */
+  readonly sortedTopics = computed(() => {
+    const sorted = [...this.topics()].sort((a, b) =>
+      a.name.localeCompare(b.name, this.i18n.localeId())
+    );
+    const currentId = this.selectedTopicId();
+    if (!currentId || currentId === 'all' || currentId === 'unassigned') return sorted;
+    const current = sorted.find(t => t.id === currentId);
+    if (!current) return sorted;
+    return [current, ...sorted.filter(t => t.id !== currentId)];
+  });
+
+  // ------------------------------------------------------------
+  // Project list sorting
+  // ------------------------------------------------------------
+  readonly sortMode = signal<'alpha' | 'updated'>('alpha');
+  /** true: A→Z, false: Z→A */
+  readonly alphaAsc = signal(true);
+  /** true: most recent first, false: oldest first */
+  readonly updatedDesc = signal(true);
+
+  toggleSort(mode: 'alpha' | 'updated'): void {
+    if (this.sortMode() === mode) {
+      if (mode === 'alpha') this.alphaAsc.update(v => !v);
+      else this.updatedDesc.update(v => !v);
+    } else {
+      this.sortMode.set(mode);
+      // First click always starts with the primary direction.
+      if (mode === 'alpha') this.alphaAsc.set(true);
+      else this.updatedDesc.set(true);
+    }
+  }
+
+  alphaLabel(): string {
+    return this.sortMode() === 'alpha' && !this.alphaAsc() ? 'Z–A' : 'A–Z';
+  }
+
+  alphaSortTitleKey(): string {
+    if (this.sortMode() !== 'alpha') return 'sort.alpha';
+    return this.alphaAsc() ? 'sort.alphaAZ' : 'sort.alphaZA';
+  }
+
+  updatedSortTitleKey(): string {
+    if (this.sortMode() !== 'updated') return 'sort.updated';
+    return this.updatedDesc() ? 'sort.updatedNew' : 'sort.updatedOld';
+  }
+
+  private projectTime(p: Project): number {
+    return new Date(p.updatedAt || p.createdAt).getTime() || 0;
+  }
 
 
   /** Projects visible on the right side according to the current filter */
@@ -474,22 +520,55 @@ export class ProjectsComponent implements OnInit {
     const all = this.projects();
     const sel = this.selectedTopicId();
 
-    if (sel === 'all') return all;
-
-    if (sel === 'unassigned') {
+    let list: Project[];
+    if (sel === 'all') {
+      list = all;
+    } else if (sel === 'unassigned') {
       // projects that appear in zero topics
       const assignedIds = new Set(
         this.topics().flatMap(t => t.projectIds)
       );
-      return all.filter(p => !assignedIds.has(p.id));
+      list = all.filter(p => !assignedIds.has(p.id));
+    } else {
+      // concrete topic
+      const topic = this.topics().find(t => t.id === sel);
+      list = topic ? all.filter(p => new Set(topic.projectIds).has(p.id)) : [];
     }
 
-    // concrete topic
-    const topic = this.topics().find(t => t.id === sel);
-    if (!topic) return [];
-    const idSet = new Set(topic.projectIds);
-    return all.filter(p => idSet.has(p.id));
+    // Apply the selected sort mode to the filtered list.
+    list = [...list];
+    if (this.sortMode() === 'alpha') {
+      list.sort((a, b) => {
+        const cmp = a.name.localeCompare(b.name, this.i18n.localeId());
+        return this.alphaAsc() ? cmp : -cmp;
+      });
+    } else {
+      list.sort((a, b) => this.projectTime(b) - this.projectTime(a));
+      if (!this.updatedDesc()) list.reverse();
+    }
+
+    // Put the project of the currently open chat first (stable order for the rest).
+    const currentId = this.currentProjectId();
+    if (currentId) {
+      const current = list.find(p => p.id === currentId);
+      if (current) {
+        return [current, ...list.filter(p => p.id !== currentId)];
+      }
+    }
+    return list;
   });
+
+  /** The project that owns the currently open chat, or null. */
+  readonly currentProjectId = computed<string | null>(() => {
+    const chatId = this.chatService.currentChatId();
+    if (!chatId) return null;
+    const chat = this.chatService.chats().find(c => c.id === chatId);
+    return chat?.projectId || null;
+  });
+
+  isCurrentProject(project: Project): boolean {
+    return this.currentProjectId() === project.id;
+  }
 
 // ============================================================
 // Open / Close

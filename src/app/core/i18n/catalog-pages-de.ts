@@ -66,6 +66,7 @@ export const DE_PAGES = {
     unfiledEnvironments: 'Unzugeordnete Umgebungen',
     newEnvironment: '+ Neue Umgebung',
     noTopic: 'Kein Thema',
+    current: 'Aktuell',
     removeFromTopic: 'Aus diesem Thema entfernen',
     addToTopic: 'Umgebung zu Thema hinzufügen…',
     emptyUnassigned: 'Alle Umgebungen sind mindestens einem Thema zugeordnet.',
@@ -114,6 +115,14 @@ export const DE_PAGES = {
     deleteTopicFailed: 'Thema konnte nicht gelöscht werden: {{error}}',
     addFailed: 'Umgebung konnte dem Thema nicht hinzugefügt werden',
     removeFailed: 'Umgebung konnte nicht aus dem Thema entfernt werden',
+  },
+  sort: {
+    alpha: 'Sortieren A–Z',
+    alphaAZ: 'Sortiert A–Z – klicken für Z–A',
+    alphaZA: 'Sortiert Z–A – klicken für A–Z',
+    updated: 'Nach letzter Änderung sortieren',
+    updatedNew: 'Neueste zuerst – klicken für älteste zuerst',
+    updatedOld: 'Älteste zuerst – klicken für neueste zuerst',
   },
   import: {
     export: 'Export',
