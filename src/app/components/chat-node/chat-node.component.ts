@@ -18,8 +18,10 @@ import {
   resolvedMime,
   nodeToMessageContent,
   imagePartToAttachment,
+  textPromptAttachment,
   type MessagePart
 } from '../../core/llm/llm-message';
+import { GenerateImagesResult, GeneratedImageScene } from '../../core/llm/llm.service';
 import { formatParametersSummary } from '../../models/chat-parameters';
 import {ProjectService} from '../../core/project.service';
 import { I18nService } from '../../core/i18n/i18n.service';
@@ -27,6 +29,9 @@ import { newId } from '../../core/common/helpers';
 import { GenerationSettingsService } from '../../core/generation-settings.service';
 import { GenerationTaskKind } from '../../models/generation-task';
 import { ModelEntry, canInterpretImages, canGenerateImages } from '../../models/chat-config';
+import { IllustrateDialogService } from '../../core/illustrate-dialog.service';
+import { IllustrateOptions } from '../../models/illustrate-options';
+import { LightboxService } from '../../core/lightbox.service';
 
 @Component({
   selector: 'app-chat-node',
@@ -43,6 +48,8 @@ export class ChatNodeComponent {
   readonly llmService = inject(LlmService);
   private readonly parameters = inject(ChatParametersService);
   private readonly generation = inject(GenerationSettingsService);
+  private readonly illustrateDialog = inject(IllustrateDialogService);
+  private readonly lightbox = inject(LightboxService);
 
   private readonly confirm = inject(ConfirmService);
   readonly i18n = inject(I18nService);
@@ -534,21 +541,111 @@ export class ChatNodeComponent {
     if (n.role === 'assistant') return !!n.content?.trim();
     if (n.role === 'user') {
       return !!n.content?.trim()
-        && this.chatService.getChildren(n.id).some(c => c.role === 'assistant' && c.isCurrent);
+        && this.hasCurrentChapter(n);
     }
     return false;
+  }
+
+  /** True while editing a direction that has a draft and a chapter to attach to. */
+  canIllustrateDraft(): boolean {
+    const n = this.node();
+    return n.role === 'user'
+      && !!this.contentDraft().trim()
+      && this.hasCurrentChapter(n);
+  }
+
+  /** Progress of a storyboard run (done/total), set while `pendingAction === 'image'`. */
+  readonly imageProgress = signal<{ done: number; total: number } | null>(null);
+
+  /** Button label while generating — "Creating…" or "Creating 3/12…" in storyboard mode. */
+  imageProgressLabel(): string {
+    const p = this.imageProgress();
+    return p && p.total > 1
+      ? this.i18n.t('node.generatingImageCount', { done: p.done, total: p.total })
+      : this.i18n.t('node.generatingImage');
+  }
+
+  /**
+   * Build the attachments to persist for an image-generation result.
+   *
+   * For every scene it keeps a text attachment with the exact prompt that was
+   * sent:
+   * - successful scene → `prompt-N.txt` next to the `illustration-N.*` image(s);
+   * - refused / empty scene → `refused-prompt-N.txt` (with the model's reply,
+   *   e.g. the refusal text), so the prompt of a refused picture stays findable.
+   */
+  private buildIllustrationAttachments(
+    result: GenerateImagesResult,
+    fallbackPrompt: string
+  ): NodeAttachment[] {
+    const scenes: GeneratedImageScene[] = Array.isArray(result.scenes) && result.scenes.length > 0
+      ? result.scenes
+      : [{
+          scene: 1,
+          prompt: fallbackPrompt,
+          images: result.images,
+          refused: result.images.length === 0,
+          ...(result.content ? { content: result.content } : {})
+        }];
+
+    const out: NodeAttachment[] = [];
+    let imageIndex = 0;
+    for (const scene of scenes) {
+      const prompt = (scene.prompt || '').trim() || fallbackPrompt;
+      for (const img of scene.images ?? []) {
+        out.push(imagePartToAttachment(img, imageIndex));
+        imageIndex += 1;
+      }
+      if (!prompt) continue;
+
+      if (scene.refused) {
+        const reply = (scene.content || '').trim();
+        out.push(textPromptAttachment(
+          `refused-prompt-${scene.scene}.txt`,
+          [
+            'Prompt used:',
+            prompt,
+            '',
+            reply ? `Model reply:\n${reply}` : 'Model reply: (none — image was not created)'
+          ].join('\n')
+        ));
+      } else {
+        out.push(textPromptAttachment(`prompt-${scene.scene}.txt`, prompt));
+      }
+    }
+    return out;
+  }
+
+  private hasCurrentChapter(n: ChatNode): boolean {
+    return this.chatService.getChildren(n.id).some(c => c.role === 'assistant' && c.isCurrent);
+  }
+
+  /**
+   * Generate a picture from the direction text being edited in the composer.
+   * Uses the current draft (not yet saved) as the prompt, so you can tweak the
+   * direction and immediately preview it as an illustration.
+   */
+  async illustrateWithDraft(): Promise<void> {
+    const text = this.contentDraft().trim();
+    if (!text) return;
+    await this.illustrate(text);
   }
 
   /**
    * Generate one or more pictures for the current beat with the configured
    * "image-create" generation task model (fallback: any enabled model that
-   * can generate images). The prompt is grounded in the active path up to
-   * this point, so earlier chapters stay established context; on a direction
-   * node the direction text is the scene to depict. Prior illustrations are
-   * forwarded as visual reference when the chosen model can also read images.
-   * The result is attached to the chapter node.
+   * can generate images). Opens the Illustrate dialog first to collect how
+   * many scenes, the style, and (for word: >1 scenes) a storyboard prompt.
+   * The prompt is grounded in the active path up to this point, so earlier
+   * chapters stay established context; on a direction node the direction text
+   * is the scene to depict. Prior illustrations are forwarded as visual
+   * reference when the chosen model can also read images. The result is
+   * attached to the chapter node.
+   *
+   * @param promptOverride when given (e.g. an edited direction draft),
+   *   use it as the scene description instead of the node's saved content.
    */
-  async illustrate(): Promise<void> {
+  async illustrate(promptOverride?: string | null): Promise<void> {
     const node = this.node();
     if (node.role !== 'user' && node.role !== 'assistant') return;
     if (this.isLoading() || this.chatService.isGenerating(node.id)) return;
@@ -561,7 +658,7 @@ export class ChatNodeComponent {
     let contextParentId: string | null;
     if (node.role === 'assistant') {
       chapter = node;
-      anchorText = node.content ?? '';
+      anchorText = promptOverride ?? node.content ?? '';
       contextParentId = node.parentId; // the direction (and everything before) is context
     } else {
       const answers = this.chatService.getChildren(node.id)
@@ -573,7 +670,7 @@ export class ChatNodeComponent {
         return;
       }
       chapter = candidate;
-      anchorText = node.content ?? '';
+      anchorText = promptOverride ?? node.content ?? '';
       contextParentId = node.parentId; // previous chapters only; the direction is added below
     }
 
@@ -593,16 +690,25 @@ export class ChatNodeComponent {
       return;
     }
 
+    // Ask the user how many scenes, in which style, and the storyboard prompt.
+    const options = await this.illustrateDialog.open();
+    if (!options) return; // cancelled
+    const { count, style, storyboardPrompt } = options;
+
     this.isLoading.set(true);
     this.pendingAction.set('image');
+    this.imageProgress.set(null);
     try {
       // Ground the picture in the previous content along the active path.
       const contextMessages = this.buildContextMessagesUpTo(contextParentId);
       const messages: ChatMessage[] = this.textOnlyMessages(contextMessages);
       const instruction = this.generation.get('image-create').prompt.trim()
         || this.defaultImagePrompt();
+      const styledInstruction = style
+        ? `${instruction}\n\nStyle: ${style}`
+        : instruction;
 
-      const anchor = `${instruction}\n\n` +
+      const anchor = `${styledInstruction}\n\n` +
         this.i18n.t('node.imageAnchor', {
           role: this.i18n.t(node.role === 'user' ? 'node.roleUser' : 'node.roleAssistant')
         }) + `:\n${anchorText.trim() ? anchorText.trim() : '(no text)'}`;
@@ -622,11 +728,22 @@ export class ChatNodeComponent {
         messages.push({ role: 'user', content: anchor });
       }
 
-      const result = await this.llmService.generateImage(provider, model, messages);
-      const attachments = result.images.map((part, i) => ({
-        ...imagePartToAttachment(part, i),
-        id: newId()
-      }));
+      const result = await this.llmService.generateImage(
+        provider, model, messages, undefined,
+        {
+          count,
+          storyboardPrompt: count > 1 ? storyboardPrompt : undefined,
+          onProgress: (done, total) => this.imageProgress.set({ done, total })
+        }
+      );
+
+      // Store, for every scene, a text attachment with the exact prompt used:
+      // a `prompt-N.txt` next to each generated illustration, and a
+      // `refused-prompt-N.txt` for scenes that were refused — so the prompt
+      // behind every image (or every failed attempt) stays findable.
+      const attachments = this.buildIllustrationAttachments(result, anchor)
+        .map(a => ({ ...a, id: a.id || newId() }));
+
       if (attachments.length === 0) {
         // Surface what the model actually replied so a "no picture" case can
         // be diagnosed (e.g. a model that only describes the image, or a URL
@@ -648,12 +765,30 @@ export class ChatNodeComponent {
         chapter.thinking ?? undefined
       );
       this.activate.emit(saved.id);
+
+      const imageCount = result.images.length;
+      if (imageCount === 0) {
+        // Everything was refused — the refused-prompt attachments were saved
+        // above so the prompts stay findable; still inform the user.
+        const reply = (result.content || '').trim();
+        alert(reply
+          ? `${this.i18n.t('node.imageEmpty')} — ${reply.slice(0, 300)}`
+          : this.i18n.t('node.imageEmpty'));
+      } else if (count > 1 && imageCount < count) {
+        // Storyboard partially completed — keep what was generated, tell the
+        // user how many scenes came back.
+        alert(this.i18n.t('node.imagePartial', {
+          got: imageCount,
+          want: count
+        }));
+      }
     } catch (err: any) {
       console.error(err);
       alert(this.i18n.t('node.imageFailed', { error: err?.message || err }));
     } finally {
       this.isLoading.set(false);
       this.pendingAction.set(null);
+      this.imageProgress.set(null);
     }
   }
 
@@ -1506,7 +1641,14 @@ No text before or after the JSON, no markdown fences.`;
   }
 
   openImage(dataUrl: string) {
-    window.open(dataUrl, '_blank');
+    // Open in the in-app lightbox instead of `window.open(dataUrl,'_blank')`:
+    // Chromium (Chrome + Electron) blocks top-level navigation to data: URLs,
+    // which is why a plain window.open only worked in Firefox.
+    const urls = (this.node().attachments || [])
+      .filter(a => isImageMime(resolvedMime(a)) && /^(data:|https?:\/\/)/i.test(a.dataUrl || ''))
+      .map(a => a.dataUrl);
+    const start = urls.indexOf(dataUrl);
+    this.lightbox.open(urls, start >= 0 ? start : 0);
   }
 
   hasUnsavedChanges(): boolean {

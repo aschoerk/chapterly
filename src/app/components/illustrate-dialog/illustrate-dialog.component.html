@@ -1,0 +1,61 @@
+@if (dialog.current(); as d) {
+  <div
+    class="illustrate-backdrop"
+    (click)="onBackdrop($event)"
+    (keydown)="onKey($event)"
+    tabindex="0"
+  >
+    <div
+      class="illustrate-dialog"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="illustrate-title"
+      (click)="$event.stopPropagation()"
+    >
+      <h3 id="illustrate-title">{{ i18n.t('illustrateDialog.title') }}</h3>
+
+      <label class="ill-field">
+        <span>{{ i18n.t('illustrateDialog.countLabel') }}</span>
+        <input
+          type="number"
+          [min]="1"
+          [max]="64"
+          [ngModel]="count()"
+          (ngModelChange)="onCountInput($event)"
+        />
+        <small class="ill-hint">{{ i18n.t('illustrateDialog.countHint') }}</small>
+      </label>
+
+      <label class="ill-field">
+        <span>{{ i18n.t('illustrateDialog.styleLabel') }}</span>
+        <input
+          type="text"
+          [ngModel]="style()"
+          (ngModelChange)="style.set($event)"
+          [placeholder]="i18n.t('illustrateDialog.stylePh')"
+        />
+      </label>
+
+      @if (showStoryboard()) {
+        <label class="ill-field">
+          <span>{{ i18n.t('illustrateDialog.storyPromptLabel') }}</span>
+          <textarea
+            rows="3"
+            [ngModel]="storyboardPrompt()"
+            (ngModelChange)="storyboardPrompt.set($event)"
+            [placeholder]="i18n.t('illustrateDialog.storyPromptPh')"
+          ></textarea>
+        </label>
+      }
+
+      <div class="illustrate-actions">
+        <button class="btn" type="button" (click)="dialog.cancel()">
+          {{ i18n.t('common.cancel') }}
+        </button>
+        <button class="btn primary" type="button" (click)="submit()">
+          {{ i18n.t('illustrateDialog.confirm') }}
+        </button>
+      </div>
+    </div>
+  </div>
+}

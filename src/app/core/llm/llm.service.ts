@@ -16,6 +16,31 @@ import { ProjectService } from '../project.service';
 
 export type { LlmChunk };
 
+/**
+ * Per-scene result of an image-generation call. `prompt` is the exact text
+ * that was sent for that scene, so it can be stored next to the produced
+ * image — and preserved for refused/empty scenes too.
+ */
+export interface GeneratedImageScene {
+  /** 1-based scene number (used for the companion prompt file name). */
+  scene: number;
+  /** The exact prompt text sent for this scene. */
+  prompt: string;
+  /** Images produced by this scene (empty when refused/errored). */
+  images: LlmImagePart[];
+  /** Text reply (e.g. a refusal) when no image came back. */
+  content?: string;
+  /** True when this scene produced no image. */
+  refused: boolean;
+}
+
+/** Result of `LlmService.generateImage` (flat convenience + per-scene detail). */
+export interface GenerateImagesResult {
+  content: string;
+  images: LlmImagePart[];
+  scenes: GeneratedImageScene[];
+}
+
 @Injectable({ providedIn: 'root' })
 export class LlmService {
   private readonly chatService = inject(ChatService);
@@ -126,15 +151,35 @@ export class LlmService {
   /**
    * Generate one or more pictures with an image-output model (text → image).
    * The request goes through the normal /chat/completions proxy so previous
-   * chat chapters can be sent as context. Extracts the text reply plus any
-   * image parts the model returned.
+   * chat chapters can be sent as context.
+   *
+   * `count` > 1 switches to "storyboard" mode: the model is called per scene
+   * (each call gets a distinct-scene instruction plus the shared style/context
+   * messages and the optional `storyboardPrompt`) until `count` images have
+   * been collected. Some providers return several image parts in a single
+   * completion, in which case we stop early.
+   *
+   * Each attempted scene is returned in `scenes` with the EXACT prompt that
+   * was sent for it, the images it produced (possibly empty), and whether it
+   * was refused — so the caller can attach the prompt next to each image and
+   * preserve the prompt of refused images too.
+   *
+   * Partial results: if the last scene(s) fail after at least one image was
+   * produced, the collected images are returned (the caller decides how to
+   * surface that). If nothing was produced the error is rethrown.
    */
   async generateImage(
     provider: { baseUrl: string; apiKey: string },
     model: ModelEntry,
     messages: ChatMessage[],
-    signal?: AbortSignal
-  ): Promise<{ content: string; images: LlmImagePart[] }> {
+    signal?: AbortSignal,
+    opts?: {
+      count?: number;
+      /** Extra instruction appended in storyboard mode (count>1). */
+      storyboardPrompt?: string;
+      onProgress?: (done: number, total: number) => void;
+    }
+  ): Promise<GenerateImagesResult> {
     const resolved = await this.resolveForCurrentChat(model);
     const extras = this.toLlmExtras(resolved);
     // Image generation is always a single non-streaming completion.
@@ -155,66 +200,140 @@ export class LlmService {
     // receive a modalities field it does not understand.
     const wantsModalities = canGenerateImages(model);
 
-    // A provider that hangs must never leave the "Illustrate" button stuck in
-    // "Creating…" — combine the optional caller signal with a hard timeout.
-    const TIMEOUT_MS = 180_000;
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
-    const forwardAbort = (): void => controller.abort();
-    if (signal) {
-      if (signal.aborted) controller.abort();
-      else signal.addEventListener('abort', forwardAbort, { once: true });
-    }
-
-    const call = (withModalities: boolean): Promise<unknown> => {
-      if (withModalities) extras['modalities'] = ['text', 'image'];
-      else delete extras['modalities'];
-      return this.askLlmJson(
-        provider.baseUrl,
-        provider.apiKey,
-        model.modelId,
-        messages,
-        controller.signal,
-        extras
-      );
-    };
-
-    let json: unknown;
-    try {
-      json = await call(wantsModalities);
-    } catch (err: any) {
-      const msg = String(err?.message ?? err);
-      if (controller.signal.aborted) {
-        throw new Error(`Image generation timed out after ${TIMEOUT_MS / 1000}s`);
-      }
-      // Some providers reject the modalities field with a 400. When that is
-      // the cause, retry once without it instead of failing the whole action.
-      const unsupportedModalities = /modalities/i.test(msg) &&
-        /unsupported|invalid|parameter|recognized|unknown/i.test(msg);
-      if (unsupportedModalities && extras['modalities']) {
-        json = await call(false);
-      } else {
+    /** One completion attempt (with modalities + graceful fallback). */
+    const callOnce = async (msgs: ChatMessage[], signal_: AbortSignal): Promise<unknown> => {
+      try {
+        return await this.askLlmJson(
+          provider.baseUrl,
+          provider.apiKey,
+          model.modelId,
+          msgs,
+          signal_,
+          wantsModalities
+            ? { ...extras, modalities: ['text', 'image'] }
+            : extras
+        );
+      } catch (err: any) {
+        const msg = String(err?.message ?? err);
+        // Some providers reject the modalities field with a 400. When that is
+        // the cause, retry once without it instead of failing the whole action.
+        const unsupportedModalities = /modalities/i.test(msg) &&
+          /unsupported|invalid|parameter|recognized|unknown/i.test(msg);
+        if (unsupportedModalities && wantsModalities) {
+          return await this.askLlmJson(
+            provider.baseUrl,
+            provider.apiKey,
+            model.modelId,
+            msgs,
+            signal_,
+            extras
+          );
+        }
         throw err;
       }
-    } finally {
-      clearTimeout(timer);
-      if (signal) signal.removeEventListener('abort', forwardAbort);
+    };
+
+    // A provider that hangs must never leave the "Illustrate" button stuck in
+    // "Creating…" — each scene gets a hard timeout (combined with any caller
+    // signal).
+    const TIMEOUT_MS = 120_000;
+    const total = Math.max(1, Math.min(64, Math.floor(opts?.count ?? 1)));
+    // The exact prompt for a scene = the base prompt the caller already put in
+    // `messages` (the last user message, the anchor/direction) + the per-scene
+    // storyboard instruction when count > 1. This is what we record next to
+    // each image (or in a refused-prompt file).
+    const basePrompt = lastUserPromptText(messages);
+    const scenePrompt = (i: number): string => {
+      const instruction = total > 1
+        ? storyboardInstruction(i, total, opts?.storyboardPrompt)
+        : '';
+      return instruction
+        ? `${basePrompt ? basePrompt + '\n\n' : ''}${instruction}`
+        : basePrompt;
+    };
+
+    const sceneRecords: GeneratedImageScene[] = [];
+    const collected: LlmImagePart[] = [];
+    let firstContent = '';
+    let failures = 0;
+    let stopped = false;
+
+    for (let i = 0; i < total; i++) {
+      if (collected.length >= total) break;
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+      const forwardAbort = (): void => controller.abort();
+      if (signal) {
+        if (signal.aborted) controller.abort();
+        else signal.addEventListener('abort', forwardAbort, { once: true });
+      }
+
+      const prompt = scenePrompt(i);
+      let json: unknown;
+      try {
+        const msgs = total > 1
+          ? [...messages, { role: 'user' as const, content: prompt }]
+          : messages;
+        json = await callOnce(msgs, controller.signal);
+      } catch (err: any) {
+        const timedOut = controller.signal.aborted;
+        if (timedOut && collected.length === 0) {
+          throw new Error(`Image generation timed out after ${TIMEOUT_MS / 1000}s`);
+        }
+        if (collected.length > 0) {
+          // Partial storyboard — keep what we have and continue (or bail).
+          failures += 1;
+          stopped = true;
+          break;
+        }
+        throw err;
+      } finally {
+        clearTimeout(timer);
+        if (signal) signal.removeEventListener('abort', forwardAbort);
+      }
+
+      const imgs = extractLlmImages(json);
+      const refused = imgs.length === 0;
+      const content = extractLlmDelta(json).content.trim() || extractLlmRefusal(json);
+      sceneRecords.push({
+        scene: i + 1,
+        prompt,
+        images: imgs,
+        content: content || undefined,
+        refused
+      });
+      for (const im of imgs) collected.push(im);
+      if (!firstContent) firstContent = content;
+      const have = Math.min(collected.length, total);
+      opts?.onProgress?.(have, total);
+      if (refused) {
+        // A 200 with no parseable image is usually an unexpected response
+        // shape or a refusal — log once; the caller keeps the prompt record.
+        console.warn(
+          `[image-create] scene ${i + 1} returned no image —`,
+          summarizeCompletion(json)
+        );
+      }
     }
 
-    const images = extractLlmImages(json);
-    // A refusal comes back in message.refusal with empty `content` — surface
-    // it so the user sees WHY the picture was not drawn.
-    let content = extractLlmDelta(json).content.trim();
-    if (!content) content = extractLlmRefusal(json);
-    if (images.length === 0) {
-      // A 200 with no parseable image is usually an unexpected response shape
-      // (markdown URL, text-only answer, or a model that didn't generate).
-      console.warn(
-        '[image-create] model returned no parseable image —',
-        summarizeCompletion(json)
-      );
+    // Scenes that were skipped because the storyboard stopped early are
+    // recorded as refused so their prompts are still preserved.
+    if (stopped) {
+      for (let i = sceneRecords.length; i < total; i++) {
+        sceneRecords.push({
+          scene: i + 1,
+          prompt: scenePrompt(i),
+          images: [],
+          content: 'Generation stopped early (previous scene failed).',
+          refused: true
+        });
+      }
     }
-    return { content, images };
+
+    if (collected.length > 0 && failures > 0) {
+      console.warn(`[image-create] storyboard partial: got ${collected.length}/${total} images`);
+    }
+    return { content: firstContent, images: collected, scenes: sceneRecords };
   }
 
   private async readCompletion(
@@ -548,6 +667,38 @@ export class LlmService {
     ]);
     return this.parameters.resolveForChat({ model, topic, project, chat });
   }
+}
+
+/**
+ * Per-scene instruction appended in storyboard mode (count > 1). Tells the
+ * model to render a →new← scene from the story context each iteration.
+ * `extra` is the user's storyboard prompt (a standing constraint for all
+ * scenes), e.g. "no explicit images — hide behind bystanders, shadows…".
+ */
+function storyboardInstruction(index: number, total: number, extra?: string): string {
+  const base = `Storyboard: render picture ${index + 1} of ${total}. Choose a DISTINCT scene from the story above (do not repeat a scene you already rendered) and draw it. Keep characters, setting and style consistent across all ${total} pictures.`;
+  return extra?.trim() ? `${base}\n\nRules for every picture:\n${extra.trim()}` : base;
+}
+
+/**
+ * The exact prompt already placed in `messages` by the caller (the last user
+ * message: the instruction/anchor + direction text). Used as the "prompt used"
+ * record for each generated image. Reduces multimodal content to its text.
+ */
+function lastUserPromptText(messages: ChatMessage[]): string {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m.role !== 'user') continue;
+    if (typeof m.content === 'string') return m.content;
+    if (Array.isArray(m.content)) {
+      const text = m.content
+        .map(p => (typeof p === 'object' && p && 'text' in p && p.text ? p.text : ''))
+        .filter(Boolean)
+        .join('\n\n');
+      if (text.trim()) return text;
+    }
+  }
+  return '';
 }
 
 /**

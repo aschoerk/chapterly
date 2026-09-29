@@ -8,6 +8,7 @@ import {
   inferMimeType,
   nodeToMessageContent,
   normalizeChatMessages,
+  textPromptAttachment,
   type MessagePart
 } from './llm-message';
 import { ChatMessage, NodeAttachment } from '../../models/chat';
@@ -335,6 +336,23 @@ describe('imagePartToAttachment / estimateDataUrlBytes', () => {
     const a = imagePartToAttachment({ url: 'https://cdn.example/a.jpeg' }, 2);
     expect(a.mimeType).toBe('image/png');
     expect(a.name).toBe('illustration-3.png');
+  });
+});
+
+describe('textPromptAttachment', () => {
+  it('builds a text/plain attachment whose content round-trips', () => {
+    const prompt = 'A quiet night train, Mara at the window.';
+    const a = textPromptAttachment('prompt-1.txt', prompt);
+    expect(a.name).toBe('prompt-1.txt');
+    expect(a.mimeType).toBe('text/plain');
+    expect(a.id).toBe('');
+    expect(a.size).toBe(prompt.length);
+    expect(decodeDataUrlToText(a.dataUrl)).toBe(prompt);
+  });
+
+  it('escapes special characters in the prompt', () => {
+    const a = textPromptAttachment('refused-1.txt', 'heads & tails, "quoted" <angle> 100%');
+    expect(decodeDataUrlToText(a.dataUrl)).toBe('heads & tails, "quoted" <angle> 100%');
   });
 });
 

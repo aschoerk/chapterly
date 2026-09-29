@@ -323,6 +323,24 @@ export function imagePartToAttachment(part: LlmImagePart, index: number): NodeAt
   };
 }
 
+/**
+ * Turn a plain-text string (e.g. the exact prompt used to generate an image)
+ * into a `text/plain` NodeAttachment so it can be stored on the same node as
+ * the picture and found later — and so the prompt used for a REFUSED image is
+ * preserved even when the model returned nothing. `id` is left empty — the
+ * caller assigns a persistent one via `newId()`.
+ */
+export function textPromptAttachment(name: string, text: string): NodeAttachment {
+  const dataUrl = `data:text/plain;charset=utf-8,${encodeURIComponent(text)}`;
+  return {
+    id: '',
+    name,
+    mimeType: 'text/plain',
+    size: text.length,
+    dataUrl
+  };
+}
+
 export function decodeDataUrlToText(dataUrl: string): string | null {
   const comma = dataUrl.indexOf(',');
   if (!dataUrl.startsWith('data:') || comma < 0) return null;

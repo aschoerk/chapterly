@@ -279,10 +279,13 @@ export const DE = {
     imageInterpretPrefix: 'Angehängtes Bild (automatisch interpretiert):',
     illustrate: 'Illustrieren',
     illustrateTitle: 'Ein Bild für diesen Abschnitt aus der bisherigen Geschichte erzeugen',
+    illustrateDraftTitle: 'Ein Bild aus dem bearbeiteten Anweisungstext erzeugen',
     generatingImage: 'Wird erstellt…',
+    generatingImageCount: 'Wird erstellt {{done}}/{{total}}…',
     imageModelMissing: 'Kein Bildmodell aktiviert. Bitte unter Einstellungen → Schreibaufgaben auswählen.',
     imageNoChapter: 'Es gibt noch kein Kapitel, an das das Bild angehängt werden kann. Bitte zuerst die Anweisung senden.',
     imageEmpty: 'Das Modell hat kein Bild geliefert',
+    imagePartial: 'Nur {{got}} von {{want}} Bildern wurden erstellt.',
     imageFailed: 'Bilderzeugung fehlgeschlagen: {{error}}',
     imageAnchor: '{{role}} zu illustrieren',
     imageReference: 'Bisherige Illustrationen – Figuren, Schauplatz und Stil beibehalten.',
@@ -310,6 +313,24 @@ export const DE = {
     clearSelection: 'Auswahl aufheben',
     clearSelectionTitle: 'Auswahl aufheben',
     pasteAfterTitle: 'Zwischenablage nach diesem Abschnitt einfügen',
+  },
+  illustrateDialog: {
+    title: 'Illustrieren',
+    countLabel: 'Anzahl Szenen',
+    countHint:
+      '1 erzeugt die aktuelle Szene. Bei mehr als 1 werden so viele verschiedene Szenen aus der bisherigen Geschichte erzeugt (Storyboard).',
+    styleLabel: 'Stil',
+    stylePh: 'z. B. Comic-Stil, Tinte, Aquarell… (leer lassen = keiner)',
+    storyPromptLabel: 'Storyboard-Regeln',
+    storyPromptPh:
+      'Optional: Regeln für jedes Bild, z. B. „Keine expliziten Bilder – hinter Passanten, Möbeln, Schatten verstecken.“',
+    confirm: 'Erzeugen',
+  },
+  lightbox: {
+    close: 'Schließen',
+    prev: 'Vorheriges Bild (←)',
+    next: 'Nächstes Bild (→)',
+    counter: '{{current}} / {{total}}',
   },
   params: {
     override: 'Generierungseinstellungen überschreiben',

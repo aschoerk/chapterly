@@ -1,0 +1,41 @@
+@if (lightbox.current(); as lb) {
+  <div class="lightbox-backdrop" (click)="onBackdrop($event)">
+    <button
+      class="lightbox-close"
+      type="button"
+      (click)="lightbox.close()"
+      [title]="i18n.t('lightbox.close')"
+      aria-label="close"
+    >
+      ✕
+    </button>
+
+    @if (lb.urls.length > 1) {
+      <button
+        class="lightbox-nav prev"
+        type="button"
+        (click)="lightbox.prev()"
+        [title]="i18n.t('lightbox.prev')"
+      >
+        ‹
+      </button>
+      <button
+        class="lightbox-nav next"
+        type="button"
+        (click)="lightbox.next()"
+        [title]="i18n.t('lightbox.next')"
+      >
+        ›
+      </button>
+    }
+
+    <figure class="lightbox-stage">
+      <img [src]="lb.urls[lb.index]" alt="" />
+      @if (lb.urls.length > 1) {
+        <figcaption>
+          {{ i18n.t('lightbox.counter', { current: lb.index + 1, total: lb.urls.length }) }}
+        </figcaption>
+      }
+    </figure>
+  </div>
+}

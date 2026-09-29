@@ -277,10 +277,13 @@ export const EN = {
     imageInterpretPrefix: 'Attached image (interpreted automatically):',
     illustrate: 'Illustrate',
     illustrateTitle: 'Generate a picture for this beat using the story so far',
+    illustrateDraftTitle: 'Generate a picture from the edited direction text',
     generatingImage: 'Creating…',
+    generatingImageCount: 'Creating {{done}}/{{total}}…',
     imageModelMissing: 'No image model is enabled. Choose one in Settings → Generation tasks.',
     imageNoChapter: 'There is no chapter yet to attach the picture to. Send the direction first.',
     imageEmpty: 'The model returned no picture',
+    imagePartial: 'Only {{got}} of {{want}} pictures were created.',
     imageFailed: 'Picture generation failed: {{error}}',
     imageAnchor: '{{role}} to illustrate',
     imageReference: 'Previous illustrations — keep characters, setting and style consistent.',
@@ -308,6 +311,24 @@ export const EN = {
     clearSelection: 'Clear',
     clearSelectionTitle: 'Clear the selection',
     pasteAfterTitle: 'Paste the clipboard after this section',
+  },
+  illustrateDialog: {
+    title: 'Illustrate',
+    countLabel: 'Number of scenes',
+    countHint:
+      '1 renders the current scene. A number greater than 1 renders that many distinct scenes from the story so far (storyboard).',
+    styleLabel: 'Style',
+    stylePh: 'e.g. comic style, ink, watercolor… (leave empty for none)',
+    storyPromptLabel: 'Storyboard rules',
+    storyPromptPh:
+      'Optional: extra instructions that apply to every picture, e.g. "no explicit images — hide behind bystanders, furniture, shadows."',
+    confirm: 'Generate',
+  },
+  lightbox: {
+    close: 'Close',
+    prev: 'Previous image (←)',
+    next: 'Next image (→)',
+    counter: '{{current}} / {{total}}',
   },
   params: {
     override: 'Override generation settings',

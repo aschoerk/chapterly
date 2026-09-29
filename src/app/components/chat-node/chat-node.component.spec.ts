@@ -15,6 +15,9 @@ import { makeAttachment, makeModel, makeNode, seedApi } from '../../../../test-h
 import { ChatNode } from '../../models/chat';
 import { ModelEntry } from '../../models/chat-config';
 import { GenerationSettingsService } from '../../core/generation-settings.service';
+import { LightboxService } from '../../core/lightbox.service';
+import { decodeDataUrlToText } from '../../core/llm/llm-message';
+import { IllustrateDialogService } from '../../core/illustrate-dialog.service';
 
 /** Thin aliases over the shared test-helpers factories. */
 const node = makeNode;
@@ -41,6 +44,7 @@ describe('ChatNodeComponent', () => {
     toLlmExtras: ReturnType<typeof vi.fn>;
     generateImage: ReturnType<typeof vi.fn>;
   };
+  let illustrateDialog: { open: ReturnType<typeof vi.fn>; current: ReturnType<typeof vi.fn> };
   let emitted: string[];
 
   beforeEach(async () => {
@@ -66,6 +70,14 @@ describe('ChatNodeComponent', () => {
         provideZonelessChangeDetection(),
         provideHttpClient(),
         { provide: CHAT_API, useValue: api },
+        {
+          provide: IllustrateDialogService,
+          useValue: {
+            // Default: a simple single-scene, no-style run.
+            open: vi.fn(async () => ({ count: 1, style: '', storyboardPrompt: '' })),
+            current: vi.fn(() => null)
+          }
+        },
         {
           provide: LlmService,
           useValue: {
@@ -112,6 +124,10 @@ describe('ChatNodeComponent', () => {
       resolveForCurrentChat: ReturnType<typeof vi.fn>;
       toLlmExtras: ReturnType<typeof vi.fn>;
       generateImage: ReturnType<typeof vi.fn>;
+    };
+    illustrateDialog = TestBed.inject(IllustrateDialogService) as unknown as {
+      open: ReturnType<typeof vi.fn>;
+      current: ReturnType<typeof vi.fn>;
     };
     TestBed.inject(I18nService).setLocale('en');
 
@@ -1205,6 +1221,31 @@ describe('ChatNodeComponent', () => {
       expect(fixture.nativeElement.querySelector('.thumb')).not.toBeNull();
     });
 
+    it('opens the lightbox (not window.open) when an image is clicked', () => {
+      const lightbox = TestBed.inject(LightboxService);
+      lightbox.close();
+      const a1 = attachment({
+        id: 'img1',
+        name: 'a.png',
+        mimeType: 'image/png',
+        dataUrl: 'data:image/png;base64,AAAA',
+      });
+      const a2 = attachment({
+        id: 'img2',
+        name: 'b.png',
+        mimeType: 'image/png',
+        dataUrl: 'data:image/png;base64,BBBB',
+      });
+      const cn = node({ content: 'x', attachments: [a1, a2] });
+      createFixture(cn);
+
+      const spy = vi.fn();
+      (window as any).open = spy;
+      component.openImage(a1.dataUrl);
+      expect(spy).not.toHaveBeenCalled();
+      expect(lightbox.current()).toEqual({ urls: [a1.dataUrl, a2.dataUrl], index: 0 });
+    });
+
     it('adds attachments from the file input', async () => {
       createFixture(node({ content: 'Hello' }));
       await startEditing(node({ content: 'Hello' }));
@@ -1322,9 +1363,15 @@ describe('ChatNodeComponent', () => {
       expect(lastText).toContain('Night train, Mara at the window.');
 
       const chapter = chatService.getChildren('q1').find((c) => c.role === 'assistant' && c.isCurrent)!;
-      expect(chapter.attachments?.length).toBe(1);
+      expect(chapter.attachments?.length).toBe(2);
       expect(chapter.attachments![0].name).toBe('illustration-1.png');
       expect(chapter.attachments![0].mimeType).toBe('image/png');
+      // Companion text attachment with the exact prompt used.
+      expect(chapter.attachments![1].name).toBe('prompt-1.txt');
+      expect(chapter.attachments![1].mimeType).toBe('text/plain');
+      expect(decodeDataUrlToText(chapter.attachments![1].dataUrl)).toContain(
+        'Night train, Mara at the window.',
+      );
       expect(emitted).toContain(chapter.id);
     });
 
@@ -1352,8 +1399,12 @@ describe('ChatNodeComponent', () => {
       fixture.detectChanges();
 
       const chapter = chatService.getChildren('q1').find((c) => c.role === 'assistant' && c.isCurrent)!;
-      expect(chapter.attachments?.length).toBe(1);
+      expect(chapter.attachments?.length).toBe(2);
       expect(chapter.attachments![0].dataUrl).toContain('data:image/png');
+      expect(chapter.attachments![1].name).toBe('prompt-1.txt');
+      expect(decodeDataUrlToText(chapter.attachments![1].dataUrl)).toContain(
+        'The carriage sways; weak tea on the fold-out table.',
+      );
     });
 
     it('shows an alert and does not call the LLM when no image model is enabled', async () => {
@@ -1369,6 +1420,181 @@ describe('ChatNodeComponent', () => {
 
       expect(llm.generateImage).not.toHaveBeenCalled();
       expect(window.alert).toHaveBeenCalled();
+    });
+
+    it('uses the edited draft as the prompt when illustrating from the composer', async () => {
+      const q1 = node({ id: 'q1', content: 'Old stubborn direction.' });
+      const a1 = node({
+        id: 'a1',
+        chatId: 'chat-1',
+        parentId: 'q1',
+        role: 'assistant',
+        content: 'Mara watches the conductor pass.',
+      });
+      await openChat([q1, a1]);
+
+      const generation = TestBed.inject(GenerationSettingsService);
+      generation.update('image-create', { providerId: 'prov-1', modelId: 'alpha/model' });
+      llm.generateImage.mockResolvedValueOnce({
+        content: '',
+        images: [{ url: 'data:image/png;base64,QQ==' }],
+      });
+
+      createFixture(q1, 'a1');
+      await component.startEdit();
+      component.onDraftText('The train stops at a ghost platform');
+      expect(component.canIllustrateDraft()).toBe(true);
+      await component.illustrateWithDraft();
+      fixture.detectChanges();
+
+      expect(llm.generateImage).toHaveBeenCalledTimes(1);
+      const imagesArgs = llm.generateImage.mock.calls[0][2] as { role: string; content: unknown }[];
+      const lastText = JSON.stringify(imagesArgs[imagesArgs.length - 1].content);
+      // The edited draft (not the stale saved content) drives the prompt.
+      expect(lastText).toContain('The train stops at a ghost platform');
+      expect(lastText).not.toContain('Old stubborn direction.');
+
+      const chapter = chatService.getChildren('q1').find((c) => c.role === 'assistant' && c.isCurrent)!;
+      expect(chapter.attachments?.length).toBe(2);
+      expect(chapter.attachments![0].name).toBe('illustration-1.png');
+      expect(chapter.attachments![1].name).toBe('prompt-1.txt');
+    });
+
+    it('requests the dialog storyboard count + style + rules and attaches every image', async () => {
+      const q1 = node({ id: 'q1', content: 'A bustling bazaar at night.' });
+      const a1 = node({
+        id: 'a1',
+        chatId: 'chat-1',
+        parentId: 'q1',
+        role: 'assistant',
+        content: 'Lanterns sway; a stall-keeper counts coins.',
+      });
+      await openChat([q1, a1]);
+
+      const generation = TestBed.inject(GenerationSettingsService);
+      generation.update('image-create', { providerId: 'prov-1', modelId: 'alpha/model' });
+      illustrateDialog.open.mockResolvedValue({
+        count: 3,
+        style: 'comic style',
+        storyboardPrompt: 'no explicit images, hide behind bystanders',
+      });
+
+      const imgs = [0, 1, 2].map((i) => ({ url: `data:image/png;base64,AAAA${i}` }));
+      llm.generateImage.mockImplementation(async (_p: unknown, _m: unknown, _ms: unknown, _sig?: unknown, opts?: any) => {
+        opts?.onProgress?.(Math.min(imgs.length, opts.count), opts.count);
+        return { content: '', images: imgs };
+      });
+
+      createFixture(q1, 'a1');
+      await component.illustrate();
+      fixture.detectChanges();
+
+      expect(llm.generateImage).toHaveBeenCalledTimes(1);
+      const optsArg = llm.generateImage.mock.calls[0][4] as {
+        count: number;
+        storyboardPrompt: string;
+        onProgress?: unknown;
+      };
+      expect(optsArg.count).toBe(3);
+      expect(optsArg.storyboardPrompt).toContain('no explicit images');
+
+      // The style is folded into the prompt.
+      const msgs = llm.generateImage.mock.calls[0][2] as { role: string; content: unknown }[];
+      expect(JSON.stringify(msgs[msgs.length - 1].content)).toContain('Style: comic style');
+
+      const chapter = chatService.getChildren('q1').find((c) => c.role === 'assistant' && c.isCurrent)!;
+      // Mock returns one completion with all 3 images (no per-scene records),
+      // so the fallback keeps one prompt for the scene.
+      expect(chapter.attachments?.length).toBe(4);
+      expect(chapter.attachments![0].name).toBe('illustration-1.png');
+      expect(chapter.attachments![2].name).toBe('illustration-3.png');
+      expect(chapter.attachments![3].name).toBe('prompt-1.txt');
+      expect(component.imageProgress()).toBeNull();
+    });
+
+    it('stores an exact prompt file per scene when the service returns scene records', async () => {
+      const q1 = node({ id: 'q1', content: 'Two beats.' });
+      const a1 = node({ id: 'a1', chatId: 'chat-1', parentId: 'q1', role: 'assistant', content: 'Chapter.' });
+      await openChat([q1, a1]);
+
+      const generation = TestBed.inject(GenerationSettingsService);
+      generation.update('image-create', { providerId: 'prov-1', modelId: 'alpha/model' });
+      illustrateDialog.open.mockResolvedValue({
+        count: 2,
+        style: 'ink',
+        storyboardPrompt: 'keep it clean',
+      });
+
+      llm.generateImage.mockResolvedValueOnce({
+        content: '',
+        images: [
+          { url: 'data:image/png;base64,QQ==' },
+          { url: 'data:image/png;base64,QQE=' },
+        ],
+        scenes: [
+          { scene: 1, prompt: 'prompt for scene 1', images: [{ url: 'data:image/png;base64,QQ==' }] },
+          { scene: 2, prompt: 'prompt for scene 2', images: [{ url: 'data:image/png;base64,QQE=' }] },
+        ],
+      });
+
+      createFixture(q1, 'a1');
+      await component.illustrate();
+      fixture.detectChanges();
+
+      const chapter = chatService.getChildren('q1').find((c) => c.role === 'assistant' && c.isCurrent)!;
+      expect(chapter.attachments?.length).toBe(4);
+      expect(chapter.attachments![0].name).toBe('illustration-1.png');
+      expect(chapter.attachments![1].name).toBe('prompt-1.txt');
+      expect(decodeDataUrlToText(chapter.attachments![1].dataUrl)).toBe('prompt for scene 1');
+      expect(chapter.attachments![2].name).toBe('illustration-2.png');
+      expect(chapter.attachments![3].name).toBe('prompt-2.txt');
+      expect(decodeDataUrlToText(chapter.attachments![3].dataUrl)).toBe('prompt for scene 2');
+    });
+
+    it('preserves the prompt of refused images as a refused-prompt attachment', async () => {
+      const q1 = node({ id: 'q1', content: 'A refused attempt.' });
+      const a1 = node({ id: 'a1', chatId: 'chat-1', parentId: 'q1', role: 'assistant', content: 'Chapter.' });
+      await openChat([q1, a1]);
+
+      const generation = TestBed.inject(GenerationSettingsService);
+      generation.update('image-create', { providerId: 'prov-1', modelId: 'alpha/model' });
+
+      llm.generateImage.mockResolvedValueOnce({
+        content: "I can't draw that.",
+        images: [],
+        scenes: [{ scene: 1, prompt: 'sensitive scene', images: [], content: "I can't draw that.", refused: true }],
+      });
+
+      createFixture(q1, 'a1');
+      await component.illustrate();
+      fixture.detectChanges();
+
+      const chapter = chatService.getChildren('q1').find((c) => c.role === 'assistant' && c.isCurrent)!;
+      expect(chapter.attachments?.length).toBe(1);
+      expect(chapter.attachments![0].name).toBe('refused-prompt-1.txt');
+      const text = decodeDataUrlToText(chapter.attachments![0].dataUrl) ?? '';
+      expect(text).toContain('sensitive scene');
+      expect(text).toContain("I can't draw that.");
+      // The user is still informed nothing was generated.
+      expect(window.alert).toHaveBeenCalled();
+    });
+
+    it('does nothing when the dialog is cancelled', async () => {
+      const q1 = node({ id: 'q1', content: 'A direction.' });
+      const a1 = node({
+        id: 'a1', chatId: 'chat-1', parentId: 'q1', role: 'assistant', content: 'A chapter.',
+      });
+      await openChat([q1, a1]);
+      const generation = TestBed.inject(GenerationSettingsService);
+      generation.update('image-create', { providerId: 'prov-1', modelId: 'alpha/model' });
+      illustrateDialog.open.mockResolvedValue(null);
+
+      createFixture(q1, 'a1');
+      await component.illustrate();
+      fixture.detectChanges();
+
+      expect(llm.generateImage).not.toHaveBeenCalled();
+      expect(component.isLoading()).toBe(false);
     });
   });
 
