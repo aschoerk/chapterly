@@ -52,6 +52,9 @@ export class ChatNodeComponent {
   readonly branchModelId = signal('');
   readonly isLoading = signal(false);
   readonly pendingAction = signal<'version' | 'branch' | 'insert' | 'send' | 'continue' | 'structure' | null>(null);
+  /** Check-my-English (direction) feature state. */
+  readonly checkingEnglish = signal(false);
+  readonly englishSuggestions = signal<string[] | null>(null);
   readonly showPreview = signal(false);
   /** Set by Cancel so auto-open does not immediately re-enter edit. */
   readonly editDismissed = signal(false);
@@ -631,6 +634,157 @@ export class ChatNodeComponent {
     if (task === 'title') return 'Generate a concise title for this story.';
     if (task === 'overview') return 'Write an engaging introduction to this story.';
     return 'Generate a concise chapter or section heading for this point in the story.';
+  }
+
+  /**
+   * "Check my English" — asks the LLM to review the current direction and
+   * return three improved variants. The main goal is NOT style: directions are
+   * not part of the finished story, so the focus is grammar / orthography /
+   * unambiguous wording that helps the writing model understand the intent.
+   * One variant ("minimal") stays as close to the original as possible.
+   *
+   * Model/provider come from the "language-check" generation task (Settings →
+   * Generation tasks); when the task is unset it falls back to the model
+   * selected in the editor (the one that will read the direction).
+   */
+  async checkMyEnglish(): Promise<void> {
+    if (this.node().role !== 'user' || !this.isEditing()) return;
+    if (this.checkingEnglish() || this.isLoading()) return;
+
+    const text = this.contentDraft().trim();
+    if (!text) {
+      alert(this.i18n.t('node.englishEmpty'));
+      return;
+    }
+
+    // 1. Prefer the model configured for the language-check task.
+    let model = this.generation.modelFor('language-check');
+    let provider = this.generation.providerFor('language-check');
+    if (!model || !provider) {
+      // 2. Fall back to the model selected in the editor / the preferred model.
+      const modelId = this.branchModelId() || this.resolvePreferredModelId(this.node());
+      const fallback = this.enabledModels().find(
+        m => m.modelId === modelId || m.id === modelId
+      );
+      model = fallback ?? null;
+      provider = fallback
+        ? this.settings.providers().find(p => p.id === fallback.providerId) ?? null
+        : null;
+    }
+    if (!model || !provider) {
+      alert(this.i18n.t('node.englishModelMissing'));
+      return;
+    }
+
+    // Optional per-task prompt override; otherwise use the built-in default.
+    const config = this.generation.get('language-check');
+    const instruction = config.prompt.trim() || this.defaultEnglishCheckPrompt();
+
+    this.checkingEnglish.set(true);
+    this.englishSuggestions.set(null);
+    try {
+      const resolved = await this.llmService.resolveForCurrentChat(model);
+      const extras = { ...this.llmService.toLlmExtras(resolved), stream: false };
+      const result = await this.llmService.askLlm(
+        provider.baseUrl,
+        provider.apiKey,
+        model.modelId,
+        [{
+          role: 'user',
+          content: `${instruction}\n\nOriginal direction:\n${text}`
+        }],
+        false,
+        undefined,
+        undefined,
+        extras,
+        model.providerId
+      );
+
+      const variants = this.parseEnglishVariants(result.content);
+      if (variants.length === 0) {
+        alert(this.i18n.t('node.englishFailed', {
+          error: this.i18n.t('node.englishNoVariants')
+        }));
+        return;
+      }
+      this.englishSuggestions.set(variants);
+    } catch (err: any) {
+      console.error(err);
+      alert(this.i18n.t('node.englishFailed', { error: err?.message || err }));
+    } finally {
+      this.checkingEnglish.set(false);
+    }
+  }
+
+  /** Replace the draft with a chosen variant and close the panel. */
+  applyEnglishSuggestion(text: string): void {
+    this.contentDraft.set(text);
+    this.editSession.patch(this.node().id, text, this.editAttachments());
+    this.englishSuggestions.set(null);
+    this.scheduleResize();
+  }
+
+  dismissEnglishCheck(): void {
+    this.englishSuggestions.set(null);
+  }
+
+  /** Parse the LLM answer into up to 3 suggestion strings. */
+  private parseEnglishVariants(content: string): string[] {
+    const trimmed = content.trim();
+    const fenced = trimmed
+      .replace(/^```(?:json)?\s*/i, '')
+      .replace(/```\s*$/, '');
+
+    const asStrings = (v: unknown): string[] | null => {
+      if (Array.isArray(v)) {
+        const arr = v.map(x => String(x).trim()).filter(Boolean);
+        return arr.length ? arr : null;
+      }
+      if (v && typeof v === 'object' && Array.isArray((v as { variants?: unknown }).variants)) {
+        return asStrings((v as { variants: unknown[] }).variants);
+      }
+      return null;
+    };
+    const parse = (raw: string): string[] | null => {
+      try {
+        return asStrings(JSON.parse(raw));
+      } catch {
+        return null;
+      }
+    };
+
+    let arr = parse(fenced) ?? parse(trimmed);
+    if (!arr) {
+      const match = trimmed.match(/\[[\s\S]*\]/);
+      if (match) arr = parse(match[0]);
+    }
+    if (!arr) {
+      arr = fenced
+        .split(/\r?\n/)
+        .map(s => s.replace(/^[\s\-•·*\d.)]+/, '').trim())
+        .filter(Boolean);
+    }
+    return (arr ?? []).slice(0, 3);
+  }
+
+  private defaultEnglishCheckPrompt(): string {
+    return `You are a careful copy-editor for writing directions that a user sends to a creative-writing model.
+
+The direction is NOT part of the final story — it is guidance for the model. Your ONLY goal is to make the model understand the user's intent correctly and unambiguously.
+
+Rules:
+- Do NOT beautify, embellish or restyle. Keep the author's voice and intent exactly.
+- Change only what can cause misunderstanding: grammar, spelling, punctuation, ambiguous wording, unclear referents.
+- Keep the direction as short as necessary. Never lengthen it for style.
+- Deliberate creative phrasing is fine as long as it is not ambiguous.
+
+Produce EXACTLY 3 variants of the corrected direction:
+1. "minimal": closest to the original wording — fix only clear errors (spelling, grammar, punctuation), change as little as possible.
+2. "clearer": same intent, reworded for unambiguity, still close to the original.
+3. "rewritten": fully restated so it cannot be misunderstood — explicit and clear, preserving the intent.
+
+Return ONLY a JSON array of exactly 3 strings in this order: [minimal, clearer, rewritten].
+No text before or after the JSON, no markdown fences.`;
   }
 
   /**

@@ -110,6 +110,18 @@
               <option [value]="model.modelId">{{ model.displayName }}</option>
             }
           </select>
+
+          <button class="btn small"
+                  type="button"
+                  [disabled]="isLoading() || checkingEnglish() || !contentDraft().trim()"
+                  (click)="checkMyEnglish()"
+                  [title]="i18n.t('node.checkEnglishTitle')">
+            @if (checkingEnglish()) {
+              {{ i18n.t('node.checkingEnglish') }}
+            } @else {
+              {{ i18n.t('node.checkEnglish') }}
+            }
+          </button>
         }
 
         <button class="btn small" type="button"
@@ -118,6 +130,36 @@
           {{ showPreview() ? i18n.t('node.hidePreview') : i18n.t('node.showPreview') }}
         </button>
       </div>
+
+      @if (englishSuggestions(); as suggestions) {
+        <div class="english-check">
+          <div class="english-head">
+            <span class="english-title">{{ i18n.t('node.englishIntro') }}</span>
+            <button class="btn-icon"
+                    type="button"
+                    (click)="dismissEnglishCheck()"
+                    [title]="i18n.t('common.close')">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+              </svg>
+            </button>
+          </div>
+          @for (s of suggestions; track $index) {
+            <div class="english-option">
+              <span class="english-tag">
+                {{ [i18n.t('node.englishMinimal'), i18n.t('node.englishModerate'), i18n.t('node.englishRewrite')][$index] }}
+              </span>
+              <span class="english-text">{{ s }}</span>
+              <button class="btn small primary"
+                      type="button"
+                      [disabled]="checkingEnglish()"
+                      (click)="applyEnglishSuggestion(s)">
+                {{ i18n.t('node.englishUse') }}
+              </button>
+            </div>
+          }
+        </div>
+      }
 
       <div class="attachment-chips editable">
         @for (a of editAttachments(); track a.id) {

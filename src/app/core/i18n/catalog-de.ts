@@ -273,6 +273,18 @@ export const DE = {
     structureModelMissing: 'Kein Modell für die Strukturerzeugung verfügbar',
     structureEmpty: 'Das Modell hat keinen Strukturtext zurückgegeben',
     structureFailed: 'Strukturerzeugung fehlgeschlagen: {{error}}',
+    checkEnglish: 'Englisch prüfen',
+    checkEnglishTitle: 'Grammatik korrigieren und die Anweisung für das Modell eindeutig machen',
+    checkingEnglish: 'Wird geprüft…',
+    englishEmpty: 'Nichts zu prüfen – die Anweisung ist leer',
+    englishModelMissing: 'Kein Modell zum Prüfen der Anweisung verfügbar',
+    englishFailed: 'Prüfung fehlgeschlagen: {{error}}',
+    englishNoVariants: 'das Modell hat keine Vorschläge geliefert',
+    englishIntro: 'Verbesserungsvorschläge – Klarheit vor Stil; die Anweisung ist nicht Teil des finalen Texts',
+    englishMinimal: '① Minimal (nah am Original)',
+    englishModerate: '② Klarer',
+    englishRewrite: '③ Für Klarheit umgeschrieben',
+    englishUse: 'Verwenden',
     cutFailed: 'Ausschneiden fehlgeschlagen: {{error}}',
     pasteFailed: 'Einfügen fehlgeschlagen: {{error}}',
     selectedCount: '{{n}} ausgewählt',
@@ -452,6 +464,7 @@ export const DE = {
         overview: 'Überblicke',
         'image-create': 'Bilderzeugung',
         'image-interpret': 'Bildinterpretation',
+        'language-check': 'Sprachkorrektur',
       },
       hints: {
         title:
@@ -464,6 +477,8 @@ export const DE = {
           'Wird zur Erzeugung von Bildern aus einer Beschreibung verwendet. Das Modell muss Bildausgabe unterstützen.',
         'image-interpret':
           'Wird zur Beschreibung/Interpretation von Bildern verwendet. Das Modell muss Bildeingabe unterstützen.',
+        'language-check':
+          'Wird zur Prüfung der Grammatik/Orthografie von Schreibanweisungen verwendet und bietet eindeutige Umschreibungen. Das Modell muss ein JSON-Array mit 3 Zeichenketten ausgeben.',
       },
     },
   },

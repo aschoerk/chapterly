@@ -10,7 +10,7 @@ import { GenerationSettingsService } from './generation-settings.service';
 import { GenerationTaskKind } from '../models/generation-task';
 
 const LS_KEY = 'chat.generationTasks';
-const ALL_KINDS: GenerationTaskKind[] = ['title', 'headings', 'overview', 'image-create', 'image-interpret'];
+const ALL_KINDS: GenerationTaskKind[] = ['title', 'headings', 'overview', 'image-create', 'image-interpret', 'language-check'];
 
 const empty = (kind: GenerationTaskKind) => ({ kind, providerId: '', modelId: '', prompt: '' });
 

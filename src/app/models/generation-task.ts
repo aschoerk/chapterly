@@ -1,7 +1,7 @@
 /**
  * Per-task AI generation settings: which provider/model + prompt to use for
- * the automated authoring tasks (titles, headings, overviews, image creation
- * and image interpretation).
+ * the automated authoring tasks (titles, headings, overviews, image creation,
+ * image interpretation and language correction).
  *
  * These configs are used as the "which model did the user pick" preference for
  * each task. An empty providerId / modelId means "inherit" — the caller falls
@@ -13,7 +13,8 @@ export type GenerationTaskKind =
   | 'headings'        // chapter / section headings
   | 'overview'        // summaries / overviews
   | 'image-create'    // text  -> image
-  | 'image-interpret'; // image -> text (describing what the image shows)
+  | 'image-interpret' // image -> text (describing what the image shows)
+  | 'language-check'; // direction / language correction (grammar + clarity)
 
 export interface GenerationTaskConfig {
   kind: GenerationTaskKind;
@@ -30,7 +31,8 @@ export const GENERATION_TASK_KINDS: GenerationTaskKind[] = [
   'headings',
   'overview',
   'image-create',
-  'image-interpret'
+  'image-interpret',
+  'language-check'
 ];
 
 export function emptyGenerationTaskConfig(kind: GenerationTaskKind): GenerationTaskConfig {
