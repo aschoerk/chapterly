@@ -39,6 +39,7 @@ describe('ChatNodeComponent', () => {
     askLlm: ReturnType<typeof vi.fn>;
     resolveForCurrentChat: ReturnType<typeof vi.fn>;
     toLlmExtras: ReturnType<typeof vi.fn>;
+    generateImage: ReturnType<typeof vi.fn>;
   };
   let emitted: string[];
 
@@ -71,6 +72,7 @@ describe('ChatNodeComponent', () => {
             askLlm: vi.fn(async () => ({ content: 'Generated structure', thinking: '' })),
             resolveForCurrentChat: vi.fn(async () => ({ stream: false })),
             toLlmExtras: vi.fn(() => ({})),
+            generateImage: vi.fn(async () => ({ content: '', images: [] })),
             streamAnswer: vi.fn(
               async (
                 chatId: string,
@@ -109,6 +111,7 @@ describe('ChatNodeComponent', () => {
       askLlm: ReturnType<typeof vi.fn>;
       resolveForCurrentChat: ReturnType<typeof vi.fn>;
       toLlmExtras: ReturnType<typeof vi.fn>;
+      generateImage: ReturnType<typeof vi.fn>;
     };
     TestBed.inject(I18nService).setLocale('en');
 
@@ -1269,6 +1272,103 @@ describe('ChatNodeComponent', () => {
 
       component.onEditorDragLeave(leave);
       expect(component.isEditorDragOver()).toBe(false);
+    });
+  });
+
+  // ------------------------------------------------------------------
+  // Illustrate — text → picture generation
+  // ------------------------------------------------------------------
+
+  describe('illustrate', () => {
+    it('is disabled on a direction without a chapter, enabled with one', () => {
+      const dir = node({ id: 'q1', content: 'Night train, Mara at the window.' });
+      createFixture(dir);
+      expect(component.canIllustrate()).toBe(false);
+
+      const a1 = node({
+        id: 'a1', chatId: 'chat-1', parentId: 'q1', role: 'assistant', content: 'The letter…',
+      });
+      createFixture(a1);
+      expect(component.canIllustrate()).toBe(true);
+    });
+
+    it('generates a picture for the current chapter and attaches it', async () => {
+      const q1 = node({ id: 'q1', content: 'Night train, Mara at the window.' });
+      const a1 = node({
+        id: 'a1',
+        chatId: 'chat-1',
+        parentId: 'q1',
+        role: 'assistant',
+        content: 'Mara folds the letter and watches the conductor pass.',
+      });
+      await openChat([q1, a1]);
+
+      const generation = TestBed.inject(GenerationSettingsService);
+      generation.update('image-create', { providerId: 'prov-1', modelId: 'alpha/model' });
+
+      llm.generateImage.mockResolvedValueOnce({
+        content: '',
+        images: [{ url: 'data:image/png;base64,QQ==' }],
+      });
+
+      createFixture(q1, 'a1');
+      await component.illustrate();
+      fixture.detectChanges();
+
+      expect(llm.generateImage).toHaveBeenCalledTimes(1);
+      // The direction text is sent as the scene to depict.
+      const imagesArgs = llm.generateImage.mock.calls[0][2] as { role: string; content: unknown }[];
+      const lastText = JSON.stringify(imagesArgs[imagesArgs.length - 1].content);
+      expect(lastText).toContain('Night train, Mara at the window.');
+
+      const chapter = chatService.getChildren('q1').find((c) => c.role === 'assistant' && c.isCurrent)!;
+      expect(chapter.attachments?.length).toBe(1);
+      expect(chapter.attachments![0].name).toBe('illustration-1.png');
+      expect(chapter.attachments![0].mimeType).toBe('image/png');
+      expect(emitted).toContain(chapter.id);
+    });
+
+    it('attaches the picture to the chapter itself when invoked on a chapter', async () => {
+      const q1 = node({ id: 'q1', content: 'A prov night-train that never quite arrives.' });
+      const a1 = node({
+        id: 'a1',
+        chatId: 'chat-1',
+        parentId: 'q1',
+        role: 'assistant',
+        content: 'The carriage sways; weak tea on the fold-out table.',
+      });
+      await openChat([q1, a1]);
+
+      const generation = TestBed.inject(GenerationSettingsService);
+      generation.update('image-create', { providerId: 'prov-1', modelId: 'alpha/model' });
+
+      llm.generateImage.mockResolvedValueOnce({
+        content: '',
+        images: [{ url: 'data:image/png;base64,QQ==' }],
+      });
+
+      createFixture(a1);
+      await component.illustrate();
+      fixture.detectChanges();
+
+      const chapter = chatService.getChildren('q1').find((c) => c.role === 'assistant' && c.isCurrent)!;
+      expect(chapter.attachments?.length).toBe(1);
+      expect(chapter.attachments![0].dataUrl).toContain('data:image/png');
+    });
+
+    it('shows an alert and does not call the LLM when no image model is enabled', async () => {
+      const q1 = node({ id: 'q1', content: 'A direction.' });
+      const a1 = node({
+        id: 'a1', chatId: 'chat-1', parentId: 'q1', role: 'assistant', content: 'A chapter.',
+      });
+      await openChat([q1, a1]);
+      createFixture(q1, 'a1');
+
+      await component.illustrate();
+      fixture.detectChanges();
+
+      expect(llm.generateImage).not.toHaveBeenCalled();
+      expect(window.alert).toHaveBeenCalled();
     });
   });
 

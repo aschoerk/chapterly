@@ -414,6 +414,23 @@
         </button>
       }
 
+      <button class="btn-icon" type="button"
+              [disabled]="isLoading() || chatService.isGenerating(node().id) || !canIllustrate()"
+              (click)="illustrate(); $event.stopPropagation()"
+              [title]="i18n.t('node.illustrateTitle')">
+        @if (isLoading() && pendingAction() === 'image') {
+          <span class="spinner"></span>
+          <span>{{ i18n.t('node.generatingImage') }}</span>
+        } @else {
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+            <circle cx="8.5" cy="8.5" r="1.5"/>
+            <polyline points="21 15 16 10 5 21"/>
+          </svg>
+          <span>{{ i18n.t('node.illustrate') }}</span>
+        }
+      </button>
+
       <button class="btn-icon" (click)="copyContent()" type="button"
               [title]="copied() ? i18n.t('node.copiedTitle') : i18n.t('node.copyTitle')">
         @if (copied()) {

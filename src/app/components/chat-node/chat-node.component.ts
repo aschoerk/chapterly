@@ -8,18 +8,25 @@ import { ChatService } from '../../core/chat.service';
 import { SettingsService } from '../../core/settings.service';
 import { ChatNode, NodeAttachment, ChatMessage } from '../../models/chat';
 import { MarkdownService } from '../../core/markdown.service';
-import { ModelEntry, canInterpretImages } from '../../models/chat-config';
-import {NodeEditSession} from '../../core/node-edit-session';
+import { NodeEditSession} from '../../core/node-edit-session';
 import {ConfirmService} from '../../core/confirm.service';
 import {LlmService} from '../../core/llm/llm.service';
 import { ChatParametersService } from '../../core/chat-parameters.service';
-import { inferMimeType, isImageMime, resolvedMime, nodeToMessageContent } from '../../core/llm/llm-message';
+import {
+  inferMimeType,
+  isImageMime,
+  resolvedMime,
+  nodeToMessageContent,
+  imagePartToAttachment,
+  type MessagePart
+} from '../../core/llm/llm-message';
 import { formatParametersSummary } from '../../models/chat-parameters';
 import {ProjectService} from '../../core/project.service';
 import { I18nService } from '../../core/i18n/i18n.service';
 import { newId } from '../../core/common/helpers';
 import { GenerationSettingsService } from '../../core/generation-settings.service';
 import { GenerationTaskKind } from '../../models/generation-task';
+import { ModelEntry, canInterpretImages, canGenerateImages } from '../../models/chat-config';
 
 @Component({
   selector: 'app-chat-node',
@@ -51,7 +58,7 @@ export class ChatNodeComponent {
   readonly contentDraft = signal('');
   readonly branchModelId = signal('');
   readonly isLoading = signal(false);
-  readonly pendingAction = signal<'version' | 'branch' | 'insert' | 'send' | 'continue' | 'structure' | null>(null);
+  readonly pendingAction = signal<'version' | 'branch' | 'insert' | 'send' | 'continue' | 'structure' | 'image' | null>(null);
   /** Check-my-English (direction) feature state. */
   readonly checkingEnglish = signal(false);
   readonly englishSuggestions = signal<string[] | null>(null);
@@ -511,6 +518,186 @@ export class ChatNodeComponent {
       console.error('Image interpretation failed', err);
       return null;
     }
+  }
+
+  // ------------------------------------------------------------------
+  // Illustrate — generate a picture for this beat from the chat so far
+  // ------------------------------------------------------------------
+
+  /**
+   * Whether the user-facing "Illustrate" action is available for this node.
+   * Chapters can be illustrated directly. Directions need the chapter that
+   * responded to them (the picture is attached to that chapter).
+   */
+  canIllustrate(): boolean {
+    const n = this.node();
+    if (n.role === 'assistant') return !!n.content?.trim();
+    if (n.role === 'user') {
+      return !!n.content?.trim()
+        && this.chatService.getChildren(n.id).some(c => c.role === 'assistant' && c.isCurrent);
+    }
+    return false;
+  }
+
+  /**
+   * Generate one or more pictures for the current beat with the configured
+   * "image-create" generation task model (fallback: any enabled model that
+   * can generate images). The prompt is grounded in the active path up to
+   * this point, so earlier chapters stay established context; on a direction
+   * node the direction text is the scene to depict. Prior illustrations are
+   * forwarded as visual reference when the chosen model can also read images.
+   * The result is attached to the chapter node.
+   */
+  async illustrate(): Promise<void> {
+    const node = this.node();
+    if (node.role !== 'user' && node.role !== 'assistant') return;
+    if (this.isLoading() || this.chatService.isGenerating(node.id)) return;
+    const chatId = this.chatService.currentChatId();
+    if (!chatId) return;
+
+    // Where the resulting picture is stored, and what it should depict.
+    let chapter: ChatNode;
+    let anchorText: string;
+    let contextParentId: string | null;
+    if (node.role === 'assistant') {
+      chapter = node;
+      anchorText = node.content ?? '';
+      contextParentId = node.parentId; // the direction (and everything before) is context
+    } else {
+      const answers = this.chatService.getChildren(node.id)
+        .filter(c => c.role === 'assistant' && c.isCurrent);
+      const candidate = answers[0] ?? this.chatService.getChildren(node.id)
+        .find(c => c.role === 'assistant');
+      if (!candidate) {
+        alert(this.i18n.t('node.imageNoChapter'));
+        return;
+      }
+      chapter = candidate;
+      anchorText = node.content ?? '';
+      contextParentId = node.parentId; // previous chapters only; the direction is added below
+    }
+
+    // 1. Prefer the configured image-create task model.
+    let model = this.generation.modelFor('image-create');
+    let provider = this.generation.providerFor('image-create');
+    // 2. Fall back to any enabled model that can generate images.
+    if (!model || !provider) {
+      const fallback = this.enabledModels().find(canGenerateImages);
+      if (fallback) {
+        model = fallback;
+        provider = this.settings.providers().find(p => p.id === fallback.providerId) ?? null;
+      }
+    }
+    if (!model || !provider) {
+      alert(this.i18n.t('node.imageModelMissing'));
+      return;
+    }
+
+    this.isLoading.set(true);
+    this.pendingAction.set('image');
+    try {
+      // Ground the picture in the previous content along the active path.
+      const contextMessages = this.buildContextMessagesUpTo(contextParentId);
+      const messages: ChatMessage[] = this.textOnlyMessages(contextMessages);
+      const instruction = this.generation.get('image-create').prompt.trim()
+        || this.defaultImagePrompt();
+
+      const anchor = `${instruction}\n\n` +
+        this.i18n.t('node.imageAnchor', {
+          role: this.i18n.t(node.role === 'user' ? 'node.roleUser' : 'node.roleAssistant')
+        }) + `:\n${anchorText.trim() ? anchorText.trim() : '(no text)'}`;
+
+      // Forward prior illustrations as reference only when the chosen model
+      // can take images (otherwise providers may reject image_url parts).
+      const priorImages = this.priorChapterImages(contextParentId);
+      if (canInterpretImages(model) && priorImages.length > 0) {
+        const parts: MessagePart[] = [
+          { type: 'text', text: anchor + '\n\n' + this.i18n.t('node.imageReference') }
+        ];
+        for (const img of priorImages) {
+          parts.push({ type: 'image_url', image_url: { url: img.dataUrl } });
+        }
+        messages.push({ role: 'user', content: parts });
+      } else {
+        messages.push({ role: 'user', content: anchor });
+      }
+
+      const result = await this.llmService.generateImage(provider, model, messages);
+      const attachments = result.images.map((part, i) => ({
+        ...imagePartToAttachment(part, i),
+        id: newId()
+      }));
+      if (attachments.length === 0) {
+        // Surface what the model actually replied so a "no picture" case can
+        // be diagnosed (e.g. a model that only describes the image, or a URL
+        // shape the parser did not recognize).
+        const reply = (result.content || '').trim();
+        throw new Error(
+          reply
+            ? `${this.i18n.t('node.imageEmpty')} — ${reply.slice(0, 300)}`
+            : this.i18n.t('node.imageEmpty')
+        );
+      }
+
+      const merged = [...(chapter.attachments || []), ...attachments];
+      const saved = await this.chatService.editAssistant(
+        chatId,
+        chapter.id,
+        chapter.content || '',
+        merged,
+        chapter.thinking ?? undefined
+      );
+      this.activate.emit(saved.id);
+    } catch (err: any) {
+      console.error(err);
+      alert(this.i18n.t('node.imageFailed', { error: err?.message || err }));
+    } finally {
+      this.isLoading.set(false);
+      this.pendingAction.set(null);
+    }
+  }
+
+  /** Reduce a list of chat messages to their text, dropping image/file parts. */
+  private textOnlyMessages(messages: ChatMessage[]): ChatMessage[] {
+    return messages.map(m => {
+      if (typeof m.content === 'string') return m;
+      const text = m.content
+        .map(part => (part.type === 'text' && part.text ? part.text : ''))
+        .filter(Boolean)
+        .join('\n');
+      return { role: m.role, content: text };
+    });
+  }
+
+  /**
+   * Collect images already present on chapters before `parentId` along the
+   * active path (used as visual reference for the next illustration).
+   */
+  private priorChapterImages(parentId: string | null): NodeAttachment[] {
+    if (!parentId) return [];
+    const path = this.chatService.getPathToNode(parentId);
+    const out: NodeAttachment[] = [];
+    for (const n of path) {
+      if (n.role !== 'assistant') continue;
+      for (const a of n.attachments || []) {
+        const mime = resolvedMime(a);
+        const url = a.dataUrl || '';
+        if (isImageMime(mime) && /^(data:|https?:\/\/)/i.test(url)) out.push(a);
+      }
+    }
+    return out.slice(-4);
+  }
+
+  private defaultImagePrompt(): string {
+    return `Illustrate this beat of the story as a single coherent picture.
+
+The earlier chapters are the established context; the cue below is the scene to depict.
+
+Rules:
+- Stay faithful to the characters, setting, objects, mood and style already established in the earlier chapters.
+- Keep character appearance, setting and style consistent with any previous illustrations.
+- Prefer a painterly, atmospheric composition. No text, captions or speech bubbles inside the image unless the cue explicitly asks for a sign.
+- Return the image only — no commentary.`;
   }
 
   /**

@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
   decodeDataUrlToText,
+  estimateDataUrlBytes,
+  extractLlmImages,
+  extractLlmRefusal,
+  imagePartToAttachment,
   inferMimeType,
   nodeToMessageContent,
   normalizeChatMessages,
@@ -200,6 +204,137 @@ describe('normalizeChatMessages', () => {
       ] as never
     }];
     expect(normalizeChatMessages(msgs)[0].content).toBe('');
+  });
+});
+
+describe('extractLlmImages', () => {
+  const png = dataUrl('image/png', 'PNGDATA');
+
+  it('extracts image_url parts from choices[0].message.content', () => {
+    const json = {
+      choices: [{
+        message: {
+          role: 'assistant',
+          content: [
+            { type: 'text', text: 'Here you go' },
+            { type: 'image_url', image_url: { url: png, alt_text: 'the train' } }
+          ]
+        }
+      }]
+    };
+    expect(extractLlmImages(json)).toEqual([
+      { url: png, altText: 'the train' }
+    ]);
+  });
+
+  it('accepts https URLs as well as data URLs', () => {
+    const json = {
+      choices: [{ message: { content: [
+        { type: 'image_url', image_url: { url: 'https://cdn.example/img.png' } }
+      ] } }]
+    };
+    const [img] = extractLlmImages(json);
+    expect(img.url).toMatch(/^https:\/\//);
+  });
+
+  it('reads a root-level data[].url / b64_json (OpenAI images style)', () => {
+    const json = {
+      data: [
+        { url: 'https://cdn.example/a.png' },
+        { b64_json: 'QUJD' }
+      ]
+    };
+    const imgs = extractLlmImages(json);
+    expect(imgs[0].url).toBe('https://cdn.example/a.png');
+    expect(imgs[1].url).toBe('data:image/png;base64,QUJD');
+  });
+
+  it('returns [] for text-only payloads and garbage', () => {
+    expect(extractLlmImages(null)).toEqual([]);
+    expect(extractLlmImages({ choices: [{ message: { content: 'just text' } }] })).toEqual([]);
+    expect(extractLlmImages({})).toEqual([]);
+  });
+
+  it('skips parts that are not usable image URLs', () => {
+    const json = {
+      choices: [{ message: { content: [
+        { type: 'image_url', image_url: { url: 'ftp://nope' } },
+        { type: 'file', file: { filename: 'x', file_data: 'y' } }
+      ] } }]
+    };
+    expect(extractLlmImages(json)).toEqual([]);
+  });
+
+  it('extracts a markdown image link from a string content (OpenRouter/Gemini)', () => {
+    const json = {
+      choices: [{
+        message: {
+          content: 'Here is your painting: \n\n![Mara on the night train](https://cdn.example/paint.png "train")'
+        }
+      }]
+    };
+    expect(extractLlmImages(json)[0].url).toBe('https://cdn.example/paint.png');
+  });
+
+  it('extracts a bare https URL from string content', () => {
+    const json = {
+      choices: [{ message: { content: 'Image: https://cdn.example/a.png' } }]
+    };
+    expect(extractLlmImages(json)[0].url).toBe('https://cdn.example/a.png');
+  });
+
+  it('reads data_url entries (Anthropic-ish part shape)', () => {
+    const png = dataUrl('image/png', 'QQ==');
+    const json = {
+      choices: [{ message: { content: [{ type: 'image', data_url: png }] } }]
+    };
+    expect(extractLlmImages(json)[0].url).toBe(png);
+  });
+
+  it('handles string entries in output.data style lists', () => {
+    const json = { data: ['https://cdn.example/a.png'] };
+    expect(extractLlmImages(json)[0].url).toBe('https://cdn.example/a.png');
+  });
+});
+
+describe('extractLlmRefusal', () => {
+  it('reads message.refusal from the first choice', () => {
+    const json = {
+      choices: [{
+        message: {
+          refusal: "I can't generate that image because it violates content policy.",
+          content: ''
+        }
+      }]
+    };
+    expect(extractLlmRefusal(json)).toBe(
+      "I can't generate that image because it violates content policy."
+    );
+  });
+
+  it('returns empty when there is no refusal/choice', () => {
+    expect(extractLlmRefusal(null)).toBe('');
+    expect(extractLlmRefusal({ choices: [{ message: { content: 'ok' } }] })).toBe('');
+    expect(extractLlmRefusal({})).toBe('');
+  });
+});
+
+describe('imagePartToAttachment / estimateDataUrlBytes', () => {
+  it('builds a NodeAttachment with mime + inferred extension + base64 size', () => {
+    const png = dataUrl('image/png', 'PNGDATA');
+    const a = imagePartToAttachment({ url: png }, 0);
+    expect(a.mimeType).toBe('image/png');
+    expect(a.name).toBe('illustration-1.png');
+    expect(a.dataUrl).toBe(png);
+    expect(a.id).toBe('');
+    expect(a.size).toBe(estimateDataUrlBytes(png));
+    expect(a.size).toBeGreaterThan(0);
+  });
+
+  it('defaults to image/png for https URLs where the mime cannot be inferred', () => {
+    const a = imagePartToAttachment({ url: 'https://cdn.example/a.jpeg' }, 2);
+    expect(a.mimeType).toBe('image/png');
+    expect(a.name).toBe('illustration-3.png');
   });
 });
 

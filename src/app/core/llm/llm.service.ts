@@ -1,10 +1,15 @@
 import { ChatMessage, ChatNode } from '../../models/chat';
-import { ModelEntry } from '../../models/chat-config';
+import { ModelEntry, canGenerateImages } from '../../models/chat-config';
 import { getServerConfig } from '../common/server-config';
 import { inject, Injectable } from '@angular/core';
 import { ChatService } from '../chat.service';
 import { ChatParametersService } from '../chat-parameters.service';
-import { normalizeChatMessages } from './llm-message';
+import {
+  extractLlmImages,
+  extractLlmRefusal,
+  normalizeChatMessages,
+  type LlmImagePart
+} from './llm-message';
 import { extractLlmDelta, LlmChunk, readSseStream } from './llm-sse';
 import {ChatParameters, ResolvedChatParameters} from '../../models/chat-parameters';
 import { ProjectService } from '../project.service';
@@ -76,6 +81,140 @@ export class LlmService {
       }
       throw err;
     }
+  }
+
+  /**
+   * Fire a non-streaming chat-completions call and return the RAW parsed JSON
+   * body. Used for image-generation models, whose answer is not plain text but
+   * a parts-array (`choices[0].message.content`) carrying `image_url` entries.
+   */
+  async askLlmJson(
+    providerBaseUrl: string,
+    apiKey: string,
+    modelId: string,
+    messages: ChatMessage[],
+    signal?: AbortSignal,
+    extras: Record<string, unknown> = {}
+  ): Promise<unknown> {
+    const config = getServerConfig();
+    const payloadMessages = normalizeChatMessages(messages);
+    const body = JSON.stringify({
+      model: modelId,
+      messages: payloadMessages,
+      ...extras,
+      stream: false
+    });
+    const response = await fetch(`${config.proxyBase}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+        'x-target-base': providerBaseUrl,
+        'HTTP-Referer': 'https://chat-client.local',
+        'X-Title': 'Chapterly'
+      },
+      body,
+      signal
+    });
+    if (!response.ok) {
+      const errText = await response.text();
+      throw new Error(`LLM request failed: ${response.status} ${errText}`);
+    }
+    return await response.json();
+  }
+
+  /**
+   * Generate one or more pictures with an image-output model (text → image).
+   * The request goes through the normal /chat/completions proxy so previous
+   * chat chapters can be sent as context. Extracts the text reply plus any
+   * image parts the model returned.
+   */
+  async generateImage(
+    provider: { baseUrl: string; apiKey: string },
+    model: ModelEntry,
+    messages: ChatMessage[],
+    signal?: AbortSignal
+  ): Promise<{ content: string; images: LlmImagePart[] }> {
+    const resolved = await this.resolveForCurrentChat(model);
+    const extras = this.toLlmExtras(resolved);
+    // Image generation is always a single non-streaming completion.
+    extras['stream'] = false;
+    // Image models reject the generic chat sampling params (OpenAI image
+    // models return 400 "Unsupported parameter: 'temperature'") and never take
+    // reasoning/thinking columns — strip them all.
+    delete extras['temperature'];
+    delete extras['top_k'];
+    delete extras['top_p'];
+    delete extras['include_reasoning'];
+    delete extras['reasoning'];
+
+    // OpenAI-style image models (e.g. gpt-image-1) only actually return the
+    // picture in chat-completions when the response modality is explicitly
+    // requested. Without it they reply 200 with text only (no image). Only
+    // add it for models that declare image output; a text-only model must not
+    // receive a modalities field it does not understand.
+    const wantsModalities = canGenerateImages(model);
+
+    // A provider that hangs must never leave the "Illustrate" button stuck in
+    // "Creating…" — combine the optional caller signal with a hard timeout.
+    const TIMEOUT_MS = 180_000;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+    const forwardAbort = (): void => controller.abort();
+    if (signal) {
+      if (signal.aborted) controller.abort();
+      else signal.addEventListener('abort', forwardAbort, { once: true });
+    }
+
+    const call = (withModalities: boolean): Promise<unknown> => {
+      if (withModalities) extras['modalities'] = ['text', 'image'];
+      else delete extras['modalities'];
+      return this.askLlmJson(
+        provider.baseUrl,
+        provider.apiKey,
+        model.modelId,
+        messages,
+        controller.signal,
+        extras
+      );
+    };
+
+    let json: unknown;
+    try {
+      json = await call(wantsModalities);
+    } catch (err: any) {
+      const msg = String(err?.message ?? err);
+      if (controller.signal.aborted) {
+        throw new Error(`Image generation timed out after ${TIMEOUT_MS / 1000}s`);
+      }
+      // Some providers reject the modalities field with a 400. When that is
+      // the cause, retry once without it instead of failing the whole action.
+      const unsupportedModalities = /modalities/i.test(msg) &&
+        /unsupported|invalid|parameter|recognized|unknown/i.test(msg);
+      if (unsupportedModalities && extras['modalities']) {
+        json = await call(false);
+      } else {
+        throw err;
+      }
+    } finally {
+      clearTimeout(timer);
+      if (signal) signal.removeEventListener('abort', forwardAbort);
+    }
+
+    const images = extractLlmImages(json);
+    // A refusal comes back in message.refusal with empty `content` — surface
+    // it so the user sees WHY the picture was not drawn.
+    let content = extractLlmDelta(json).content.trim();
+    if (!content) content = extractLlmRefusal(json);
+    if (images.length === 0) {
+      // A 200 with no parseable image is usually an unexpected response shape
+      // (markdown URL, text-only answer, or a model that didn't generate).
+      console.warn(
+        '[image-create] model returned no parseable image —',
+        summarizeCompletion(json)
+      );
+    }
+    return { content, images };
   }
 
   private async readCompletion(
@@ -409,4 +548,31 @@ export class LlmService {
     ]);
     return this.parameters.resolveForChat({ model, topic, project, chat });
   }
+}
+
+/**
+ * Compact, safe-to-log summary of a chat-completions response, used to
+ * diagnose image-generation misses. Never includes full base64 payloads.
+ */
+function summarizeCompletion(json: unknown): string {
+  if (!json || typeof json !== 'object') return String(json);
+  const root = json as Record<string, unknown>;
+  const keys = Object.keys(root).join(',');
+  const choice = Array.isArray(root['choices']) ? root['choices'][0] : undefined;
+  const message = (choice && typeof choice === 'object')
+    ? (choice as Record<string, unknown>)['message']
+    : undefined;
+  const content = (message && typeof message === 'object')
+    ? (message as Record<string, unknown>)['content']
+    : undefined;
+  let kind: string;
+  if (typeof content === 'string') {
+    kind = 'string';
+  } else if (Array.isArray(content)) {
+    kind = `array[${content.length}](${content.map(p => (p && typeof p === 'object' ? (p as { type?: unknown })['type'] ?? 'part' : typeof p)).join(',')})`;
+  } else {
+    kind = String(typeof content);
+  }
+  const snippet = typeof content === 'string' ? JSON.stringify(content.slice(0, 160)) : '';
+  return `keys=[${keys}] content=${kind}${snippet ? ` snippet=${snippet}` : ''}`;
 }
