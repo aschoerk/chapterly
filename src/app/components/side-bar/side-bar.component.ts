@@ -13,9 +13,9 @@ import { buildSeedNodeDrafts } from '../../core/llm/llm-context';
 import {ProjectService} from '../../core/project.service';
 import {PersonaService} from '../../core/persona.service';
 import { I18nService } from '../../core/i18n/i18n.service';
+import { TopicSelectionService } from '../../core/topic-selection.service';
 
 const LS_EXPANDED_KEY = 'chat-client.projects.expanded';
-const LS_TOPIC = 'chat.selectedTopicId';
 
 @Component({
   selector: 'side-bar',
@@ -35,6 +35,7 @@ export class SideBarComponent implements OnInit {
   private readonly confirm = inject(ConfirmService);
   readonly i18n = inject(I18nService);
   private readonly api = inject(CHAT_API);
+  private readonly topicSelection = inject(TopicSelectionService);
 
   readonly projects = this.projectService.projects;
   readonly currentChatId = this.chatService.currentChatId;
@@ -58,14 +59,10 @@ export class SideBarComponent implements OnInit {
   readonly reassigningChatId = signal<string | null>(null);
   readonly editingChatId = signal<string | null>(null);
   readonly titleDraft = signal('');
-  readonly selectedTopicId = signal<string>(
-    localStorage.getItem(LS_TOPIC) || 'all'
-  );
+  readonly selectedTopicId = this.topicSelection.selectedTopicId;
 
   selectTopicFilter(id: string) {
-    const value = id || 'all';
-    this.selectedTopicId.set(value);
-    localStorage.setItem(LS_TOPIC, value);
+    this.topicSelection.selectTopic(id || 'all');
   }
 
   setSearchQuery(q: string) {

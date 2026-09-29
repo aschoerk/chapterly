@@ -10,6 +10,28 @@
       [ngModel]="searchTerm()"
       (ngModelChange)="searchTerm.set($event)"
     />
+
+    <div class="current-topic-control">
+      @if (currentTopic(); as topic) {
+        <span class="current-topic-chip" [title]="i18n.t('topics.currentTopicIs', { name: topic.name })">
+          <app-avatar-view
+            class="chip-icon"
+            [value]="topic.icon"
+            [alt]="topic.name"
+            fallback="📌"
+          />
+          <span class="label">{{ i18n.t('topics.currentTopicIs', { name: topic.name }) }}</span>
+          <button
+            class="btn-icon small"
+            type="button"
+            (click)="clearCurrentTopic()"
+            [title]="i18n.t('topics.clearCurrent')"
+          >✕</button>
+        </span>
+      } @else {
+        <span class="hint">{{ i18n.t('topics.noCurrentTopic') }}</span>
+      }
+    </div>
   </div>
 
   @if (error() && !showForm()) {
@@ -37,6 +59,10 @@
             fallback="📌"
           />
 
+          @if (isCurrentTopic(topic)) {
+            <span class="current-badge">{{ i18n.t('topics.current') }}</span>
+          }
+
           <button
             class="menu-btn"
             type="button"
@@ -53,6 +79,9 @@
           @if (openMenuId() === topic.id) {
             <div class="card-menu" (click)="$event.stopPropagation()">
               <button type="button" (click)="openEdit(topic); closeMenu()">{{ i18n.t('common.edit') }}</button>
+              @if (!isCurrentTopic(topic)) {
+                <button type="button" (click)="setCurrentTopic(topic)">{{ i18n.t('topics.setCurrent') }}</button>
+              }
               <button type="button" class="danger" (click)="deleteTopic(topic); closeMenu()">{{ i18n.t('common.delete') }}</button>
             </div>
           }

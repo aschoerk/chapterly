@@ -94,9 +94,13 @@ export class CompositeChatApiService implements ChatApiPort {
   branchUser(chatId: string, nodeId: string, data: BranchQuestionRequest): Promise<ChatNode> {
     return this.api('chats').branchUser(chatId, nodeId, data);
   }
+  reorderSiblings(chatId: string, parentId: string | null, orderedNodeIds: string[]): Promise<ChatNode[]> {
+    return this.api('chats').reorderSiblings(chatId, parentId, orderedNodeIds);
+  }
   patchNode(chatId: string, nodeId: string, data: {
     content?: string; thinking?: string; attachments?: NodeAttachment[];
     modelId?: string; providerId?: string; parentId?: string | null;
+    position?: number | null;
   }): Promise<ChatNode> {
     return this.api('chats').patchNode(chatId, nodeId, data);
   }

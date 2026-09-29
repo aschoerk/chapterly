@@ -46,6 +46,12 @@ export interface ChatApiPort {
 
   getNodes(chatId: string): Promise<ChatNode[]>;
   createNode(chatId: string, data: CreateNodeRequest): Promise<ChatNode>;
+  /** Reorder siblings under a parent by assigning positions in the given order. */
+  reorderSiblings(
+    chatId: string,
+    parentId: string | null,
+    orderedNodeIds: string[],
+  ): Promise<ChatNode[]>;
   editAssistant(
     chatId: string,
     nodeId: string,

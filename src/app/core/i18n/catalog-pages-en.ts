@@ -48,6 +48,11 @@ export const EN_PAGES = {
     linkedCounts: '{{projects}} environment(s) · {{personas}} persona(s)',
     loadFailed: 'Failed to load topics from server.',
     unsavedMsg: 'This topic has edits that are not saved yet.\\nDiscard them?',
+    setCurrent: 'Set as current topic',
+    current: 'Current',
+    currentTopicIs: 'Current topic: {{name}}',
+    clearCurrent: 'Clear current topic',
+    noCurrentTopic: 'No current topic — showing all topics',
   },
   projects: {
     topics: 'Topics',

@@ -10,10 +10,33 @@
       "webRoot": "${workspaceFolder}"
     },
     {
+      "name": "Playwright: Debug spec",
+      "type": "node",
+      "request": "launch",
+      "program": "${workspaceFolder}/node_modules/@playwright/test/cli.js",
+      "args": [
+        "test",
+        "--config=${workspaceFolder}/playwright.config.ts",
+        "--headed",
+        "--workers=1"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "autoAttachChildProcesses": true,
+      "skipFiles": ["<node_internals>/**"]
+    },
+    {
       "name": "Launch Chrome 8080",
       "request": "launch",
       "type": "chrome",
       "url": "http://localhost:8080",
+      "webRoot": "${workspaceFolder}"
+    },
+    {
+      "name": "Launch Chrome 8081",
+      "request": "launch",
+      "type": "chrome",
+      "url": "http://localhost:8081",
       "webRoot": "${workspaceFolder}"
     },
     {

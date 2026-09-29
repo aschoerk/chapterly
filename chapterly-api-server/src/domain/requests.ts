@@ -103,4 +103,5 @@ export interface PatchNodeRequest {
   modelId?: string;
   providerId?: string;
   parentId?: string | null;
+  position?: number | null;
 }

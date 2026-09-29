@@ -287,7 +287,24 @@ export class IdbChatApiService implements ChatApiPort {
 
   async getNodes(chatId: string): Promise<ChatNode[]> {
     const list = await this.tx(['nodes'], 'readonly', tx => this.req<ChatNode[]>(tx.objectStore('nodes').index('by-chat').getAll(chatId)));
-    return list.filter(n => !n.deletedAt).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    const pos = (n: ChatNode) => typeof n.position === 'number' ? n.position : Number.MAX_SAFE_INTEGER;
+    return list
+      .filter(n => !n.deletedAt)
+      .sort((a, b) => pos(a) - pos(b) || a.createdAt.localeCompare(b.createdAt));
+  }
+
+  async reorderSiblings(chatId: string, parentId: string | null, orderedNodeIds: string[]): Promise<ChatNode[]> {
+    await this.tx(['nodes'], 'readwrite', async tx => {
+      const store = tx.objectStore('nodes');
+      for (const [i, id] of orderedNodeIds.entries()) {
+        const row = await this.req<ChatNode | undefined>(store.get(id));
+        if (row && row.chatId === chatId && !row.deletedAt) {
+          await this.req(store.put({ ...row, position: i + 1 }));
+        }
+      }
+    });
+    const list = await this.getNodes(chatId);
+    return list.filter(n => (n.parentId ?? null) === parentId);
   }
 
   async createNode(chatId: string, data: CreateNodeRequest): Promise<ChatNode> {
@@ -297,7 +314,8 @@ export class IdbChatApiService implements ChatApiPort {
       modelId: data.modelId ?? null, providerId: data.providerId ?? null,
       version: 1, previousVersionId: null, isCurrent: true,
       createdAt: this.now(), updatedAt: this.now(),
-      attachments: data.attachments ?? [], chatParametersId: (data as any).chatParametersId ?? null
+      attachments: data.attachments ?? [], chatParametersId: (data as any).chatParametersId ?? null,
+      position: data.position ?? null
     };
     await this.tx(['nodes', 'chats'], 'readwrite', async tx => {
       await this.req(tx.objectStore('nodes').put(row));
@@ -334,7 +352,7 @@ export class IdbChatApiService implements ChatApiPort {
     });
   }
 
-  async patchNode(chatId: string, nodeId: string, data: { content?: string; thinking?: string; attachments?: NodeAttachment[]; modelId?: string; providerId?: string; parentId?: string | null }): Promise<ChatNode> {
+  async patchNode(chatId: string, nodeId: string, data: { content?: string; thinking?: string; attachments?: NodeAttachment[]; modelId?: string; providerId?: string; parentId?: string | null; position?: number | null }): Promise<ChatNode> {
     return this.tx(['nodes', 'chats'], 'readwrite', async tx => {
       const store = tx.objectStore('nodes');
       const old = await this.req<ChatNode>(store.get(nodeId));
@@ -369,6 +387,7 @@ export class IdbChatApiService implements ChatApiPort {
         modelId: data.modelId !== undefined ? data.modelId : old.modelId,
         providerId: data.providerId !== undefined ? data.providerId : old.providerId,
         parentId,
+        position: data.position !== undefined ? data.position : old.position,
         updatedAt: this.now()
       };
       await this.req(store.put(next));

@@ -293,6 +293,52 @@ body.sidebar-resizing * {
   border-color: var(--accent);
 }
 
+/* Selected for copy/cut/delete — special frame around the nav node. */
+.nav-node.selected {
+  outline: 2px solid var(--accent, #2563eb);
+  outline-offset: 1px;
+  background: var(--bg-active);
+  color: var(--text-active);
+  border-color: var(--accent);
+}
+
+.nav-paste-after {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--accent, #2563eb);
+  font-size: 0.78rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.nav-paste-after:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.nav-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  margin-bottom: 0.25rem;
+  font-size: 0.76rem;
+}
+
+.nav-selection-info {
+  font-weight: 600;
+  color: var(--text-active);
+  white-space: nowrap;
+}
+
 .nav-node.question .nav-badge { background: #dbeafe; color: #1e40af; }
 .nav-node.answer .nav-badge   { background: #dcfce7; color: #166534; }
 

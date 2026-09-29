@@ -1,0 +1,35 @@
+# E2E-only stack for Playwright.
+#
+# Reuses the chapterly-dev image (Dockerfile.dev) but:
+#   - runs the API in MEMORY persistence seeded from e2e/fixtures/seed.json
+#   - serves SPA + API + proxy on ONE host port (8081 → container 8080)
+#     => no CORS, no ?port= lost in hash-routing, one origin.
+#
+# Prereqs (build the two dists the mounts provide):
+#   npm run build:server     # chapterly-api-server/dist (has the seeder)
+#   npx ng build             # dist/chat/browser (fresh SPA)
+#   docker build -t chapterly-dev:latest -f Dockerfile.dev .   # once
+#
+# Usage:
+#   docker compose -f docker-compose.e2e.yml up
+#   http://127.0.0.1:8081
+
+name: chapterly-e2e
+
+services:
+  chapterly-e2e:
+    image: chapterly-dev:latest
+    container_name: chapterly-e2e
+    environment:
+      PORT: "8080"
+      PERSISTENCE: memory
+      CHAPTERLY_SEED_FILE: /e2e/fixtures/seed.json
+    ports:
+      - "8081:8080"
+    volumes:
+      # Compiled API (factory.js has CHAPTERLY_SEED_FILE support) + fresh SPA.
+      - ./chapterly-api-server/dist:/app/dist
+      - ./dist/chat/browser:/app/public
+      # Seed fixture (read-only).
+      - ./e2e:/e2e:ro
+    restart: "no"

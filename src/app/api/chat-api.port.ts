@@ -45,9 +45,16 @@ export interface ChatApiPort {
     attachments?: NodeAttachment[]
   ): Promise<ChatNode>;
   branchUser(chatId: string, nodeId: string, data: BranchQuestionRequest): Promise<ChatNode>;
+  /** Reorder siblings under a parent by assigning positions in the given order. */
+  reorderSiblings(
+    chatId: string,
+    parentId: string | null,
+    orderedNodeIds: string[],
+  ): Promise<ChatNode[]>;
   patchNode(chatId: string, nodeId: string, data: {
     content?: string; thinking?: string; attachments?: NodeAttachment[];
     modelId?: string; providerId?: string; parentId?: string | null;
+    position?: number | null;
   }): Promise<ChatNode>;
   deleteNode(chatId: string, nodeId: string, options?: { keepChildren?: boolean }): Promise<void>;
   /** Deleted branch roots (soft-deleted nodes whose parent is not deleted). */

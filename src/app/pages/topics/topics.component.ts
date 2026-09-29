@@ -17,6 +17,7 @@ import { Topic } from '../../models/chat';
 import { AvatarPickerComponent } from '../../components/avatar-picker/avatar-picker.component';
 import { AvatarViewComponent } from '../../components/avatar-view/avatar-view.component';
 import { I18nService } from '../../core/i18n/i18n.service';
+import { TopicSelectionService } from '../../core/topic-selection.service';
 
 @Component({
   selector: 'app-topics',
@@ -30,6 +31,7 @@ export class TopicsComponent implements OnInit {
   private readonly personaService = inject(PersonaService);
   private readonly confirm = inject(ConfirmService);
   readonly i18n = inject(I18nService);
+  private readonly topicSelection = inject(TopicSelectionService);
 
   readonly topics = this.projectService.topics;
   readonly projects = this.projectService.projects;
@@ -41,6 +43,8 @@ export class TopicsComponent implements OnInit {
   readonly saving = signal(false);
   readonly error = signal<string | null>(null);
   readonly openMenuId = signal<string | null>(null);
+  /** The currently defined "current topic" (shared with sidebar + projects). */
+  readonly selectedTopicId = this.topicSelection.selectedTopicId;
 
   /** Modal width in CSS pixels, already clamped to ≤ 90vw. */
   readonly editorWidthPx = signal(520);
@@ -78,6 +82,13 @@ export class TopicsComponent implements OnInit {
     );
   });
 
+  /** The topic currently selected as "current topic", or null if "all". */
+  readonly currentTopic = computed<Topic | null>(() => {
+    const id = this.selectedTopicId();
+    if (!id || id === 'all' || id === 'unassigned') return null;
+    return this.topics().find(t => t.id === id) || null;
+  });
+
   async ngOnInit() {
     try {
       await Promise.all([
@@ -93,6 +104,21 @@ export class TopicsComponent implements OnInit {
 
   projectCount(topic: Topic): number {
     return (topic.projectIds || []).length;
+  }
+
+  isCurrentTopic(topic: Topic): boolean {
+    return this.selectedTopicId() === topic.id;
+  }
+
+  /** Define this topic as the current topic (syncs sidebar + projects). */
+  setCurrentTopic(topic: Topic) {
+    this.closeMenu();
+    this.topicSelection.selectTopic(topic.id);
+  }
+
+  /** Reset the current topic back to "all". */
+  clearCurrentTopic() {
+    this.topicSelection.clear();
   }
 
   personaCount(topic: Topic): number {
@@ -210,6 +236,9 @@ export class TopicsComponent implements OnInit {
     if (!ok) return;
     try {
       await this.projectService.deleteTopic(topic.id);
+      if (this.selectedTopicId() === topic.id) {
+        this.topicSelection.clear();
+      }
     } catch (e: any) {
       console.error(e);
       alert(this.i18n.t('projects.deleteTopicFailed', { error: e?.error?.error || e?.message || '' }));

@@ -13,10 +13,14 @@ export interface ServerConfig {
 export function getServerConfig(): ServerConfig {
   const browser = typeof window !== 'undefined';
   const origin = browser ? window.location.origin : '';
-  const localDev = browser && /^http:\/\/localhost:4200/.test(origin);
+  // Dev server may be reached as localhost or via the literal 127.0.0.1
+  // (Playwright/firewalled setups). Treat both as "local dev" so the
+  // ?port= query (and the 127.0.0.1 fallback below) selects the API base
+  // instead of the web origin.
+  const localDev = browser && /^https?:\/\/(localhost|127\.0\.0\.1):4200/.test(origin);
 
   const port = getServerPort();
-  const fallback = `http://localhost:${port}`;
+  const fallback = `http://127.0.0.1:${port}`;
 
   // Packaged Electron loads the SPA straight from disk (file:// …), where
   // window.location.origin is the string "null" (or empty) — not usable as an

@@ -592,11 +592,28 @@ export class ChatService {
   }
 
 
+  private nodePosition(n: ChatNode): number {
+    return typeof n.position === 'number' ? n.position : Number.MAX_SAFE_INTEGER;
+  }
+
   getChildren(parentId: string | null): ChatNode[] {
-    return this._nodes().filter(n =>
-      (n.parentId ?? null) === (parentId ?? null) &&
-      n.isCurrent
-    );
+    return this._nodes()
+      .filter(n =>
+        (n.parentId ?? null) === (parentId ?? null) &&
+        n.isCurrent
+      )
+      .sort((a, b) => this.nodePosition(a) - this.nodePosition(b));
+  }
+
+  /** Reorder siblings under a parent (assigns persistent positions) and apply locally. */
+  async reorderSiblings(
+    chatId: string,
+    parentId: string | null,
+    orderedNodeIds: string[],
+  ): Promise<void> {
+    const updated = await this.api.reorderSiblings(chatId, parentId, orderedNodeIds);
+    const byId = new Map(updated.map(n => [n.id, n]));
+    this._nodes.update(list => list.map(n => byId.get(n.id) ?? n));
   }
 
   /** All siblings of a given node (including the node itself) */

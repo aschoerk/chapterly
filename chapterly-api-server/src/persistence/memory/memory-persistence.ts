@@ -440,8 +440,33 @@ export class MemoryPersistence implements PersistencePort {
 
   async getNodes(chatId: string): Promise<ChatNode[]> {
     this.requireChat(chatId);
+    const pos = (n: ChatNode) =>
+      typeof n.position === 'number' ? n.position : Number.MAX_SAFE_INTEGER;
     return [...this.nodes.values()]
       .filter((n) => n.chatId === chatId && !n.deletedAt)
+      .sort((a, b) => pos(a) - pos(b))
+      .map(clone);
+  }
+
+  async reorderSiblings(
+    chatId: string,
+    parentId: string | null,
+    orderedNodeIds: string[],
+  ): Promise<ChatNode[]> {
+    this.requireChat(chatId);
+    const siblings = [...this.nodes.values()].filter(
+      (n) => n.chatId === chatId && !n.deletedAt && (n.parentId ?? null) === parentId,
+    );
+    const ids = new Set(siblings.map((n) => n.id));
+    orderedNodeIds
+      .filter((id) => ids.has(id))
+      .forEach((id, i) => {
+        const node = this.nodes.get(id);
+        if (node) node.position = i + 1;
+      });
+    const list = await this.getNodes(chatId);
+    return list
+      .filter((n) => (n.parentId ?? null) === parentId)
       .map(clone);
   }
 
@@ -464,6 +489,7 @@ export class MemoryPersistence implements PersistencePort {
       updatedAt: ts,
       attachments: data.attachments ?? [],
       chatParametersId: data.chatParametersId ?? null,
+      position: data.position ?? null,
     };
     this.nodes.set(node.id, node);
     chat.node_number += 1;
@@ -510,6 +536,7 @@ export class MemoryPersistence implements PersistencePort {
     if (data.modelId !== undefined) node.modelId = data.modelId;
     if (data.providerId !== undefined) node.providerId = data.providerId;
     if (data.parentId !== undefined) node.parentId = data.parentId;
+    if (data.position !== undefined) node.position = data.position;
     node.updatedAt = now();
     return clone(node);
   }

@@ -1,4 +1,4 @@
-import {Component, effect, ElementRef, viewChild, inject, OnInit, signal, HostListener} from '@angular/core';
+import {Component, computed, effect, ElementRef, viewChild, inject, OnInit, signal, HostListener} from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ChatService } from '../../core/chat.service';
@@ -20,6 +20,7 @@ import { GenerationSettingsService } from '../../core/generation-settings.servic
 import { GenerationTaskKind } from '../../models/generation-task';
 import { ModelEntry, ProviderConfig } from '../../models/chat-config';
 import { ConfirmService } from '../../core/confirm.service';
+import { NodeClipboardService } from '../../core/node-clipboard.service';
 
 @Component({
   selector: 'app-chat',
@@ -32,6 +33,8 @@ export class ChatComponent implements OnInit {
   readonly chatService = inject(ChatService);
   readonly i18n = inject(I18nService);
   readonly projectService = inject(ProjectService);
+  /** Client-side node clipboard; used here to paste a copied branch at the top. */
+  readonly clipboard = inject(NodeClipboardService);
   private readonly settings = inject(SettingsService);
   private readonly lastModelService = inject(LastModelService);
   private readonly parameters = inject(ChatParametersService);
@@ -55,6 +58,152 @@ export class ChatComponent implements OnInit {
 
   /** Node whose block sits nearest the top of .tree */
   readonly visibleNodeId = signal<string | null>(null);
+
+  // ------------------------------------------------------------------
+  // Navbar multi-selection (Ctrl+click / Ctrl+drag on the active path)
+  // ------------------------------------------------------------------
+
+  /** Ordered ids of the nodes selected in the navbar (subset of the active path). */
+  readonly navSelectedIds = signal<string[]>([]);
+  readonly navHasSelection = computed(() => this.navSelectedIds().length > 0);
+  /** Navbar node currently under the pointer — target for Ctrl+V paste. */
+  readonly navClipboardTargetId = signal<string | null>(null);
+
+  private navDragActive = false;
+  private navDragMoved = false;
+  private navDragAnchor = -1;
+  private navDragBase = new Set<string>();
+  private navSelectionChatId: string | null = null;
+
+  isNavNodeSelected(id: string): boolean {
+    return this.navSelectedIds().includes(id);
+  }
+
+  /** Plain click → scroll to the node; Ctrl+click is handled by pointer down/up. */
+  onNavNodeClick(event: MouseEvent, node: ChatNode): void {
+    if (event.ctrlKey || event.metaKey) return;
+    this.scrollToNode(node.id);
+  }
+
+  private navNodeIndex(nodeId: string): number {
+    return this.getActivePath().findIndex(n => n.id === nodeId);
+  }
+
+  onNavPointerDown(event: PointerEvent, node: ChatNode): void {
+    if (!(event.ctrlKey || event.metaKey)) return;
+    event.preventDefault();
+    this.navDragActive = true;
+    this.navDragMoved = false;
+    this.navDragBase = new Set(this.navSelectedIds());
+    this.navDragAnchor = this.navNodeIndex(node.id);
+  }
+
+  /** Fires on pointer-entering a nav node — extends a ctrl+drag and tracks hover. */
+  onNavPointerEnter(node: ChatNode): void {
+    this.navClipboardTargetId.set(node.id);
+    if (!this.navDragActive) return;
+    const i = this.navNodeIndex(node.id);
+    if (i < 0) return;
+    this.navDragMoved = true;
+    const path = this.getActivePath();
+    const lo = Math.min(this.navDragAnchor, i);
+    const hi = Math.max(this.navDragAnchor, i);
+    const range = new Set(path.slice(lo, hi + 1).map(n => n.id));
+    const merged = new Set(this.navDragBase);
+    for (const id of range) merged.add(id);
+    this.navSelectedIds.set(path.filter(n => merged.has(n.id)).map(n => n.id));
+  }
+
+  onNavPointerLeave(): void {
+    this.navClipboardTargetId.set(null);
+  }
+
+  @HostListener('document:pointerup', ['$event'])
+  onNavDocumentPointerUp(_event: PointerEvent): void {
+    if (!this.navDragActive) return;
+    this.navDragActive = false;
+    if (this.navDragMoved) return;
+    // Plain Ctrl+click (no drag) → toggle the anchor node.
+    const path = this.getActivePath();
+    const anchor = path[this.navDragAnchor];
+    if (anchor) this.toggleNavSelection(anchor.id);
+  }
+
+  toggleNavSelection(id: string): void {
+    const cur = this.navSelectedIds();
+    this.navSelectedIds.set(cur.includes(id) ? cur.filter(x => x !== id) : [...cur, id]);
+  }
+
+  clearNavSelection(): void {
+    this.navSelectedIds.set([]);
+  }
+
+  private selectedNavNodes(): ChatNode[] {
+    const byId = new Map(this.chatService.currentNodes().map(n => [n.id, n]));
+    const out: ChatNode[] = [];
+    for (const id of this.navSelectedIds()) {
+      const n = byId.get(id);
+      if (n) out.push(n);
+    }
+    return out;
+  }
+
+  copyNavSelection(): void {
+    const nodes = this.selectedNavNodes();
+    if (!nodes.length) return;
+    this.clipboard.copySequence(nodes);
+  }
+
+  async cutNavSelection(): Promise<void> {
+    const nodes = this.selectedNavNodes();
+    if (!nodes.length) return;
+    const hasPayload = nodes.some(
+      (n) => !!n.content?.trim() || !!(n.attachments && n.attachments.length),
+    );
+    if (hasPayload) {
+      const ok = await this.confirm.ask({
+        title: this.i18n.t('node.cutSelectedAsk', { count: nodes.length }),
+        message: this.i18n.t('node.cutSelectedMsg', { count: nodes.length }),
+        confirmLabel: this.i18n.t('node.cutSelected'),
+        cancelLabel: this.i18n.t('common.cancel'),
+        danger: true,
+      });
+      if (!ok) return;
+    }
+    try {
+      await this.clipboard.cutSequence(nodes);
+      this.clearNavSelection();
+    } catch (err: any) {
+      console.error(err);
+      alert(this.i18n.t('node.cutFailed', { error: err?.message || err }));
+    }
+  }
+
+  /** Remove the selected nodes (single nodes only — following text stays). */
+  async deleteNavSelection(): Promise<void> {
+    const nodes = this.selectedNavNodes();
+    if (!nodes.length) return;
+    try {
+      for (const node of nodes) {
+        await this.chatService.deleteNode(node.chatId, node.id, { keepChildren: true });
+      }
+      this.clearNavSelection();
+    } catch (err: any) {
+      console.error(err);
+      alert(this.i18n.t('node.deleteSelectedFailed', { error: err?.message || err }));
+    }
+  }
+
+  /** Paste the clipboard right after the given navbar node. */
+  async pasteNavSelectionAfter(nodeId: string): Promise<void> {
+    if (!this.clipboard.hasContent()) return;
+    try {
+      await this.clipboard.paste(null, nodeId);
+    } catch (err: any) {
+      console.error(err);
+      alert(this.i18n.t('node.pasteFailed', { error: err?.message || err }));
+    }
+  }
 
   private readonly router = inject(Router);
   private static readonly LS_SIDEBAR_WIDTH = 'chat-client.sidebar.width';
@@ -177,6 +326,15 @@ export class ChatComponent implements OnInit {
         this.restoreOpenedChatPosition(chatId);
         this.syncVisibleNode();
       });
+    });
+    effect(() => {
+      // Navbar selection only ever refers to the currently open chat.
+      const chatId = this.chatService.currentChatId();
+      if (chatId !== this.navSelectionChatId) {
+        this.navSelectionChatId = chatId;
+        this.navSelectedIds.set([]);
+        this.navClipboardTargetId.set(null);
+      }
     });
   }
 
@@ -336,6 +494,37 @@ export class ChatComponent implements OnInit {
   @HostListener('window:keydown', ['$event'])
   onKey(event: KeyboardEvent) {
     if (this.isTyping(event)) return;
+    const ctrl = event.ctrlKey || event.metaKey;
+
+    // Navbar multi-selection shortcuts (only when something is selected).
+    if (this.navSelectedIds().length > 0) {
+      if (ctrl && (event.key === 'c' || event.key === 'C')) {
+        event.preventDefault();
+        this.copyNavSelection();
+        return;
+      }
+      if (ctrl && (event.key === 'x' || event.key === 'X')) {
+        event.preventDefault();
+        this.cutNavSelection();
+        return;
+      }
+      if (event.key === 'Delete' || event.key === 'Backspace') {
+        event.preventDefault();
+        this.deleteNavSelection();
+        return;
+      }
+    }
+
+    // Paste behind the navbar node under the pointer.
+    if (ctrl && (event.key === 'v' || event.key === 'V')) {
+      const targetId = this.navClipboardTargetId();
+      if (this.clipboard.hasContent() && targetId) {
+        event.preventDefault();
+        void this.pasteNavSelectionAfter(targetId);
+        return;
+      }
+    }
+
     if (event.key === 'b' || event.key === 'B') {
       if (!this.currentChatId()) return;
       event.preventDefault();
@@ -394,6 +583,16 @@ export class ChatComponent implements OnInit {
       } finally {
         this.trashLoading.set(false);
       }
+    }
+  }
+
+  /** Paste the internal node clipboard as a new top-level branch (parent null). */
+  async pasteAtTop(): Promise<void> {
+    try {
+      await this.clipboard.paste(null);
+    } catch (err: any) {
+      console.error(err);
+      alert(this.i18n.t('node.pasteFailed', { error: err?.message || err }));
     }
   }
 

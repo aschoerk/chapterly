@@ -1,0 +1,129 @@
+{
+  "topics": [
+    {
+      "topicId": "topic-1",
+      "topic": {
+        "id": "topic-1",
+        "name": "Demo Topic",
+        "description": "Seed topic for reproducible UI tests",
+        "defaultModelId": "model-1",
+        "chatParametersId": null,
+        "defaultSystemPrompt": "You are a thoughtful writing coach.",
+        "icon": "📖",
+        "projectIds": ["project-1"],
+        "createdAt": "2024-01-01T00:00:00.000Z",
+        "updatedAt": "2024-01-01T00:00:00.000Z"
+      },
+      "projects": [
+        {
+          "id": "project-1",
+          "name": "Demo Project",
+          "greeting": "Welcome! What should we write today?",
+          "systemPrompt": "You help the user draft a novel.",
+          "defaultModelId": "model-1",
+          "chatParametersId": null,
+          "avatar": "",
+          "personaIds": ["persona-1"],
+          "mainTopicId": "topic-1",
+          "topicIds": ["topic-1"],
+          "createdAt": "2024-01-01T00:00:00.000Z",
+          "updatedAt": "2024-01-01T00:00:00.000Z"
+        }
+      ],
+      "personas": [
+        {
+          "id": "persona-1",
+          "name": "Editor",
+          "shortName": "Ed",
+          "description": "A careful editor persona",
+          "avatar": "",
+          "mainTopicId": "topic-1",
+          "createdAt": "2024-01-01T00:00:00.000Z",
+          "updatedAt": "2024-01-01T00:00:00.000Z"
+        }
+      ],
+      "chats": [
+        {
+          "id": "chat-1",
+          "title": "Getting Started",
+          "projectId": "project-1",
+          "chatParametersId": null,
+          "node_number": 3,
+          "created_at": "2024-01-01T00:00:00.000Z",
+          "updated_at": "2024-01-01T00:00:00.000Z"
+        }
+      ],
+      "nodes": [
+        {
+          "id": "node-1",
+          "chatId": "chat-1",
+          "parentId": null,
+          "role": "user",
+          "content": "How should I introduce my main character?",
+          "version": 1,
+          "isCurrent": true,
+          "createdAt": "2024-01-01T00:00:00.000Z",
+          "updatedAt": "2024-01-01T00:00:00.000Z",
+          "position": 1
+        },
+        {
+          "id": "node-2",
+          "chatId": "chat-1",
+          "parentId": "node-1",
+          "role": "assistant",
+          "content": "Introduce your hero in a memorable, decisive moment.",
+          "thinking": null,
+          "modelId": "model-1",
+          "providerId": "provider-1",
+          "version": 1,
+          "isCurrent": true,
+          "createdAt": "2024-01-01T00:00:00.000Z",
+          "updatedAt": "2024-01-01T00:00:00.000Z",
+          "position": 1
+        },
+        {
+          "id": "node-3",
+          "chatId": "chat-1",
+          "parentId": "node-2",
+          "role": "user",
+          "content": "",
+          "version": 1,
+          "isCurrent": true,
+          "createdAt": "2024-01-01T00:00:00.000Z",
+          "updatedAt": "2024-01-01T00:00:00.000Z",
+          "position": 1
+        }
+      ],
+      "parameters": [],
+      "revision": 0,
+      "updateId": "seed-1"
+    }
+  ],
+  "providers": [
+    {
+      "providerId": "provider-1",
+      "provider": {
+        "id": "provider-1",
+        "name": "Mock LLM",
+        "type": "custom",
+        "baseUrl": "http://mock.invalid",
+        "apiKey": "test",
+        "enabled": true
+      },
+      "models": [
+        {
+          "id": "model-1",
+          "displayName": "Mock Model",
+          "modelId": "mock-model",
+          "providerId": "provider-1",
+          "type": "preset",
+          "enabled": true,
+          "chatParametersId": null
+        }
+      ],
+      "parameters": [],
+      "revision": 0,
+      "updateId": "seed-1"
+    }
+  ]
+}

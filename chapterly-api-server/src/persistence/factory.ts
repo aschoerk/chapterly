@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { PersistenceKind, PersistencePort } from '../domain/chat-api.port.js';
-import { MemoryPersistence } from './memory/memory-persistence.js';
+import { MemoryPersistence, type PersistenceSnapshot } from './memory/memory-persistence.js';
 import { SnapshotPersistence } from './snapshot-store.js';
 import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
@@ -32,6 +32,14 @@ export async function createPersistence(): Promise<PersistencePort> {
   if (kind === 'memory') {
     const store = new MemoryPersistence();
     await store.init();
+    // Optional JSON snapshot seed: CHAPTERLY_SEED_FILE=/path/to/seed.json
+    // Loads a PersistenceSnapshot so E2E/dev runs start from deterministic data.
+    const seedFile = env('CHAPTERLY_SEED_FILE');
+    if (seedFile) {
+      const raw = fs.readFileSync(seedFile, 'utf8');
+      store.importSnapshot(JSON.parse(raw) as PersistenceSnapshot);
+      console.log(`Seeded memory persistence from ${seedFile}`);
+    }
     return store;
   }
   if (kind === 'firebase') {

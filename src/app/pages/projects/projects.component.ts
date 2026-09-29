@@ -29,6 +29,7 @@ import {
 } from '../../models/chat-parameters';
 import {PersonaService} from '../../core/persona.service';
 import { I18nService } from '../../core/i18n/i18n.service';
+import { TopicSelectionService } from '../../core/topic-selection.service';
 
 @Component({
   selector: 'app-projects',
@@ -47,6 +48,7 @@ export class ProjectsComponent implements OnInit {
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
   private readonly confirm = inject(ConfirmService);
+  private readonly topicSelection = inject(TopicSelectionService);
 
   /** Modal width in CSS pixels, already clamped to ≤ 90vw. */
   readonly editorWidthPx = signal(560);
@@ -95,8 +97,8 @@ export class ProjectsComponent implements OnInit {
   readonly saving = signal(false);
   readonly error = signal<string | null>(null);
   readonly openMenuId = signal<string | null>(null);
-  /** Currently selected filter in the left column */
-  readonly selectedTopicId = signal<string | 'all' | 'unassigned'>('all');
+  /** Currently selected filter in the left column (shared with sidebar + topics) */
+  readonly selectedTopicId = this.topicSelection.selectedTopicId;
   readonly selectedIds = signal<Set<string>>(new Set());
   readonly bulkTopicId = signal('');
   readonly bulkAssigning = signal(false);
@@ -163,7 +165,7 @@ export class ProjectsComponent implements OnInit {
     } else if (topicId) {
       const topic = this.topics().find(t => t.id === topicId);
       if (topic) {
-        this.selectedTopicId.set(topic.id);
+        this.topicSelection.selectTopic(topic.id);
         this.openEditTopic(topic);
       }
     }
@@ -585,7 +587,7 @@ export class ProjectsComponent implements OnInit {
         // ---------- CREATE ----------
         const created = await this.projectService.createTopic(payload);
         // optionally select the newly created topic
-        this.selectedTopicId.set(created.id);
+        this.topicSelection.selectTopic(created.id);
       }
 
       this.closeTopicForm();
@@ -621,7 +623,7 @@ export class ProjectsComponent implements OnInit {
     try {
       await this.projectService.deleteTopic(topic.id);
       if (this.selectedTopicId() === topic.id) {
-        this.selectedTopicId.set('all');
+        this.topicSelection.clear();
       }
     } catch (err: any) {
       console.error(err);
@@ -672,7 +674,7 @@ export class ProjectsComponent implements OnInit {
   }
 
   selectTopic(id: string | 'all' | 'unassigned') {
-    this.selectedTopicId.set(id);
+    this.topicSelection.selectTopic(id);
   }
 
   onTopicIconSelected(event: Event) {

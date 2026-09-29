@@ -105,6 +105,15 @@ export class ChatApiService {
     );
   }
 
+  reorderSiblings(chatId: string, parentId: string | null, orderedNodeIds: string[]): Promise<ChatNode[]> {
+    return firstValueFrom(
+      this.http.post<ChatNode[]>(this.api(`/chats/${chatId}/nodes/reorder`), {
+        parentId,
+        orderedNodeIds
+      })
+    );
+  }
+
   editAssistant(chatId: string, nodeId: string, content: string, attachments?: NodeAttachment[], thinking?: string | undefined): Promise<ChatNode> {
     const body: any = { content };
     if (attachments !== undefined) body.attachments = attachments;
@@ -154,6 +163,7 @@ export class ChatApiService {
       modelId?: string;
       providerId?: string;
       parentId?: string | null;
+      position?: number | null;
     }
   ): Promise<ChatNode> {
     return firstValueFrom(

@@ -85,6 +85,7 @@ function mapNode(row: Row): ChatNode {
     completionTokens: (row.completion_tokens as number | null) ?? null,
     attachments: json<NodeAttachment[]>(row.attachments, []),
     chatParametersId: (row.chat_parameters_id as string | null) ?? null,
+    position: (row.position as number | null) ?? null,
   };
 }
 
@@ -208,6 +209,9 @@ export class SqlitePersistence implements PersistencePort {
     this.addColumn('chat_nodes', 'thinking', 'TEXT');
     this.addColumn('chat_nodes', 'chat_parameters_id', 'TEXT');
     this.addColumn('chat_nodes', 'deleted_at', 'TEXT');
+    this.addColumn('chat_nodes', 'position', 'INTEGER');
+    // Backfill: existing sibling order = insertion (rowid) order.
+    this.db.exec('UPDATE chat_nodes SET position = rowid WHERE position IS NULL');
     this.addColumn('models', 'catalog_json', 'TEXT');
     this.addColumn('models', 'chat_parameters_id', 'TEXT');
     this.addColumn('chat_parameters', 'top_p', 'REAL');
@@ -514,7 +518,7 @@ export class SqlitePersistence implements PersistencePort {
   async getNodes(chatId: string): Promise<ChatNode[]> {
     this.chat(chatId);
     return this.rows(
-      'SELECT * FROM chat_nodes WHERE chat_id=? AND deleted_at IS NULL ORDER BY rowid',
+      'SELECT * FROM chat_nodes WHERE chat_id=? AND deleted_at IS NULL ORDER BY position IS NULL, position, rowid',
       chatId,
     ).map(mapNode);
   }
@@ -524,7 +528,7 @@ export class SqlitePersistence implements PersistencePort {
     const ts = now();
     this.db
       .prepare(
-        'INSERT INTO chat_nodes(id,chat_id,parent_id,role,content,thinking,model_id,provider_id,version,previous_version_id,is_current,created_at,updated_at,attachments,chat_parameters_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+        'INSERT INTO chat_nodes(id,chat_id,parent_id,role,content,thinking,model_id,provider_id,version,previous_version_id,is_current,created_at,updated_at,attachments,chat_parameters_id,position) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
       )
       .run(
         id,
@@ -542,11 +546,34 @@ export class SqlitePersistence implements PersistencePort {
         ts,
         JSON.stringify(data.attachments ?? []),
         data.chatParametersId ?? null,
+        data.position ?? null,
       );
     this.db
       .prepare('UPDATE chats SET node_number=node_number+1,updated_at=? WHERE id=?')
       .run(ts, chatId);
     return mapNode(this.row('SELECT * FROM chat_nodes WHERE id=?', id) as Row);
+  }
+  async reorderSiblings(
+    chatId: string,
+    parentId: string | null,
+    orderedNodeIds: string[],
+  ): Promise<ChatNode[]> {
+    this.chat(chatId);
+    const whereParent = parentId === null ? 'parent_id IS NULL' : 'parent_id = ?';
+    const parentParams: unknown[] = parentId === null ? [] : [parentId];
+    const orderQuery = (): string =>
+      `SELECT * FROM chat_nodes WHERE chat_id=? AND deleted_at IS NULL AND ${whereParent} ORDER BY position IS NULL, position, rowid`;
+    const siblings = this.rows(orderQuery(), chatId, ...parentParams);
+    const ids = new Set(siblings.map((row) => row.id as string));
+    const order = orderedNodeIds.filter((id) => ids.has(id));
+    if (order.length > 0) {
+      const stmt = this.db.prepare('UPDATE chat_nodes SET position=? WHERE id=? AND chat_id=?');
+      const tx = this.db.transaction(() => {
+        order.forEach((id, i) => stmt.run(i + 1, id, chatId));
+      });
+      tx();
+    }
+    return this.rows(orderQuery(), chatId, ...parentParams).map(mapNode);
   }
   async editAssistant(
     chatId: string,
@@ -610,7 +637,7 @@ export class SqlitePersistence implements PersistencePort {
       this.db.prepare('UPDATE chat_nodes SET is_current=0,updated_at=? WHERE id=?').run(ts, nodeId);
       this.db
         .prepare(
-          'INSERT INTO chat_nodes(id,chat_id,parent_id,role,content,thinking,model_id,provider_id,version,previous_version_id,prompt_tokens,completion_tokens,attachments,is_current,created_at,updated_at,chat_parameters_id) SELECT ?,chat_id,parent_id,role,?,?,?,?,version+1,?,prompt_tokens,completion_tokens,?,?,?, ?,chat_parameters_id FROM chat_nodes WHERE id=?',
+          'INSERT INTO chat_nodes(id,chat_id,parent_id,role,content,thinking,model_id,provider_id,version,previous_version_id,prompt_tokens,completion_tokens,attachments,is_current,created_at,updated_at,chat_parameters_id,position) SELECT ?,chat_id,parent_id,role,?,?,?,?,version+1,?,prompt_tokens,completion_tokens,?,?,?, ?,chat_parameters_id,position FROM chat_nodes WHERE id=?',
         )
         .run(
           id,
@@ -640,7 +667,7 @@ export class SqlitePersistence implements PersistencePort {
     const old = this.row('SELECT * FROM chat_nodes WHERE id=?', nodeId) as Row;
     this.db
       .prepare(
-        'UPDATE chat_nodes SET content=?,thinking=?,attachments=?,model_id=?,provider_id=?,parent_id=?,updated_at=? WHERE id=?',
+        'UPDATE chat_nodes SET content=?,thinking=?,attachments=?,model_id=?,provider_id=?,parent_id=?,position=?,updated_at=? WHERE id=?',
       )
       .run(
         data.content ?? old.content,
@@ -649,6 +676,7 @@ export class SqlitePersistence implements PersistencePort {
         data.modelId !== undefined ? data.modelId : old.model_id,
         data.providerId !== undefined ? data.providerId : old.provider_id,
         data.parentId !== undefined ? data.parentId : old.parent_id,
+        data.position !== undefined ? data.position : old.position,
         now(),
         nodeId,
       );

@@ -67,6 +67,8 @@ export interface ChatNode {
   completionTokens?: number | null;
   attachments?: NodeAttachment[];
   chatParametersId?: string | null;
+  /** Position among its siblings (1-based). Older rows carry no position and sort after positioned ones. */
+  position?: number | null;
 }
 
 export interface CreateNodeRequest {
@@ -78,6 +80,8 @@ export interface CreateNodeRequest {
   providerId?: string;
   attachments?: NodeAttachment[];
   chatParametersId?: string | null;
+  /** Optional explicit position among siblings (used by multi-paste reordering). */
+  position?: number | null;
 }
 
 export interface Persona {

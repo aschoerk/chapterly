@@ -160,14 +160,29 @@ class InMemoryChatApi implements Pick<
       isCurrent: true,
       createdAt: now,
       updatedAt: now,
-      attachments: data.attachments ?? []
+      attachments: data.attachments ?? [],
+      position: data.position ?? null
     };
     this.nodes.push(row);
     return row;
   }
+  async reorderSiblings(chatId: string, parentId: string | null, orderedNodeIds: string[]) {
+    const parent = parentId ?? null;
+    const siblings = this.nodes.filter(n =>
+      n.chatId === chatId && !n.deletedAt && (n.parentId ?? null) === parent
+    );
+    const ids = new Set(siblings.map(n => n.id));
+    orderedNodeIds.filter(id => ids.has(id)).forEach((id, i) => {
+      this.must(this.nodes, id, 'Node').position = i + 1;
+    });
+    return this.nodes
+      .filter(n => n.chatId === chatId && !n.deletedAt && (n.parentId ?? null) === parent)
+      .map(n => ({ ...n }));
+  }
   async patchNode(chatId: string, nodeId: string, data: {
     content?: string; thinking?: string; attachments?: NodeAttachment[];
     modelId?: string; providerId?: string; parentId?: string | null;
+    position?: number | null;
   }) {
     const row = this.must(this.nodes, nodeId, 'Node');
     Object.assign(row, data, { updatedAt: new Date().toISOString() });

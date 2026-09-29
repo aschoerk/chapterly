@@ -107,6 +107,14 @@
               {{ isElaborating() ? i18n.t('chat.generating') : i18n.t('chat.elaborate') }}
             </button>
 
+            @if (clipboard.hasContent()) {
+              <button class="btn small" type="button"
+                      (click)="pasteAtTop()"
+                      [title]="i18n.t('chat.pasteAtTopTitle')">
+                {{ i18n.t('chat.pasteAtTop') }}
+              </button>
+            }
+
             <button class="btn small" type="button"
                     [class.danger]="trashCount() > 0"
                     (click)="toggleTrash()"
@@ -224,6 +232,36 @@
 
           @if (getActivePath().length > 0) {
             <div class="node-nav-bar">
+              @if (navHasSelection()) {
+                <div class="nav-tools">
+                  <span class="nav-selection-info">
+                    {{ i18n.t('node.selectedCount', { n: navSelectedIds().length }) }}
+                  </span>
+                  <button class="btn small" type="button" (click)="copyNavSelection()"
+                          [title]="i18n.t('node.copySelectedTitle')">
+                    {{ i18n.t('node.copySelected') }}
+                  </button>
+                  <button class="btn small" type="button" (click)="cutNavSelection()"
+                          [title]="i18n.t('node.cutSelectedTitle')">
+                    {{ i18n.t('node.cutSelected') }}
+                  </button>
+                  <button class="btn small danger" type="button" (click)="deleteNavSelection()"
+                          [title]="i18n.t('node.deleteSelectedTitle')">
+                    {{ i18n.t('node.deleteSelected') }}
+                  </button>
+                  <button class="btn small" type="button" (click)="clearNavSelection()"
+                          [title]="i18n.t('node.clearSelectionTitle')">
+                    {{ i18n.t('node.clearSelection') }}
+                  </button>
+                  @if (clipboard.hasContent()) {
+                    <button class="btn small" type="button" (click)="pasteAtTop()"
+                            [title]="i18n.t('chat.pasteAtTopTitle')">
+                      {{ i18n.t('chat.pasteAtTop') }}
+                    </button>
+                  }
+                </div>
+              }
+
               <div class="nav-path">
                 <button class="btn-icon" type="button"
                         (click)="openReader()"
@@ -244,8 +282,12 @@
                     [class.question]="node.role === 'user'"
                     [class.answer]="node.role === 'assistant'"
                     [class.active]="isNearViewport(node.id)"
-                    (click)="scrollToNode(node.id)"
-                    [title]="node.content.slice(0, 120)">
+                    [class.selected]="isNavNodeSelected(node.id)"
+                    (click)="onNavNodeClick($event, node)"
+                    (pointerdown)="onNavPointerDown($event, node)"
+                    (pointerenter)="onNavPointerEnter(node)"
+                    (pointerleave)="onNavPointerLeave()"
+                    [title]="node.content">
 
                     <span class="nav-badge">{{ node.role === 'user' ? 'D' : (node.role === 'assistant' ? 'C' :'S') }}</span>
 
@@ -255,6 +297,14 @@
                       </span>
                     }
                   </button>
+
+                  @if (clipboard.hasContent()) {
+                    <button class="nav-paste-after" type="button"
+                            (click)="pasteNavSelectionAfter(node.id); $event.stopPropagation()"
+                            [title]="i18n.t('node.pasteAfterTitle')">
+                      ⤵
+                    </button>
+                  }
 
                   @if (i < getActivePath().length - 1) {
                     <span class="nav-separator">›</span>

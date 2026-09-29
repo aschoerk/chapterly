@@ -165,6 +165,15 @@ export class SnapshotPersistence implements PersistencePort {
     await this.flush();
     return row;
   }
+  async reorderSiblings(
+    chatId: string,
+    parentId: string | null,
+    orderedNodeIds: string[],
+  ): Promise<ChatNode[]> {
+    const rows = await this.memory.reorderSiblings(chatId, parentId, orderedNodeIds);
+    await this.flush();
+    return rows;
+  }
   async editAssistant(
     chatId: string,
     nodeId: string,

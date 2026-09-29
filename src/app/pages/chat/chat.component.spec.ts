@@ -23,6 +23,8 @@ import { ChatService } from '../../core/chat.service';
 import { SettingsService } from '../../core/settings.service';
 import { LlmService } from '../../core/llm/llm.service';
 import { I18nService } from '../../core/i18n/i18n.service';
+import { NodeClipboardService } from '../../core/node-clipboard.service';
+import { ConfirmService } from '../../core/confirm.service';
 import { seedApi } from '../../../../test-helpers/factories';
 
 import { InMemoryChatApi } from '../../../../test-helpers/in-memory-chat-api'
@@ -472,6 +474,131 @@ describe('Chat', () => {
     const a1 = nodes.find(n => n.role === 'assistant' && n.parentId === q1.id)!;
     expect(a1.modelId).toBe('beta/model');
     expect(a1.providerId).toBe('prov-2');
+  });
+
+  it('pastes a copied chapter at the top of the current chat', async () => {
+    await openStory();
+    const clipboard = TestBed.inject(NodeClipboardService);
+    const src = chatService.nodes().find(n => n.id === 'a2')!;
+    clipboard.copy(src);
+    expect(clipboard.hasContent()).toBe(true);
+
+    await component.pasteAtTop();
+
+    const pasted = chatService.nodes().filter(n => n.content === 'Answer two' && n.id !== 'a2');
+    expect(pasted.length).toBe(1);
+    expect(pasted[0].parentId).toBeNull();
+    expect(pasted[0].chatId).toBe('chat-1');
+  });
+
+  // ----------------------------------------------------------------------
+  // Navbar multi-selection (Ctrl+click / Ctrl+drag / copy-cut-delete / paste-after)
+  // ----------------------------------------------------------------------
+
+  function ctrlPointerEvent(overrides: Partial<PointerEvent> = {}): PointerEvent {
+    return {
+      ctrlKey: true,
+      metaKey: false,
+      shiftKey: false,
+      altKey: false,
+      button: 0,
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+      ...overrides
+    } as unknown as PointerEvent;
+  }
+
+  it('toggles navbar selection on plain Ctrl+click', async () => {
+    await openStory(); // active path ids: q1, a1
+    const a1 = chatService.nodes().find(n => n.id === 'a1')!;
+
+    component.onNavPointerDown(ctrlPointerEvent(), a1);
+    expect(component.isNavNodeSelected('a1')).toBe(false); // decided on pointer-up
+    component.onNavDocumentPointerUp(ctrlPointerEvent());
+    expect(component.isNavNodeSelected('a1')).toBe(true);
+
+    // second Ctrl+click deselects
+    component.onNavPointerDown(ctrlPointerEvent(), a1);
+    component.onNavDocumentPointerUp(ctrlPointerEvent());
+    expect(component.isNavNodeSelected('a1')).toBe(false);
+  });
+
+  it('selects a range with Ctrl+drag in navbar order', async () => {
+    await openStory();
+    const q1 = chatService.nodes().find(n => n.id === 'q1')!;
+    const a1 = chatService.nodes().find(n => n.id === 'a1')!;
+
+    component.onNavPointerDown(ctrlPointerEvent(), q1);
+    component.onNavPointerEnter(a1); // drag continues onto the next nav node
+    expect(component.isNavNodeSelected('q1')).toBe(true);
+    expect(component.isNavNodeSelected('a1')).toBe(true);
+    component.onNavDocumentPointerUp(ctrlPointerEvent());
+    expect(component.navSelectedIds()).toEqual(['q1', 'a1']);
+  });
+
+  it('copies the selected nodes as an ordered sequence', async () => {
+    await openStory();
+    const clipboard = TestBed.inject(NodeClipboardService);
+    component.toggleNavSelection('q1');
+    component.toggleNavSelection('a1');
+    component.copyNavSelection();
+    const contents = clipboard.clipboard()!.nodes.map(n => n.content);
+    expect(contents).toEqual(['Question', 'Answer one']);
+  });
+
+  it('cuts selected nodes: clipboard + trash, following text stays', async () => {
+    await openStory();
+    const clipboard = TestBed.inject(NodeClipboardService);
+    const confirm = TestBed.inject(ConfirmService);
+    vi.spyOn(confirm, 'ask').mockResolvedValue(true);
+
+    component.toggleNavSelection('a1');
+    await component.cutNavSelection();
+
+    expect(clipboard.clipboard()!.nodes.map(n => n.content)).toEqual(['Answer one']);
+    expect(chatService.nodes().find(n => n.id === 'a1')).toBeUndefined();
+    expect(chatService.deletedNodes().some(n => n.id === 'a1')).toBe(true);
+  });
+
+  it('deletes selected nodes (single node only, children stay)', async () => {
+    await openStory();
+    component.toggleNavSelection('a1');
+    await component.deleteNavSelection();
+
+    expect(chatService.nodes().find(n => n.id === 'a1')).toBeUndefined();
+    // the following answer attaches to the question again
+    expect(chatService.nodes().find(n => n.id === 'a2')?.parentId).toBe('q1');
+    expect(chatService.deletedNodes().some(n => n.id === 'a1')).toBe(true);
+  });
+
+  it('pastes a copied sequence behind a node and persists the order', async () => {
+    await openStory();
+    const clipboard = TestBed.inject(NodeClipboardService);
+    const q1 = chatService.nodes().find(n => n.id === 'q1')!;
+    const a1 = chatService.nodes().find(n => n.id === 'a1')!;
+    clipboard.copySequence([q1, a1]); // chain q1 (root) → a1 (child)
+
+    await component.pasteNavSelectionAfter('a2'); // sibling of a1 under q1
+
+    const byContent = (c: string) =>
+      chatService.nodes().filter(n => n.content === c && n.isCurrent);
+    const pastedQ = byContent('Question').find(n => n.id !== 'q1' && n.parentId === 'q1')!;
+    const pastedA = byContent('Answer one').find(n => n.id !== 'a1' && n.parentId === pastedQ.id)!;
+
+    // subtree relation preserved
+    expect(pastedQ.parentId).toBe('q1');
+    expect(pastedA.parentId).toBe(pastedQ.id);
+
+    // the pasted root sits right after a2 among q1's children
+    const kids = chatService.getChildren('q1').map(n => n.id);
+    const a2Idx = kids.indexOf('a2');
+    expect(a2Idx).toBeGreaterThanOrEqual(0);
+    expect(kids[a2Idx + 1]).toBe(pastedQ.id);
+
+    // ordering survives a reload (positions persisted)
+    await chatService.loadNodes('chat-1');
+    const afterReload = chatService.getChildren('q1').map(n => n.id);
+    expect(afterReload[afterReload.indexOf('a2') + 1]).toBe(pastedQ.id);
   });
 });
 

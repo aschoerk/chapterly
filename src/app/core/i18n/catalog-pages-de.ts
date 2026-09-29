@@ -49,6 +49,11 @@ export const DE_PAGES = {
     linkedCounts: '{{projects}} Umgebung(en) · {{personas}} Persona(s)',
     loadFailed: 'Themen konnten nicht vom Server geladen werden.',
     unsavedMsg: 'Dieses Thema hat ungespeicherte Änderungen.\\nVerwerfen?',
+    setCurrent: 'Als aktuelles Thema festlegen',
+    current: 'Aktuell',
+    currentTopicIs: 'Aktuelles Thema: {{name}}',
+    clearCurrent: 'Aktuelles Thema aufheben',
+    noCurrentTopic: 'Kein aktuelles Thema — alle Themen werden angezeigt',
   },
   projects: {
     topics: 'Themen',
