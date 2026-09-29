@@ -6,6 +6,8 @@ import {
   extractLlmRefusal,
   imagePartToAttachment,
   inferMimeType,
+  isGeneratedImageAttachment,
+  isPromptRecordAttachment,
   nodeToMessageContent,
   normalizeChatMessages,
   textPromptAttachment,
@@ -118,6 +120,75 @@ describe('nodeToMessageContent — textual files', () => {
       })]
     }) as string;
     expect(content).toContain('{"hp":3}');
+  });
+});
+
+describe('nodeToMessageContent — recorded image prompts are excluded from story context', () => {
+  it('isPromptRecordAttachment matches prompt-N.txt / refused-prompt-N.txt', () => {
+    expect(isPromptRecordAttachment({ name: 'prompt-1.txt' })).toBe(true);
+    expect(isPromptRecordAttachment({ name: 'refused-prompt-3.txt' })).toBe(true);
+    expect(isPromptRecordAttachment({ name: 'refused-prompt.txt' })).toBe(true);
+    expect(isPromptRecordAttachment({ name: 'prompt.txt' })).toBe(true);
+    expect(isPromptRecordAttachment({ name: 'notes.txt' })).toBe(false);
+    expect(isPromptRecordAttachment({ name: 'a.png' })).toBe(false);
+  });
+
+  it('drops the prompt record attachment from the message content', () => {
+    const content = nodeToMessageContent({
+      content: 'chapter text',
+      attachments: [
+        attach({
+          name: 'prompt-1.txt',
+          mimeType: 'text/plain',
+          dataUrl: dataUrl('text/plain', 'PAYLOAD_THAT_MUST_NOT_LEAK')
+        }),
+        attach({
+          name: 'refused-prompt-2.txt',
+          mimeType: 'text/plain',
+          dataUrl: dataUrl('text/plain', 'Model reply: refused')
+        })
+      ]
+    });
+    expect(content).toBe('chapter text');
+    expect(String(content)).not.toContain('PAYLOAD_THAT_MUST_NOT_LEAK');
+    expect(String(content)).not.toContain('refused');
+  });
+
+  it('excludes generated illustrations (illustration-N.*) and their prompt files', () => {
+    const png = dataUrl('image/png', 'PNG');
+    const content = nodeToMessageContent({
+      content: '',
+      attachments: [
+        attach({ name: 'prompt-1.txt', mimeType: 'text/plain', dataUrl: dataUrl('text/plain', 'x') }),
+        attach({ name: 'illustration-1.png', mimeType: 'image/png', dataUrl: png })
+      ]
+    });
+    // Both the companion prompt file AND the generated picture are internal
+    // metadata — a node that only carries them has no story payload.
+    expect(content).toBe('');
+  });
+
+  it('keeps hand-attached images while dropping generated illustrations', () => {
+    const generated = dataUrl('image/png', 'GEN');
+    const hand = dataUrl('image/jpeg', 'HAND');
+    const content = nodeToMessageContent({
+      content: '',
+      attachments: [
+        attach({ name: 'illustration-2.png', mimeType: 'image/png', dataUrl: generated }),
+        attach({ name: 'reference.jpg', mimeType: 'image/jpeg', dataUrl: hand })
+      ]
+    }) as MessagePart[];
+    // Only the hand-attached image is sent as an image_url part.
+    expect(partsTypes(content)).toEqual(['image_url']);
+    expect((content[0] as { image_url: { url: string } }).image_url.url).toBe(hand);
+  });
+
+  it('isGeneratedImageAttachment matches illustration-N.* but not arbitrary images', () => {
+    expect(isGeneratedImageAttachment({ name: 'illustration-1.png' })).toBe(true);
+    expect(isGeneratedImageAttachment({ name: 'illustration-12.jpg' })).toBe(true);
+    expect(isGeneratedImageAttachment({ name: 'illustration.webp' })).toBe(false);
+    expect(isGeneratedImageAttachment({ name: 'reference.jpg' })).toBe(false);
+    expect(isGeneratedImageAttachment({ name: 'a.png' })).toBe(false);
   });
 });
 

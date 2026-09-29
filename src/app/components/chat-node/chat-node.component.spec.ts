@@ -1314,6 +1314,126 @@ describe('ChatNodeComponent', () => {
       component.onEditorDragLeave(leave);
       expect(component.isEditorDragOver()).toBe(false);
     });
+
+    it('classifies recorded prompt attachments (prompt-N.txt / refused-prompt-N.txt)', () => {
+      const ok = attachment({
+        id: 'ok',
+        name: 'prompt-2.txt',
+        mimeType: 'text/plain',
+        dataUrl: 'data:text/plain;charset=utf-8,' + encodeURIComponent('A scene'),
+      });
+      const refused = attachment({
+        id: 'ref',
+        name: 'refused-prompt-1.txt',
+        mimeType: 'text/plain',
+        dataUrl: 'data:text/plain;charset=utf-8,' + encodeURIComponent(
+          'Prompt used:\nA scene\n\nModel reply:\nNo',
+        ),
+      });
+      const plain = attachment({ id: 'plain', name: 'notes.txt', mimeType: 'text/plain' });
+      createFixture(node({ content: 'x', attachments: [ok, refused, plain] }));
+
+      expect(component.isPromptAttachment(ok)).toBe(true);
+      expect(component.isPromptAttachment(refused)).toBe(true);
+      expect(component.isPromptAttachment(plain)).toBe(false);
+      expect(component.isRefusedPromptAttachment(refused)).toBe(true);
+      expect(component.isRefusedPromptAttachment(ok)).toBe(false);
+
+      // promptAttachmentPrompt extracts only the prompt part of a refused record.
+      expect(component.promptAttachmentPrompt(refused)).toBe('A scene');
+    });
+
+    it('shows the recorded prompt text inline instead of only a download link', () => {
+      const ok = attachment({
+        id: 'ok',
+        name: 'prompt-1.txt',
+        mimeType: 'text/plain',
+        dataUrl: 'data:text/plain;charset=utf-8,' + encodeURIComponent(
+          'Medium shot: a lantern-lit bazaar at night.',
+        ),
+      });
+      createFixture(node({ content: 'x', attachments: [ok] }));
+
+      // Prompt attachments are NOT plain download links any more.
+      expect(fixture.nativeElement.querySelector('.file-link')).toBeNull();
+      expect(fixture.nativeElement.querySelector('.prompt-toggle')).not.toBeNull();
+
+      // Collapsed by default — no inline text yet.
+      expect(fixture.nativeElement.querySelector('.prompt-text')).toBeNull();
+
+      component.togglePrompt(ok);
+      fixture.detectChanges();
+      const text = fixture.nativeElement.querySelector('.prompt-text')?.textContent ?? '';
+      expect(text).toContain('lantern-lit bazaar');
+
+      // Toggling again collapses.
+      component.togglePrompt(ok);
+      fixture.detectChanges();
+      expect(fixture.nativeElement.querySelector('.prompt-text')).toBeNull();
+    });
+
+    it('adapts a refused prompt and re-renders it in place', async () => {
+      const refused = attachment({
+        id: 'ref',
+        name: 'refused-prompt-1.txt',
+        mimeType: 'text/plain',
+        dataUrl: 'data:text/plain;charset=utf-8,' + encodeURIComponent(
+          'Prompt used:\nA dungeon scene\n\nModel reply:\nI cannot generate that image.',
+        ),
+      });
+      const q1 = node({ id: 'q1', chatId: 'chat-1', role: 'user', content: 'Dir' });
+      const a1 = node({
+        id: 'a1',
+        chatId: 'chat-1',
+        parentId: 'q1',
+        role: 'assistant',
+        content: 'Chapter',
+        attachments: [refused],
+      });
+      await openChat([q1, a1]);
+
+      const generation = TestBed.inject(GenerationSettingsService);
+      generation.update('image-create', { providerId: 'prov-1', modelId: 'alpha/model' });
+
+      llm.generateImage.mockResolvedValueOnce({
+        content: '',
+        images: [{ url: 'data:image/png;base64,QQ==' }],
+      });
+
+      createFixture(a1, 'a1');
+      component.startPromptEdit(refused);
+      fixture.detectChanges();
+
+      // Editor opens pre-filled with the prompt portion only (no "Model reply").
+      expect(component.editingPromptId()).toBe('ref');
+      expect(component.promptEditDraft()).toBe('A dungeon scene');
+      expect(fixture.nativeElement.querySelector('.prompt-editor')).not.toBeNull();
+
+      // Re-render against the refused scene number, single picture, no planning.
+      component.promptEditDraft.set('A brighter dungeon scene, lit by torchlight');
+      await component.rerenderPrompt(refused);
+      fixture.detectChanges();
+
+      expect(llm.generateImage).toHaveBeenCalledTimes(1);
+      const optsArg = llm.generateImage.mock.calls[0][4] as {
+        count: number;
+        planDescriptions?: boolean;
+      };
+      expect(optsArg.count).toBe(1);
+      expect(optsArg.planDescriptions).toBe(false);
+
+      // editAssistant versions the chapter — read the current assistant child.
+      const chapter = chatService.getChildren('q1')
+        .find(c => c.role === 'assistant' && c.isCurrent)!;
+      // The refused record is replaced by an image + its prompt file.
+      expect(chapter.attachments?.some(a => a.name === 'refused-prompt-1.txt')).toBe(false);
+      expect(chapter.attachments?.some(a => a.name === 'illustration-1.png')).toBe(true);
+      const promptFile = chapter.attachments!.find(a => a.name === 'prompt-1.txt');
+      expect(promptFile).toBeTruthy();
+      // The adapted prompt is what got recorded next to the new image.
+      expect(decodeDataUrlToText(promptFile!.dataUrl!)).toContain('brighter dungeon scene');
+      expect(emitted).toContain(chapter.id);
+    });
   });
 
   // ------------------------------------------------------------------
@@ -1361,6 +1481,10 @@ describe('ChatNodeComponent', () => {
       const imagesArgs = llm.generateImage.mock.calls[0][2] as { role: string; content: unknown }[];
       const lastText = JSON.stringify(imagesArgs[imagesArgs.length - 1].content);
       expect(lastText).toContain('Night train, Mara at the window.');
+
+      // Single picture (count 1): no storyboard, no description planning.
+      const optsArg = llm.generateImage.mock.calls[0][4] as { planDescriptions?: boolean };
+      expect(optsArg.planDescriptions).not.toBe(true);
 
       const chapter = chatService.getChildren('q1').find((c) => c.role === 'assistant' && c.isCurrent)!;
       expect(chapter.attachments?.length).toBe(2);
@@ -1493,10 +1617,19 @@ describe('ChatNodeComponent', () => {
       const optsArg = llm.generateImage.mock.calls[0][4] as {
         count: number;
         storyboardPrompt: string;
+        planDescriptions?: boolean;
+        planner?: { model?: unknown; provider?: unknown } | null;
         onProgress?: unknown;
       };
       expect(optsArg.count).toBe(3);
       expect(optsArg.storyboardPrompt).toContain('no explicit images');
+      // Storyboard mode asks the service to plan concrete picture
+      // descriptions before rendering each scene.
+      expect(optsArg.planDescriptions).toBe(true);
+      // A planner (text model/provider, fallback = rendering model) is passed
+      // so the pure-text storyboard planning does not depend on the image model.
+      expect(optsArg.planner?.model).toBeDefined();
+      expect(optsArg.planner?.provider).toBeDefined();
 
       // The style is folded into the prompt.
       const msgs = llm.generateImage.mock.calls[0][2] as { role: string; content: unknown }[];

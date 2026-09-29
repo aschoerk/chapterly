@@ -19,6 +19,7 @@ import { MarkdownService } from '../../core/markdown.service';
 import { ChatNode } from '../../models/chat';
 import { I18nService } from '../../core/i18n/i18n.service';
 import { enumerateStoryDocuments, isUsableNode, storyNodeTimestamp } from '../../core/story-paths';
+import { isPromptRecordAttachment } from '../../core/llm/llm-message';
 
 export interface ReaderFont {
   id: string;
@@ -425,6 +426,7 @@ export class ChatReaderComponent implements OnInit, OnDestroy {
     const meta = [kind, node.modelId, `v${node.version}`].filter(Boolean).join(' · ');
     const body = this.markdown.toHtml(node.content || '');
     const files = (node.attachments || [])
+      .filter((a) => !isPromptRecordAttachment(a))
       .map((a) => `<div class="book-file">${this.esc(a.name)}</div>`)
       .join('');
     return (

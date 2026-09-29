@@ -390,18 +390,66 @@
     @if (node().attachments?.length) {
       <div class="attachment-chips read-only">
         @for (a of node().attachments; track a.id) {
-          <div class="chip">
+          <div class="chip" [class.refused]="isRefusedPromptAttachment(a)">
             @if (a.mimeType.startsWith('image/')) {
               <img [src]="a.dataUrl" class="thumb" [alt]="a.name"
                    (click)="openImage(a.dataUrl); $event.stopPropagation()" />
+            } @else if (isPromptAttachment(a)) {
+              <button type="button" class="prompt-toggle"
+                      (click)="togglePrompt(a); $event.stopPropagation()">
+                <span class="file-icon">📄</span>
+                @if (isRefusedPromptAttachment(a)) {
+                  <span class="refused-flag">{{ i18n.t('node.promptRefused') }}</span>
+                }
+                <span class="name" [title]="a.name">{{ a.name }}</span>
+                <span class="prompt-caret">{{ expandedPromptId() === a.id ? '▴' : '▾' }}</span>
+              </button>
             } @else {
               <a class="file-link" [href]="a.dataUrl" [download]="a.name">
-                📄 {{ a.name }}
+                <span class="file-icon">📄</span> {{ a.name }}
               </a>
             }
           </div>
         }
       </div>
+
+      @for (a of node().attachments; track a.id) {
+        @if (isPromptAttachment(a) && expandedPromptId() === a.id) {
+          <div class="prompt-box" [class.refused]="isRefusedPromptAttachment(a)">
+            @if (editingPromptId() === a.id) {
+              <textarea class="prompt-editor"
+                        rows="6"
+                        [ngModel]="promptEditDraft()"
+                        (ngModelChange)="promptEditDraft.set($event)"
+                        [disabled]="isLoading()">
+              </textarea>
+              <div class="prompt-actions">
+                <button class="btn primary small" type="button"
+                        [disabled]="isLoading() || !promptEditDraft().trim()"
+                        (click)="rerenderPrompt(a); $event.stopPropagation()">
+                  {{ i18n.t('node.promptRerender') }}
+                </button>
+                <button class="btn small" type="button"
+                        [disabled]="isLoading()"
+                        (click)="cancelPromptEdit(); $event.stopPropagation()">
+                  {{ i18n.t('common.cancel') }}
+                </button>
+              </div>
+            } @else {
+              <pre class="prompt-text">{{ attachmentText(a) }}</pre>
+              @if (isRefusedPromptAttachment(a)) {
+                <div class="prompt-actions">
+                  <button class="btn small" type="button"
+                          [disabled]="isLoading() || chatService.isGenerating(node().id)"
+                          (click)="startPromptEdit(a); $event.stopPropagation()">
+                    {{ i18n.t('node.promptAdapt') }}
+                  </button>
+                </div>
+              }
+            }
+          </div>
+        }
+      }
     }
 
     <div class="node-actions">

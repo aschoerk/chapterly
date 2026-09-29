@@ -15,10 +15,12 @@ import { ChatParametersService } from '../../core/chat-parameters.service';
 import {
   inferMimeType,
   isImageMime,
+  isTextualMime,
   resolvedMime,
   nodeToMessageContent,
   imagePartToAttachment,
   textPromptAttachment,
+  decodeDataUrlToText,
   type MessagePart
 } from '../../core/llm/llm-message';
 import { GenerateImagesResult, GeneratedImageScene } from '../../core/llm/llm.service';
@@ -557,12 +559,224 @@ export class ChatNodeComponent {
   /** Progress of a storyboard run (done/total), set while `pendingAction === 'image'`. */
   readonly imageProgress = signal<{ done: number; total: number } | null>(null);
 
+  /** Which recorded prompt attachment is expanded inline (by attachment id). */
+  readonly expandedPromptId = signal<string | null>(null);
+  /** Which refused prompt attachment is being edited for re-render. */
+  readonly editingPromptId = signal<string | null>(null);
+  /** Live draft of the adapted prompt while editing a refused prompt. */
+  readonly promptEditDraft = signal('');
+
   /** Button label while generating — "Creating…" or "Creating 3/12…" in storyboard mode. */
   imageProgressLabel(): string {
     const p = this.imageProgress();
     return p && p.total > 1
       ? this.i18n.t('node.generatingImageCount', { done: p.done, total: p.total })
       : this.i18n.t('node.generatingImage');
+  }
+
+  // ------------------------------------------------------------------
+  // Recorded prompt attachments — show the text inline; adapt + re-render
+  // the ones that were refused.
+  // ------------------------------------------------------------------
+
+  /** A text attachment recording an image prompt (`prompt-N.txt`, `refused-prompt-N.txt`). */
+  isPromptAttachment(a: NodeAttachment): boolean {
+    return isTextualMime(resolvedMime(a))
+      && /^(?:refused-)?prompt(?:-\d+)?\.txt$/i.test(a.name);
+  }
+
+  /** A prompt attachment that records a REFUSED / empty image generation. */
+  isRefusedPromptAttachment(a: NodeAttachment): boolean {
+    return isTextualMime(resolvedMime(a))
+      && /^refused-prompt(?:-\d+)?\.txt$/i.test(a.name);
+  }
+
+  /** Decoded text of a (prompt) attachment, or ''. */
+  attachmentText(a: NodeAttachment): string {
+    return typeof a.dataUrl === 'string' ? (decodeDataUrlToText(a.dataUrl) ?? '') : '';
+  }
+
+  /**
+   * The actual prompt portion of a recorded prompt attachment. For refused
+   * records the body is "Prompt used:\n…\n\nModel reply:\n…" — this returns
+   * only the prompt part so an adapted edit starts from the prompt alone.
+   */
+  promptAttachmentPrompt(a: NodeAttachment): string {
+    const text = this.attachmentText(a);
+    if (this.isRefusedPromptAttachment(a)) {
+      // Body: "Prompt used:\n<prompt>\n\nModel reply:\n<reply>"
+      const m = text.match(/^Prompt used\s*:\n([\s\S]*?)\n\s*\n\s*Model reply:/i);
+      if (m && (m[1] ?? '').trim()) return m[1].trim();
+    }
+    return text.trim();
+  }
+
+  /** The scene number recorded in a `refused-prompt-N.txt` name (or null). */
+  private refusalScene(a: NodeAttachment): number | null {
+    const m = a.name.match(/^refused-prompt-(\d+)\.txt$/i);
+    return m ? Number(m[1]) : null;
+  }
+
+  togglePrompt(a: NodeAttachment): void {
+    const same = this.expandedPromptId() === a.id;
+    this.editingPromptId.set(null);
+    this.promptEditDraft.set('');
+    this.expandedPromptId.set(same ? null : a.id);
+  }
+
+  /** Open the inline editor for a refused prompt, pre-filled with the prompt used. */
+  startPromptEdit(a: NodeAttachment): void {
+    this.expandedPromptId.set(a.id);
+    this.editingPromptId.set(a.id);
+    this.promptEditDraft.set(this.promptAttachmentPrompt(a));
+  }
+
+  cancelPromptEdit(): void {
+    this.editingPromptId.set(null);
+    this.promptEditDraft.set('');
+  }
+
+  /**
+   * Re-render ONE refused picture with the adapted prompt. The fresh image
+   * (and its prompt file) replace the refused prompt record on the same
+   * chapter; every other attachment stays. Runs as a single picture (no
+   * storyboard planning) — the adapted prompt IS the concrete scene.
+   */
+  async rerenderPrompt(a: NodeAttachment): Promise<void> {
+    const prompt = this.promptEditDraft().trim();
+    const node = this.node();
+    const chatId = this.chatService.currentChatId();
+    if (!prompt || !chatId) return;
+    if (node.role !== 'assistant') return;
+    if (this.isLoading() || this.chatService.isGenerating(node.id)) return;
+
+    // 1. Prefer the configured image-create task model.
+    let model = this.generation.modelFor('image-create');
+    let provider = this.generation.providerFor('image-create');
+    // 2. Fall back to any enabled model that can generate images.
+    if (!model || !provider) {
+      const fallback = this.enabledModels().find(canGenerateImages);
+      if (fallback) {
+        model = fallback;
+        provider = this.settings.providers().find(p => p.id === fallback.providerId) ?? null;
+      }
+    }
+    if (!model || !provider) {
+      alert(this.i18n.t('node.imageModelMissing'));
+      return;
+    }
+
+    this.isLoading.set(true);
+    this.pendingAction.set('image');
+    this.imageProgress.set(null);
+    try {
+      // Ground the picture in the previous content along the active path.
+      const contextMessages = this.buildContextMessagesUpTo(node.parentId);
+      const messages: ChatMessage[] = this.textOnlyMessages(contextMessages);
+      const instruction = this.generation.get('image-create').prompt.trim()
+        || this.defaultImagePrompt();
+      const anchor = `${instruction}\n\n` +
+        this.i18n.t('node.imageAnchor', {
+          role: this.i18n.t('node.roleAssistant')
+        }) + `:\n${prompt}`;
+
+      // Forward prior illustrations as reference when the chosen model can
+      // read images (same rule as `illustrate`).
+      const priorImages = this.priorChapterImages(node.parentId);
+      if (canInterpretImages(model) && priorImages.length > 0) {
+        const parts: MessagePart[] = [
+          { type: 'text', text: anchor + '\n\n' + this.i18n.t('node.imageReference') }
+        ];
+        for (const img of priorImages) {
+          parts.push({ type: 'image_url', image_url: { url: img.dataUrl } });
+        }
+        messages.push({ role: 'user', content: parts });
+      } else {
+        messages.push({ role: 'user', content: anchor });
+      }
+
+      const result = await this.llmService.generateImage(
+        provider, model, messages, undefined,
+        {
+          count: 1,
+          planDescriptions: false,
+          onProgress: (done, total) => this.imageProgress.set({ done, total })
+        }
+      );
+
+      const generated = this.buildIllustrationAttachments(result, anchor)
+        .map(x => ({ ...x, id: x.id || newId() }));
+
+      if (generated.length === 0) {
+        const reply = (result.content || '').trim();
+        throw new Error(
+          reply
+            ? `${this.i18n.t('node.imageEmpty')} — ${reply.slice(0, 300)}`
+            : this.i18n.t('node.imageEmpty')
+        );
+      }
+
+      // Replace the refused record with the fresh result, renumbered to the
+      // refused scene number so it slots in next to the other storyboard
+      // images instead of colliding with an existing `illustration-N`.
+      const rest = (node.attachments || []).filter(x => x.id !== a.id);
+      const placed = this.placeRerenderResult(generated, rest, this.refusalScene(a));
+      const merged = [...rest, ...placed];
+
+      const saved = await this.chatService.editAssistant(
+        chatId,
+        node.id,
+        node.content || '',
+        merged,
+        node.thinking ?? undefined
+      );
+
+      this.editingPromptId.set(null);
+      this.promptEditDraft.set('');
+      this.expandedPromptId.set(null);
+      this.activate.emit(saved.id);
+    } catch (err: any) {
+      console.error(err);
+      alert(this.i18n.t('node.imageFailed', { error: err?.message || err }));
+    } finally {
+      this.isLoading.set(false);
+      this.pendingAction.set(null);
+      this.imageProgress.set(null);
+    }
+  }
+
+  /**
+   * Renumber the result of a refused-prompt re-render: illustration + prompt
+   * files get the refused scene number when it is still free, otherwise the
+   * next free number — so the re-rendered scene does not collide with other
+   * storyboard attachments.
+   */
+  private placeRerenderResult(
+    attachments: NodeAttachment[],
+    existing: NodeAttachment[],
+    preferredScene: number | null
+  ): NodeAttachment[] {
+    const used = new Set<number>();
+    for (const a of existing) {
+      const m = a.name.match(/^(?:illustration|(?:refused-)?prompt)-(\d+)(\.\w+)?$/i);
+      if (m) used.add(Number(m[1]));
+    }
+    let scene = preferredScene && !used.has(preferredScene) ? preferredScene : 0;
+    if (!scene) {
+      scene = 1;
+      while (used.has(scene)) scene++;
+      used.add(scene);
+    }
+    return attachments.map(a => {
+      const ill = a.name.match(/^illustration-(\d+)(\.\w+)?$/i);
+      if (ill) {
+        used.add(scene);
+        return { ...a, name: `illustration-${scene}${ill[2] ?? ''}` };
+      }
+      const pr = a.name.match(/^(?:refused-)?prompt-(\d+)(\.\w+)?$/i);
+      if (pr) return { ...a, name: `prompt-${scene}${pr[2] ?? '.txt'}` };
+      return a;
+    });
   }
 
   /**
@@ -728,11 +942,20 @@ export class ChatNodeComponent {
         messages.push({ role: 'user', content: anchor });
       }
 
+      // Storyboard planning runs on a capable TEXT model when available
+      // (image models are unreliable at following the strict JSON / still-frame
+      // planning instructions); falls back to the image model.
+      const planner = this.resolvePlanner(model, provider);
       const result = await this.llmService.generateImage(
         provider, model, messages, undefined,
         {
           count,
           storyboardPrompt: count > 1 ? storyboardPrompt : undefined,
+          // Storyboard: first derive concrete picture descriptions from the
+          // story, then render each image from its description (instead of
+          // letting the model pick scenes from the raw prose).
+          planDescriptions: count > 1,
+          planner,
           onProgress: (done, total) => this.imageProgress.set({ done, total })
         }
       );
@@ -821,6 +1044,25 @@ export class ChatNodeComponent {
       }
     }
     return out.slice(-4);
+  }
+
+  /**
+   * Model/provider for the picture-description planning pass used by
+   * storyboard generation. Image models are unreliable at following the
+   * strict JSON / still-frame planning instructions, so prefer a capable
+   * text model: the "image-interpret" task (it reasons about visual scenes),
+   * then "language-check". Falls back to the rendering model/provider.
+   */
+  private resolvePlanner(
+    imageModel: ModelEntry,
+    imageProvider: { baseUrl: string; apiKey: string }
+  ): { model: ModelEntry; provider: { baseUrl: string; apiKey: string } } {
+    for (const kind of ['image-interpret', 'language-check'] as GenerationTaskKind[]) {
+      const model = this.generation.modelFor(kind);
+      const provider = this.generation.providerFor(kind);
+      if (model && provider) return { model, provider };
+    }
+    return { model: imageModel, provider: imageProvider };
   }
 
   private defaultImagePrompt(): string {

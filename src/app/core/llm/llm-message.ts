@@ -111,6 +111,46 @@ export function isTextualMime(mime: string): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// Recorded image prompts (illustration metadata, not story content)
+// ---------------------------------------------------------------------------
+
+/**
+ * Names of the text attachments that record the exact prompt used for an
+ * image (written next to each generated illustration) — or the prompt + the
+ * model's refusal text for a refused/empty attempt.
+ *
+ * These are INTERNAL illustration metadata. They are stored next to the
+ * pictures so the prompt of every image (and every failed attempt) stays
+ * findable, but they are NOT part of the story and must be excluded from the
+ * story progression context, the chat reader and any story export.
+ */
+const PROMPT_RECORD_NAMES = /^(?:refused-)?prompt(?:-\d+)?\.txt$/i;
+
+/** True when the attachment is a recorded image prompt (`prompt-N.txt` / `refused-prompt-N.txt`). */
+export function isPromptRecordAttachment(a: Pick<NodeAttachment, 'name'>): boolean {
+  return PROMPT_RECORD_NAMES.test(a.name || '');
+}
+
+/**
+ * Names of the image attachments created by the app's illustration flow
+ * (`illustration-N.ext`, see `imagePartToAttachment`). These are GENERATED
+ * pictures stored as attachments on the chapter so they render in the UI,
+ * the reader and exports — but they are NOT part of the story text.
+ *
+ * Rule for LLM context: generated illustrations are excluded (their base64
+ * payload would bloat every subsequent story-progression call for no story
+ * value; the story already describes the scene in words). Images a user
+ * attached BY HAND (anything that is not an `illustration-*` name) are kept —
+ * those are intentional inputs the writing model should see.
+ */
+const GENERATED_IMAGE_NAMES = /^illustration-\d+\.[a-z0-9]+$/i;
+
+/** True when the attachment is an app-generated illustration (`illustration-N.ext`). */
+export function isGeneratedImageAttachment(a: Pick<NodeAttachment, 'name'>): boolean {
+  return GENERATED_IMAGE_NAMES.test(a.name || '');
+}
+
+// ---------------------------------------------------------------------------
 // Image-generation responses
 // ---------------------------------------------------------------------------
 
@@ -382,7 +422,15 @@ function hasUsableDataUrl(dataUrl?: string | null): dataUrl is string {
 export function nodeToMessageContent(
   node: Pick<ChatNode, 'content' | 'attachments'>
 ): string | MessagePart[] {
-  const attachments = node.attachments || [];
+  // Internal illustration metadata is never part of the story context sent to
+  // the model: the recorded prompt files (prompt-N.txt / refused-prompt-N.txt)
+  // AND the generated pictures themselves (illustration-N.*, whose base64
+  // payload would bloat every story-progression call). Hand-attached images
+  // (any other image name) are kept — those are intentional inputs the model
+  // should see.
+  const isContextMeta = (a: NodeAttachment): boolean =>
+    isPromptRecordAttachment(a) || isGeneratedImageAttachment(a);
+  const attachments = (node.attachments || []).filter(a => !isContextMeta(a));
   if (attachments.length === 0) {
     return node.content || '';
   }

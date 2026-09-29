@@ -410,6 +410,26 @@ describe('ChatReaderComponent', () => {
     expect(html).toContain('<div class="book-file">notes&lt;&gt;.txt</div>');
   });
 
+  it('does not render recorded image prompt files as book files', async () => {
+    await openChat([
+      { id: 'q1', parentId: null, role: 'user', content: 'Q1', createdAt: t(1) },
+      {
+        id: 'a1',
+        parentId: 'q1',
+        role: 'assistant',
+        content: 'A1',
+        createdAt: t(2),
+        attachments: [
+          makeAttachment({ name: 'prompt-1.txt' }),
+          makeAttachment({ name: 'refused-prompt-2.txt' }),
+        ],
+      },
+    ]);
+    const html = component.bookHtml();
+    expect(html).not.toContain('prompt-1.txt');
+    expect(html).not.toContain('refused-prompt-2.txt');
+  });
+
   it('hides question (direction) nodes when hideQuestions is set', async () => {
     await openChat([
       { id: 'q1', parentId: null, role: 'user', content: 'Q1', createdAt: t(1) },

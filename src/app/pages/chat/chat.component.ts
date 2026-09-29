@@ -15,7 +15,7 @@ import {Router} from '@angular/router';
 import {ProjectService} from '../../core/project.service';
 import { I18nService } from '../../core/i18n/i18n.service';
 import { LlmService } from '../../core/llm/llm.service';
-import { nodeToMessageContent } from '../../core/llm/llm-message';
+import { nodeToMessageContent, isPromptRecordAttachment, isGeneratedImageAttachment } from '../../core/llm/llm-message';
 import { GenerationSettingsService } from '../../core/generation-settings.service';
 import { GenerationTaskKind } from '../../models/generation-task';
 import { ModelEntry, ProviderConfig } from '../../models/chat-config';
@@ -453,7 +453,13 @@ export class ChatComponent implements OnInit {
   private nodeToMessageContent(
     node: ChatNode
   ): string | Array<{ type: string; text?: string; image_url?: { url: string } }> {
-    const attachments = node.attachments || [];
+    // Internal illustration metadata is never story context: recorded prompt
+    // files and GENERATED illustrations (illustration-N.*) are excluded —
+    // their base64 payload would bloat every Elaborate call for no story
+    // value. Hand-attached images (any other name) are kept.
+    const isContextMeta = (a: NodeAttachment): boolean =>
+      isPromptRecordAttachment(a) || isGeneratedImageAttachment(a);
+    const attachments = (node.attachments || []).filter(a => !isContextMeta(a));
     if (attachments.length === 0) {
       return node.content || '';
     }

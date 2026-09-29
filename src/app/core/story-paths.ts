@@ -18,9 +18,13 @@
  *    content silently vanishes.
  */
 import { ChatNode } from '../models/chat';
+import { isPromptRecordAttachment } from './llm/llm-message';
 
 export function isUsableNode(n: ChatNode): boolean {
-  return !!(n.content?.trim() || n.attachments?.length);
+  // Recorded image prompts (prompt-N.txt / refused-prompt-N.txt) are internal
+  // illustration metadata — a node that only carries those has no story payload.
+  if (n.content?.trim()) return true;
+  return (n.attachments || []).some(a => !isPromptRecordAttachment(a));
 }
 
 export function storyNodeTimestamp(n: ChatNode): number {
