@@ -314,6 +314,19 @@ export function registerChatApiRoutes(app: Express, api: PersistencePort): void 
     }),
   );
   app.post(
+    '/api/chats/:id/nodes/reorder',
+    wrap(async (req, res) => {
+      const body = (req.body ?? {}) as { parentId?: string | null; orderedNodeIds: string[] };
+      res.json(
+        await api.reorderSiblings(
+          param(req, 'id'),
+          body.parentId ?? null,
+          Array.isArray(body.orderedNodeIds) ? body.orderedNodeIds : [],
+        ),
+      );
+    }),
+  );
+  app.post(
     '/api/chats/:id/nodes/:nodeId/edit-assistant',
     wrap(async (req, res) => {
       const body = (req.body ?? {}) as {
