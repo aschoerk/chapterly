@@ -276,6 +276,7 @@ export const DE = {
     checkEnglish: 'Englisch prüfen',
     checkEnglishTitle: 'Grammatik korrigieren und die Anweisung für das Modell eindeutig machen',
     checkingEnglish: 'Wird geprüft…',
+    imageInterpretPrefix: 'Angehängtes Bild (automatisch interpretiert):',
     englishEmpty: 'Nichts zu prüfen – die Anweisung ist leer',
     englishModelMissing: 'Kein Modell zum Prüfen der Anweisung verfügbar',
     englishFailed: 'Prüfung fehlgeschlagen: {{error}}',

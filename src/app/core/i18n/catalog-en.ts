@@ -274,6 +274,7 @@ export const EN = {
     checkEnglish: 'Check my English',
     checkEnglishTitle: 'Fix grammar and make the direction unambiguous for the model',
     checkingEnglish: 'Checking…',
+    imageInterpretPrefix: 'Attached image (interpreted automatically):',
     englishEmpty: 'Nothing to check — the direction is empty',
     englishModelMissing: 'No model is available to check the direction',
     englishFailed: 'Check failed: {{error}}',

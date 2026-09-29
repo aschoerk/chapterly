@@ -3,7 +3,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { SettingsService } from '../../../core/settings.service';
 import { GenerationSettingsService } from '../../../core/generation-settings.service';
-import { ModelEntry } from '../../../models/chat-config';
+import { ModelEntry, canGenerateImages, canInterpretImages } from '../../../models/chat-config';
 import { GenerationTaskKind, GENERATION_TASK_KINDS } from '../../../models/generation-task';
 import { I18nService } from '../../../core/i18n/i18n.service';
 
@@ -35,7 +35,13 @@ export class TasksComponent {
   }
 
   modelsForTask(kind: GenerationTaskKind): ModelEntry[] {
-    return this.generation.modelsForProvider(this.generation.get(kind).providerId);
+    let models = this.generation.modelsForProvider(this.generation.get(kind).providerId);
+    if (kind === 'image-create') {
+      models = models.filter(canGenerateImages);
+    } else if (kind === 'image-interpret') {
+      models = models.filter(canInterpretImages);
+    }
+    return models;
   }
 
   onTaskProviderChange(providerId: string, kind: GenerationTaskKind): void {

@@ -8,12 +8,12 @@ import { ChatService } from '../../core/chat.service';
 import { SettingsService } from '../../core/settings.service';
 import { ChatNode, NodeAttachment, ChatMessage } from '../../models/chat';
 import { MarkdownService } from '../../core/markdown.service';
-import {ModelEntry} from '../../models/chat-config';
+import { ModelEntry, canInterpretImages } from '../../models/chat-config';
 import {NodeEditSession} from '../../core/node-edit-session';
 import {ConfirmService} from '../../core/confirm.service';
 import {LlmService} from '../../core/llm/llm.service';
 import { ChatParametersService } from '../../core/chat-parameters.service';
-import { inferMimeType, nodeToMessageContent } from '../../core/llm/llm-message';
+import { inferMimeType, isImageMime, resolvedMime, nodeToMessageContent } from '../../core/llm/llm-message';
 import { formatParametersSummary } from '../../models/chat-parameters';
 import {ProjectService} from '../../core/project.service';
 import { I18nService } from '../../core/i18n/i18n.service';
@@ -404,18 +404,113 @@ export class ChatNodeComponent {
     model: ModelEntry,
     extra?: { content?: string; attachments?: NodeAttachment[]; adoptNodeIds?: string[] }
   ): Promise<ChatNode> {
+    const effective: ChatNode = extra
+      ? { ...question, content: extra.content ?? question.content, attachments: extra.attachments ?? question.attachments }
+      : question;
+
     const contextMessages = this.buildContextMessagesUpTo(contextParentId);
+
+    // Automatic image interpretation: when a direction carries image
+    // attachments, describe them via the image-interpret task model so the
+    // writing model understands what it is looking at.
+    if (effective.role === 'user') {
+      const images = (effective.attachments || []).filter(
+        a => isImageMime(resolvedMime(a)) && a.dataUrl?.startsWith('data:')
+      );
+      if (images.length > 0) {
+        const interpretation = await this.interpretDirectionImages(images);
+        const directionText = (effective.content || '').trim();
+        if (interpretation) {
+          contextMessages.push({
+            role: 'user',
+            content: directionText
+              ? this.i18n.t('node.imageInterpretPrefix') + '\n\n' + interpretation
+              : interpretation
+          });
+          this.closeEditor();
+          return this.streamAnswerWithoutImages(chatId, effective, provider, model, contextMessages, extra);
+        }
+      }
+    }
+
     contextMessages.push({
       role: 'user',
-      content: nodeToMessageContent(
-        extra ? { ...question, content: extra.content ?? question.content, attachments: extra.attachments ?? question.attachments } : question
-      )
+      content: nodeToMessageContent(effective)
     });
     this.closeEditor();
     return this.llmService.streamAnswer(
       chatId, question.id, provider, model, contextMessages, undefined,
       extra?.adoptNodeIds?.length ? { adoptNodeIds: extra.adoptNodeIds } : undefined
     );
+  }
+
+  /**
+   * After images were interpreted into text, stream the answer for the
+   * direction text without re-sending the binary image payload.
+   */
+  private streamAnswerWithoutImages(
+    chatId: string,
+    question: ChatNode,
+    provider: { baseUrl: string; apiKey: string },
+    model: ModelEntry,
+    contextMessages: ChatMessage[],
+    extra?: { content?: string; attachments?: NodeAttachment[]; adoptNodeIds?: string[] }
+  ): Promise<ChatNode> {
+    const textOnly: ChatNode = {
+      ...question,
+      content: extra?.content ?? question.content ?? '',
+      attachments: (extra?.attachments ?? question.attachments ?? []).filter(
+        a => !isImageMime(resolvedMime(a))
+      )
+    };
+    contextMessages.push({ role: 'user', content: nodeToMessageContent(textOnly) });
+    return this.llmService.streamAnswer(
+      chatId, question.id, provider, model, contextMessages, undefined,
+      extra?.adoptNodeIds?.length ? { adoptNodeIds: extra.adoptNodeIds } : undefined
+    );
+  }
+
+  /**
+   * Describe the attached images with the image-interpret generation task
+   * model, falling back to any enabled model that supports image input.
+   * Returns a combined textual description, or null when no capable model is
+   * available / the call failed.
+   */
+  private async interpretDirectionImages(images: NodeAttachment[]): Promise<string | null> {
+    // 1. Prefer the configured image-interpret task.
+    let model = this.generation.modelFor('image-interpret');
+    let provider = this.generation.providerFor('image-interpret');
+    // 2. Fall back to any enabled model that can interpret images.
+    if (!model || !provider) {
+      const fallback = this.enabledModels().find(canInterpretImages);
+      if (fallback) {
+        model = fallback;
+        provider = this.settings.providers().find(p => p.id === fallback.providerId) ?? null;
+      }
+    }
+    if (!model || !provider) return null;
+
+    const prompt = ChatNodeComponent.IMAGE_INTERPRET_PROMPT;
+    const imageParts = nodeToMessageContent({ content: prompt, attachments: images } as ChatNode);
+    try {
+      const resolved = await this.llmService.resolveForCurrentChat(model);
+      const result = await this.llmService.askLlm(
+        provider.baseUrl,
+        provider.apiKey,
+        model.modelId,
+        [{ role: 'user', content: imageParts }],
+        false,
+        undefined,
+        undefined,
+        { ...this.llmService.toLlmExtras(resolved), stream: false },
+        model.providerId
+      );
+      const desc = result.content.trim();
+      return desc || null;
+    } catch (err) {
+      console.error('Image interpretation failed', err);
+      return null;
+    }
   }
 
   /**
@@ -786,6 +881,9 @@ Produce EXACTLY 3 variants of the corrected direction:
 Return ONLY a JSON array of exactly 3 strings in this order: [minimal, clearer, rewritten].
 No text before or after the JSON, no markdown fences.`;
   }
+
+  private static readonly IMAGE_INTERPRET_PROMPT =
+`Describe every attached image in detail so a writing model that cannot see images can continue the story correctly. For each image state: what is shown, the setting, characters (appearance, expression, pose), objects, text or signs, mood, colors and composition, and any detail that matters for the next paragraph. Be factual, do not invent plot. If several images are attached, describe them one by one.`;
 
   /**
    * Delete this assistant answer and its subtree, then resend the parent

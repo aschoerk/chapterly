@@ -79,7 +79,12 @@ export class SettingsService {
 
   readonly providers = computed(() => this._providers());
   readonly models = computed(() => this._models());
-  readonly enabledModels = computed(() => this._models().filter(m => m.enabled));
+  /** Enabled models, sorted alphabetically by display name. */
+  readonly enabledModels = computed(() =>
+    [...this._models().filter(m => m.enabled)].sort((a, b) =>
+      a.displayName.localeCompare(b.displayName, undefined, { sensitivity: 'base' })
+    )
+  );
 
   constructor() {
     this.loadAll();

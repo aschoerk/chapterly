@@ -14,6 +14,7 @@ import { InMemoryChatApi } from '../../../../test-helpers/in-memory-chat-api';
 import { makeAttachment, makeModel, makeNode, seedApi } from '../../../../test-helpers/factories';
 import { ChatNode } from '../../models/chat';
 import { ModelEntry } from '../../models/chat-config';
+import { GenerationSettingsService } from '../../core/generation-settings.service';
 
 /** Thin aliases over the shared test-helpers factories. */
 const node = makeNode;
@@ -709,6 +710,50 @@ describe('ChatNodeComponent', () => {
       fixture.detectChanges();
 
       expect(chatService.chats().find((c) => c.id === 'chat-1')?.title).toBe('My brand new story');
+    });
+
+    it('automatically interprets attached images with the configured image-interpret model', async () => {
+      const q1 = node({ id: 'q1', content: '' });
+      await openChat([q1]);
+      createFixture(q1);
+
+      // Configure the image-interpret task to a (vision-capable) model.
+      const generation = TestBed.inject(GenerationSettingsService);
+      generation.update('image-interpret', { providerId: 'prov-1', modelId: 'alpha/model' });
+
+      llm.askLlm.mockResolvedValueOnce({ content: 'Interpreted: a red ball.', thinking: '' });
+
+      const img = attachment({
+        id: 'img',
+        name: 'pic.png',
+        mimeType: 'image/png',
+        dataUrl: 'data:image/png;base64,AAAA',
+      });
+
+      await component.startEdit();
+      component.editAttachments.set([img]);
+      component.onDraftText('Continue from this picture');
+      await component.sendDraft();
+      fixture.detectChanges();
+
+      // The interpretation askLlm call must have used the configured model.
+      expect(llm.askLlm).toHaveBeenCalledTimes(1);
+      const askArgs = llm.askLlm.mock.calls[0];
+      expect(askArgs[2]).toBe('alpha/model');
+      // The message content is parts incl. an image_url.
+      const content = askArgs[3][0].content;
+      expect(Array.isArray(content)).toBe(true);
+      expect((content as { type: string }[]).some((p) => p.type === 'image_url')).toBe(true);
+
+      // The streamed answer must NOT re-send the binary image.
+      expect(llm.streamAnswer).toHaveBeenCalled();
+      const streamMessages = llm.streamAnswer.mock.calls[0][4] as {
+        role: string;
+        content: unknown;
+      }[];
+      const serialized = JSON.stringify(streamMessages);
+      expect(serialized).not.toContain('image_url');
+      expect(serialized).toContain('Interpreted: a red ball.');
     });
 
     it('the send button is disabled for an empty draft', async () => {

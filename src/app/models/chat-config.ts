@@ -85,3 +85,13 @@ export interface AppSettings {
   providers: ProviderConfig[];
   models: ModelEntry[];
 }
+
+/** True when the model declares image output capability (image generation). */
+export function canGenerateImages(model: ModelEntry | null | undefined): boolean {
+  return !!model?.architecture?.output_modalities?.includes('image');
+}
+
+/** True when the model declares image input capability (image interpretation). */
+export function canInterpretImages(model: ModelEntry | null | undefined): boolean {
+  return !!model?.architecture?.input_modalities?.includes('image');
+}
