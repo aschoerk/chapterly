@@ -1,0 +1,132 @@
+<div class="page">
+  <div class="page-header">
+    <div class="header-left">
+      <h1>{{ i18n.t('logs.title') }}</h1>
+      @if (persisted()) {
+        <span class="badge persisted">{{ i18n.t('logs.persisted') }}</span>
+      } @else {
+        <span class="badge memory">{{ i18n.t('logs.inMemory') }}</span>
+      }
+      <span class="count">{{ entries().length }} / {{ limit }}</span>
+    </div>
+    <div class="actions">
+      <button type="button" class="btn danger"
+              [disabled]="entries().length === 0"
+              (click)="clear()">
+        {{ i18n.t('logs.clear') }}
+      </button>
+    </div>
+  </div>
+
+  <p class="hint">{{ i18n.t('logs.hint') }}</p>
+
+  @if (entries().length === 0) {
+    <p class="empty">{{ i18n.t('logs.empty') }}</p>
+  }
+
+  @for (entry of entries(); track entry.seq) {
+    <div class="card log-card" [class.expanded]="isExpanded(entry.seq)">
+      <div class="card-header log-header" (click)="toggle(entry.seq)">
+        <div class="log-meta">
+          <span class="badge" [class.chat]="entry.kind === 'chat'" [class.image]="entry.kind === 'image'">
+            {{ entry.kind === 'chat' ? i18n.t('logs.kindChat') : i18n.t('logs.kindImage') }}
+          </span>
+          <span class="log-model" [title]="entry.modelId">{{ entry.modelId }}</span>
+          <span class="log-provider" [title]="entry.provider">{{ entry.provider }}</span>
+          @if (entry.endpoint) {
+            <span class="log-endpoint">{{ entry.endpoint }}</span>
+          }
+        </div>
+        <div class="log-ts">{{ formatTimestamp(entry.iso) }}</div>
+      </div>
+
+      <div class="card-body log-summary">
+        <code>{{ entry.summary }}</code>
+      </div>
+
+      @if (isExpanded(entry.seq)) {
+        <div class="log-detail">
+          <!-- Full request JSON (the complete body actually sent, incl. all messages) -->
+          <div class="log-section">
+            <div class="log-section-head">
+              <span class="log-section-title">{{ i18n.t('logs.fullRequest') }}</span>
+              <button type="button" class="btn small"
+                      (click)="toggleBodyJson(entry.seq); $event.stopPropagation()">
+                {{ isBodyJsonOpen(entry.seq) ? i18n.t('logs.hide') : i18n.t('logs.show') }}
+              </button>
+            </div>
+            @if (isBodyJsonOpen(entry.seq)) {
+              <pre>{{ formatBodyJson(entry.body) }}</pre>
+            } @else {
+              <p class="log-caption">{{ i18n.t('logs.fullRequestHint') }}</p>
+            }
+          </div>
+
+          <!-- Response / error of the call -->
+          @if (hasResponse(entry)) {
+            <div class="log-section">
+              <div class="log-section-head">
+                <span class="log-section-title" [class.log-error-title]="!!entry.error">
+                  {{ entry.error ? i18n.t('logs.error') : i18n.t('logs.response') }}
+                </span>
+                <button type="button" class="btn small"
+                        (click)="toggleResponse(entry.seq); $event.stopPropagation()">
+                  {{ isResponseOpen(entry.seq) ? i18n.t('logs.hide') : i18n.t('logs.show') }}
+                </button>
+              </div>
+              @if (entry.error) {
+                <p class="log-caption log-error">
+                  {{ i18n.t('logs.errorStatus', { status: entry.error.status }) }}
+                </p>
+              }
+              @if (isResponseOpen(entry.seq)) {
+                <pre [class.log-error-pre]="!!entry.error">
+                  {{ entry.error ? entry.error.text : formatResponse(entry.response) }}
+                </pre>
+              } @else {
+                <p class="log-caption">{{ i18n.t('logs.responseHint') }}</p>
+              }
+            </div>
+          }
+
+          @if (entry.kind === 'image') {
+            <div class="log-section">
+              <div class="log-section-title">{{ i18n.t('logs.prompt') }}</div>
+              <pre>{{ entry.prompt }}</pre>
+            </div>
+          }
+
+          @if (entry.kind === 'chat') {
+            @if (messagesOf(entry).length === 0) {
+              <div class="log-section">
+                <div class="log-section-title">{{ i18n.t('logs.messages', { count: 0 }) }}</div>
+                <p class="log-caption">{{ i18n.t('logs.noMessages') }}</p>
+              </div>
+            } @else {
+              <div class="log-section">
+                <div class="log-section-title">{{ i18n.t('logs.messages', { count: messagesOf(entry).length }) }}</div>
+                @for (msg of messagesOf(entry); track $index) {
+                  <div class="log-msg">
+                    <div class="msg-head">
+                      <span class="msg-role-tag">{{ msg.role }}</span>
+                      <span class="msg-idx">
+                        @if ($index === 0) {
+                          {{ i18n.t('logs.first') }}
+                        } @else if ($index === messagesOf(entry).length - 1) {
+                          {{ i18n.t('logs.last') }}
+                        } @else {
+                          {{ $index + 1 }}
+                        }
+                      </span>
+                    </div>
+                    <pre>{{ formatMessageContent(msg) }}</pre>
+                  </div>
+                }
+              </div>
+            }
+          }
+        </div>
+      }
+    </div>
+  }
+</div>

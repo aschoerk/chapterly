@@ -73,9 +73,45 @@ describe('IllustrateDialogComponent', () => {
     await expect(p).resolves.toEqual({
       count: 2,
       style: 'comic style',
-      storyboardPrompt: 'no explicit images'
+      storyboardPrompt: 'no explicit images',
+      purePictures: false
     });
     expect(fixture.nativeElement.querySelector('.illustrate-dialog')).toBeNull();
+  });
+
+  it('toggles pure picture mode and submits it', async () => {
+    const p = dialog.open();
+    fixture.detectChanges();
+
+    const checkbox = fixture.nativeElement.querySelector('.ill-check input[type="checkbox"]') as HTMLInputElement;
+    expect(checkbox).not.toBeNull();
+    component.purePictures.set(true);
+    fixture.detectChanges();
+    component.submit();
+    fixture.detectChanges();
+
+    await expect(p).resolves.toMatchObject({ purePictures: true });
+  });
+
+  it('seeds pure picture mode from the last-used options', async () => {
+    dialog.submit({ count: 1, style: '', storyboardPrompt: '', purePictures: true });
+    dialog.open();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(component.purePictures()).toBe(true);
+    const checkbox = fixture.nativeElement.querySelector('.ill-check input[type="checkbox"]') as HTMLInputElement;
+    expect(checkbox?.checked).toBe(true);
+    dialog.cancel();
+  });
+
+  it('shows the pure picture mode checkbox and its hint', async () => {
+    dialog.open();
+    fixture.detectChanges();
+    const text = fixture.nativeElement.textContent as string;
+    expect(text).toContain('Pure picture mode');
+    expect(text).toContain('never the raw story text');
+    dialog.cancel();
   });
 
   it('cancel closes and resolves null', async () => {

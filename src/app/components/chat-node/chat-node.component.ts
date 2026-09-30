@@ -611,10 +611,16 @@ export class ChatNodeComponent {
     return text.trim();
   }
 
-  /** The scene number recorded in a `refused-prompt-N.txt` name (or null). */
-  private refusalScene(a: NodeAttachment): number | null {
-    const m = a.name.match(/^refused-prompt-(\d+)\.txt$/i);
+  /** The scene number recorded in a `prompt-N.txt` / `refused-prompt-N.txt` name (or null). */
+  private promptRecordScene(a: NodeAttachment): number | null {
+    const m = a.name.match(/^(?:refused-)?prompt-(\d+)\.txt$/i);
     return m ? Number(m[1]) : null;
+  }
+
+  /** True when `a` is an illustration paired with the given scene number. */
+  private isIllustrationForScene(a: NodeAttachment, scene: number): boolean {
+    return isImageMime(resolvedMime(a)) &&
+      new RegExp(`^illustration-${scene}\.`, 'i').test(a.name);
   }
 
   togglePrompt(a: NodeAttachment): void {
@@ -634,6 +640,50 @@ export class ChatNodeComponent {
   cancelPromptEdit(): void {
     this.editingPromptId.set(null);
     this.promptEditDraft.set('');
+  }
+
+  /**
+   * Delete a recorded prompt attachment from the chapter (with confirmation).
+   * Only the prompt trace/record is removed — a paired illustration, if any,
+   * is kept. `editAssistant` versions the change, so the record stays
+   * recoverable from prior versions.
+   */
+  async deletePromptAttachment(a: NodeAttachment): Promise<void> {
+    const node = this.node();
+    if (node.role !== 'assistant') return;
+    if (this.isLoading() || this.chatService.isGenerating(node.id)) return;
+    const chatId = this.chatService.currentChatId();
+    if (!chatId) return;
+
+    const ok = await this.confirm.ask({
+      title: this.i18n.t('node.promptDeleteTitle'),
+      message: this.i18n.t('node.promptDeleteMsg', { name: a.name }),
+      confirmLabel: this.i18n.t('common.delete'),
+      cancelLabel: this.i18n.t('common.cancel'),
+      danger: true
+    });
+    if (!ok) return;
+
+    try {
+      const rest = (node.attachments || []).filter(x => x.id !== a.id);
+      const saved = await this.chatService.editAssistant(
+        chatId,
+        node.id,
+        node.content || '',
+        rest,
+        node.thinking ?? undefined
+      );
+      // Close any open inline editor for this attachment.
+      if (this.expandedPromptId() === a.id) this.expandedPromptId.set(null);
+      if (this.editingPromptId() === a.id) {
+        this.editingPromptId.set(null);
+        this.promptEditDraft.set('');
+      }
+      this.activate.emit(saved.id);
+    } catch (err: any) {
+      console.error(err);
+      alert(this.i18n.t('node.deleteFailed', { error: err?.message || err }));
+    }
   }
 
   /**
@@ -717,11 +767,18 @@ export class ChatNodeComponent {
         );
       }
 
-      // Replace the refused record with the fresh result, renumbered to the
-      // refused scene number so it slots in next to the other storyboard
+      // Replace the adapted record with the fresh result, renumbered to the
+      // recorded scene number so it slots in next to the other storyboard
       // images instead of colliding with an existing `illustration-N`.
-      const rest = (node.attachments || []).filter(x => x.id !== a.id);
-      const placed = this.placeRerenderResult(generated, rest, this.refusalScene(a));
+      const recordedScene = this.promptRecordScene(a);
+      let rest = (node.attachments || []).filter(x => x.id !== a.id);
+      if (recordedScene != null) {
+        // For a SUCCESSFUL prompt (paired with an illustration), also drop the
+        // old illustration of the same scene so the re-render REPLACES it
+        // instead of duplicating the picture. A refused record has no image.
+        rest = rest.filter(x => !this.isIllustrationForScene(x, recordedScene));
+      }
+      const placed = this.placeRerenderResult(generated, rest, recordedScene);
       const merged = [...rest, ...placed];
 
       const saved = await this.chatService.editAssistant(
@@ -924,7 +981,7 @@ export class ChatNodeComponent {
     // Ask the user how many scenes, in which style, and the storyboard prompt.
     const options = await this.illustrateDialog.open();
     if (!options) return; // cancelled
-    const { count, style, storyboardPrompt } = options;
+    const { count, style, storyboardPrompt, purePictures } = options;
 
     this.isLoading.set(true);
     this.pendingAction.set('image');
@@ -963,6 +1020,14 @@ export class ChatNodeComponent {
       // (image models are unreliable at following the strict JSON / still-frame
       // planning instructions); falls back to the image model.
       const planner = this.resolvePlanner(model, provider);
+      // For an ASSISTANT chapter the node text is the writer's OUTPUT (the
+      // whole chapter) — a terrible verbatim picture cue. Always route it
+      // through the picture-description planning pass (even for a single
+      // picture) so the actual prompt is a derived scene description, and
+      // hand the drawing instruction over separately via `sceneInstruction`.
+      // Pure picture mode forces the planning pass too: only the derived,
+      // temporal-free descriptions reach the image model.
+      const isAssistantChapter = node.role === 'assistant';
       const result = await this.llmService.generateImage(
         provider, model, messages, undefined,
         {
@@ -970,14 +1035,18 @@ export class ChatNodeComponent {
           storyboardPrompt: count > 1 ? storyboardPrompt : undefined,
           // Storyboard: first derive concrete picture descriptions from the
           // story, then render each image from its description (instead of
-          // letting the model pick scenes from the raw prose).
-          planDescriptions: count > 1,
+          // letting the model pick scenes from the raw prose). Also used for
+          // single pictures of an assistant chapter and in pure picture mode.
+          planDescriptions: count > 1 || isAssistantChapter || purePictures,
           // Storyboard: render the whole storyboard in ONE completion so
           // characters/faces/environment stay consistent across all images
           // (falls back to per-scene automatically when the model returns
-          // fewer than requested).
+          // fewer than requested). Skipped internally in pure mode (the pure
+          // en-block path replaces it).
           singleCall: count > 1,
           planner,
+          sceneInstruction: styledInstruction,
+          purePictures,
           onProgress: (done, total) => this.imageProgress.set({ done, total })
         }
       );
@@ -1070,20 +1139,44 @@ export class ChatNodeComponent {
 
   /**
    * Model/provider for the picture-description planning pass used by
-   * storyboard generation. Image models are unreliable at following the
-   * strict JSON / still-frame planning instructions, so prefer a capable
-   * text model: the "image-interpret" task (it reasons about visual scenes),
-   * then "language-check". Falls back to the rendering model/provider.
+   * storyboard generation. The scene description is derived by the SAME
+   * (text) model that wrote the chapter — the base model of the last
+   * assistant / direction node — so the picture cues match the story's
+   * voice without needing to configure a separate task. Only when that model
+   * cannot be resolved do we fall back to an explicitly-configured
+   * "image-interpret" / "language-check" task, and finally to the image
+   * generation model itself (a poor planner; some image models e.g.
+   * qwen-image-3 can't even be called via chat/completions).
    */
   private resolvePlanner(
     imageModel: ModelEntry,
     imageProvider: { baseUrl: string; apiKey: string }
   ): { model: ModelEntry; provider: { baseUrl: string; apiKey: string } } {
+    // 1. The chat node's OWN (writing) model — the normal model of the
+    //    current chat-node (the one that produced the assistant node) — so
+    //    scene extraction runs on the same model, not the image-interpret
+    //    task.
+    const node = this.node();
+    const nodeModelId = node.modelId || this.resolvePreferredModelId(node);
+    const nodeModel = this.enabledModels().find(
+      m => nodeModelId && (m.modelId === nodeModelId || m.id === nodeModelId)
+    );
+    if (nodeModel && nodeModel.id !== imageModel.id) {
+      const provider = this.settings.providers().find(p => p.id === nodeModel.providerId);
+      if (provider) {
+        return { model: nodeModel, provider: { baseUrl: provider.baseUrl, apiKey: provider.apiKey } };
+      }
+    }
+
+    // 2. Explicitly-configured planner tasks (fallback only).
     for (const kind of ['image-interpret', 'language-check'] as GenerationTaskKind[]) {
       const model = this.generation.modelFor(kind);
       const provider = this.generation.providerFor(kind);
       if (model && provider) return { model, provider };
     }
+
+    // 3. Last resort: the rendering model (kept only so storyboard planning
+    //    still works when no text model is configured anywhere).
     return { model: imageModel, provider: imageProvider };
   }
 

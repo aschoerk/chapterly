@@ -12,13 +12,23 @@ export interface IllustrateOptions {
    * images, hide behind bystanders, furniture, shadows"). Unused for count=1.
    */
   storyboardPrompt: string;
+  /**
+   * Pure picture mode: send the image model ONLY temporal-free picture
+   * descriptions derived from the story text (plus the consistency rules),
+   * never the raw story prose. Image models are less tolerant of sensitive
+   * story content than text models, so stripping the temporal context lowers
+   * moderation rejects. The derived descriptions are sent to the image model
+   * EN-BLOCK first so the image model itself controls character / setting /
+   * style consistency across all pictures.
+   */
+  purePictures: boolean;
 }
 
 export const ILLUSTRATE_COUNT_MIN = 1;
 export const ILLUSTRATE_COUNT_MAX = 64;
 
 export function defaultIllustrateOptions(): IllustrateOptions {
-  return { count: 1, style: '', storyboardPrompt: '' };
+  return { count: 1, style: '', storyboardPrompt: '', purePictures: false };
 }
 
 export function clampIllustrateCount(count: number): number {

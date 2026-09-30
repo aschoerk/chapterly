@@ -7,7 +7,7 @@ interface AppNavLink {
   path: string;
   label: string;
   title: string;
-  icon: 'chat' | 'read' | 'projects' | 'topics' | 'personas' | 'import' | 'config' | 'claims';
+  icon: 'chat' | 'read' | 'projects' | 'topics' | 'personas' | 'import' | 'config' | 'claims' | 'logs';
 }
 
 @Component({
@@ -28,6 +28,7 @@ export class AppNavComponent {
     return [
       { path: '/chat', label: t('nav.stories'), title: t('nav.storiesTitle'), icon: 'chat' },
       { path: '/read', label: t('nav.read'), title: t('nav.readTitle'), icon: 'read' },
+      { path: '/logs', label: t('nav.logs'), title: t('nav.logsTitle'), icon: 'logs' },
       { path: '/projects', label: t('nav.environments'), title: t('nav.environmentsTitle'), icon: 'projects' },
       { path: '/topics', label: t('nav.topics'), title: t('nav.topicsTitle'), icon: 'topics' },
       { path: '/personas', label: t('nav.personas'), title: t('nav.personasTitle'), icon: 'personas' },

@@ -219,20 +219,62 @@ export class SettingsService {
     }
   }
 
+  /**
+   * Fetch every model a provider advertises, through the backend proxy.
+   *
+   * OpenRouter keeps image-generation models (e.g. `x-ai/grok-imagine-image-2.0`)
+   * in a separate catalog served at `GET {baseUrl}/images/models`; they are NOT
+   * included in `GET {baseUrl}/models` (that list only contains chat-capable
+   * models). Without this merge those image-only models would never be fetched.
+   */
+  private async loadProviderCatalog(provider: ProviderConfig): Promise<any[]> {
+    const headers = {
+      Authorization: `Bearer ${provider.apiKey}`,
+      'x-target-base': provider.baseUrl
+    };
+
+    const load = async (path: string): Promise<any[]> => {
+      try {
+        const response: any = await firstValueFrom(
+          this.http.get(`${this.PROXY_BASE}${path}`, { headers })
+        );
+        return response?.data ?? response ?? [];
+      } catch (err: any) {
+        // Providers that don't expose an image catalog respond 404 — not fatal,
+        // just skip that catalog.
+        if (err?.status === 404) return [];
+        throw err;
+      }
+    };
+
+    const chatModels = await load('/models');
+    if (provider.type !== 'openrouter') {
+      return chatModels;
+    }
+
+    const imageModels = await load('/images/models');
+    if (imageModels.length === 0) {
+      return chatModels;
+    }
+
+    // Merge, deduplicated by model id. The chat catalog entry wins on a clash
+    // because it carries richer metadata (top_provider, pricing, reasoning, …).
+    const byId = new Map<string, any>();
+    for (const m of imageModels) {
+      if (m?.id && !byId.has(m.id)) byId.set(m.id, m);
+    }
+    for (const m of chatModels) {
+      if (m?.id) byId.set(m.id, m);
+    }
+    return [...byId.values()];
+  }
+
   async fetchModels(provider: ProviderConfig): Promise<void> {
     try {
       const currentModels = this._models().filter(m => m.providerId === provider.id);
 
-      const response: any = await firstValueFrom(
-        this.http.get(`${this.PROXY_BASE}/models`, {
-          headers: {
-            Authorization: `Bearer ${provider.apiKey}`,
-            'x-target-base': provider.baseUrl
-          }
-        })
-      );
-
-      const freshList = (response.data || []).map((m: any) => mapProviderModel(m, provider.id));
+      const rawModels = await this.loadProviderCatalog(provider);
+      const freshList = rawModels.map((m: any) => mapProviderModel(m, provider.id));
       const freshById = new Map<string, ReturnType<typeof mapProviderModel>>(
         freshList.map((m: ReturnType<typeof mapProviderModel>) => [m.modelId, m])
       );

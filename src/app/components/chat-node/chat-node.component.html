@@ -434,15 +434,25 @@
                         (click)="cancelPromptEdit(); $event.stopPropagation()">
                   {{ i18n.t('common.cancel') }}
                 </button>
+                <button class="btn small danger" type="button"
+                        [disabled]="isLoading() || chatService.isGenerating(node().id)"
+                        (click)="deletePromptAttachment(a); $event.stopPropagation()">
+                  <span class="delete-prompt-label">🗑 {{ i18n.t('node.promptDelete') }}</span>
+                </button>
               </div>
             } @else {
               <pre class="prompt-text">{{ attachmentText(a) }}</pre>
-              @if (isRefusedPromptAttachment(a)) {
+              @if (isPromptAttachment(a)) {
                 <div class="prompt-actions">
                   <button class="btn small" type="button"
                           [disabled]="isLoading() || chatService.isGenerating(node().id)"
                           (click)="startPromptEdit(a); $event.stopPropagation()">
                     {{ i18n.t('node.promptAdapt') }}
+                  </button>
+                  <button class="btn small danger" type="button"
+                          [disabled]="isLoading() || chatService.isGenerating(node().id)"
+                          (click)="deletePromptAttachment(a); $event.stopPropagation()">
+                    <span class="delete-prompt-label">🗑 {{ i18n.t('node.promptDelete') }}</span>
                   </button>
                 </div>
               }

@@ -21,7 +21,8 @@ function readLast(): IllustrateOptions {
     return {
       count: clampIllustrateCount(typeof parsed.count === 'number' ? parsed.count : 1),
       style: typeof parsed.style === 'string' ? parsed.style : '',
-      storyboardPrompt: typeof parsed.storyboardPrompt === 'string' ? parsed.storyboardPrompt : ''
+      storyboardPrompt: typeof parsed.storyboardPrompt === 'string' ? parsed.storyboardPrompt : '',
+      purePictures: typeof parsed.purePictures === 'boolean' ? parsed.purePictures : false
     };
   } catch {
     return defaultIllustrateOptions();
@@ -56,6 +57,7 @@ export class IllustrateDialogService {
         count: last.count,
         style: last.style,
         storyboardPrompt: last.storyboardPrompt,
+        purePictures: last.purePictures,
         resolve
       });
     });
@@ -66,7 +68,8 @@ export class IllustrateDialogService {
     const clamped: IllustrateOptions = {
       count: clampIllustrateCount(options.count),
       style: (options.style || '').trim(),
-      storyboardPrompt: (options.storyboardPrompt || '').trim()
+      storyboardPrompt: (options.storyboardPrompt || '').trim(),
+      purePictures: !!options.purePictures
     };
     this.last.set(clamped);
     persist(clamped);

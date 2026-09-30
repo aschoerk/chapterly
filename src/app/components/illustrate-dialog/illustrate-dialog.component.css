@@ -67,6 +67,28 @@
   line-height: 1.35;
 }
 
+.ill-check {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.35rem;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.ill-check input[type='checkbox'] {
+  width: 1rem;
+  height: 1rem;
+  margin: 0;
+  accent-color: var(--accent, #2563eb);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.ill-hint + .illustrate-actions {
+  margin-top: 1rem;
+}
+
 .illustrate-actions {
   display: flex;
   justify-content: flex-end;

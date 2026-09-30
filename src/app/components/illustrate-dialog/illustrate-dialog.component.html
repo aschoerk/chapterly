@@ -48,6 +48,16 @@
         </label>
       }
 
+      <label class="ill-check">
+        <input
+          type="checkbox"
+          [ngModel]="purePictures()"
+          (ngModelChange)="purePictures.set($event)"
+        />
+        <span>{{ i18n.t('illustrateDialog.purePicturesLabel') }}</span>
+      </label>
+      <small class="ill-hint">{{ i18n.t('illustrateDialog.purePicturesHint') }}</small>
+
       <div class="illustrate-actions">
         <button class="btn" type="button" (click)="dialog.cancel()">
           {{ i18n.t('common.cancel') }}

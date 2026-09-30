@@ -18,6 +18,7 @@ export class IllustrateDialogComponent {
   readonly count = signal(1);
   readonly style = signal('');
   readonly storyboardPrompt = signal('');
+  readonly purePictures = signal(false);
   readonly showStoryboard = computed(() => this.count() > 1);
 
   constructor() {
@@ -28,6 +29,7 @@ export class IllustrateDialogComponent {
       this.count.set(s.count);
       this.style.set(s.style);
       this.storyboardPrompt.set(s.storyboardPrompt);
+      this.purePictures.set(s.purePictures);
     });
   }
 
@@ -42,7 +44,8 @@ export class IllustrateDialogComponent {
     this.dialog.submit({
       count: this.count(),
       style: this.style(),
-      storyboardPrompt: this.storyboardPrompt()
+      storyboardPrompt: this.storyboardPrompt(),
+      purePictures: this.purePictures()
     });
   }
 

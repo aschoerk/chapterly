@@ -74,7 +74,7 @@ describe('ChatNodeComponent', () => {
           provide: IllustrateDialogService,
           useValue: {
             // Default: a simple single-scene, no-style run.
-            open: vi.fn(async () => ({ count: 1, style: '', storyboardPrompt: '' })),
+            open: vi.fn(async () => ({ count: 1, style: '', storyboardPrompt: '', purePictures: false })),
             current: vi.fn(() => null)
           }
         },
@@ -1547,6 +1547,143 @@ describe('ChatNodeComponent', () => {
       expect(component.editingPromptId()).toBeNull();
       expect(component.expandedPromptId()).toBeNull();
     });
+
+    it('adapts & re-renders a SUCCESSFUL prompt by replacing its paired illustration', async () => {
+      const prompt = attachment({
+        id: 'p1',
+        name: 'prompt-1.txt',
+        mimeType: 'text/plain',
+        dataUrl: 'data:text/plain;charset=utf-8,' + encodeURIComponent('A castle scene'),
+      });
+      const img = attachment({
+        id: 'img1',
+        name: 'illustration-1.png',
+        mimeType: 'image/png',
+        dataUrl: 'data:image/png;base64,OLDDATA',
+      });
+      const q1 = node({ id: 'q1', chatId: 'chat-1', role: 'user', content: 'Dir' });
+      const a1 = node({
+        id: 'a1', chatId: 'chat-1', parentId: 'q1', role: 'assistant', content: 'Chapter',
+        attachments: [img, prompt],
+      });
+      await openChat([q1, a1]);
+
+      const generation = TestBed.inject(GenerationSettingsService);
+      generation.update('image-create', { providerId: 'prov-1', modelId: 'alpha/model' });
+      llm.generateImage.mockResolvedValueOnce({
+        content: '',
+        images: [{ url: 'data:image/png;base64,NEWDATA' }],
+      });
+
+      createFixture(a1, 'a1');
+      component.startPromptEdit(prompt);
+      component.promptEditDraft.set('A brighter castle at dusk');
+      await component.rerenderPrompt(prompt);
+      fixture.detectChanges();
+
+      const chapter = chatService.getChildren('q1')
+        .find(c => c.role === 'assistant' && c.isCurrent)!;
+      // The OLD illustration is replaced, not duplicated.
+      const images = (chapter.attachments || []).filter(a => a.name === 'illustration-1.png');
+      expect(images).toHaveLength(1);
+      expect(images[0].dataUrl).toBe('data:image/png;base64,NEWDATA');
+      // The OLD prompt record is replaced with the adapted one.
+      const prompts = (chapter.attachments || []).filter(a => a.name === 'prompt-1.txt');
+      expect(prompts).toHaveLength(1);
+      expect(decodeDataUrlToText(prompts[0].dataUrl!)).toContain('brighter castle at dusk');
+    });
+
+    it('deletes a prompt attachment after confirmation (image kept, editor closed)', async () => {
+      const prompt = attachment({
+        id: 'p1',
+        name: 'prompt-1.txt',
+        mimeType: 'text/plain',
+        dataUrl: 'data:text/plain;charset=utf-8,' + encodeURIComponent('A castle scene'),
+      });
+      const img = attachment({
+        id: 'img1',
+        name: 'illustration-1.png',
+        mimeType: 'image/png',
+        dataUrl: 'data:image/png;base64,KEEPME',
+      });
+      const q1 = node({ id: 'q1', chatId: 'chat-1', role: 'user', content: 'Dir' });
+      const a1 = node({
+        id: 'a1', chatId: 'chat-1', parentId: 'q1', role: 'assistant', content: 'Chapter',
+        attachments: [img, prompt],
+      });
+      await openChat([q1, a1]);
+
+      createFixture(a1, 'a1');
+      component.startPromptEdit(prompt); // keep the editor open — it must close on delete
+      confirmResolves(true);
+      await component.deletePromptAttachment(prompt);
+      fixture.detectChanges();
+
+      expect(confirm.ask).toHaveBeenCalled();
+      const chapter = chatService.getChildren('q1')
+        .find(c => c.role === 'assistant' && c.isCurrent)!;
+      expect(chapter.attachments?.some(a => a.id === 'p1')).toBe(false);
+      expect(chapter.attachments?.some(a => a.id === 'img1')).toBe(true);
+      // Editor state reset.
+      expect(component.editingPromptId()).toBeNull();
+      expect(component.expandedPromptId()).toBeNull();
+    });
+
+    it('keeps the prompt record when deletion is cancelled', async () => {
+      const prompt = attachment({
+        id: 'p1',
+        name: 'refused-prompt-1.txt',
+        mimeType: 'text/plain',
+        dataUrl: 'data:text/plain;charset=utf-8,' + encodeURIComponent(
+          'Prompt used:\nA scene\n\nModel reply:\nNo',
+        ),
+      });
+      const q1 = node({ id: 'q1', chatId: 'chat-1', role: 'user', content: 'Dir' });
+      const a1 = node({
+        id: 'a1', chatId: 'chat-1', parentId: 'q1', role: 'assistant', content: 'Chapter',
+        attachments: [prompt],
+      });
+      await openChat([q1, a1]);
+
+      createFixture(a1, 'a1');
+      confirmResolves(false);
+      await component.deletePromptAttachment(prompt);
+      fixture.detectChanges();
+
+      const chapter = chatService.getChildren('q1')
+        .find(c => c.role === 'assistant' && c.isCurrent)!;
+      expect(chapter.attachments?.some(a => a.id === 'p1')).toBe(true);
+    });
+
+    it('pre-fills the editor from a SUCCESSFUL prompt for adapt & re-render', async () => {
+      const prompt = attachment({
+        id: 'p1',
+        name: 'prompt-2.txt',
+        mimeType: 'text/plain',
+        dataUrl: 'data:text/plain;charset=utf-8,' + encodeURIComponent('A lantern-lit bazaar at night.'),
+      });
+      createFixture(node({ role: 'assistant', content: 'Chapter', attachments: [prompt] }));
+
+      component.startPromptEdit(prompt);
+      expect(component.editingPromptId()).toBe('p1');
+      expect(component.promptEditDraft()).toBe('A lantern-lit bazaar at night.');
+    });
+
+    it('renders adapt & re-render AND delete for a non-refused prompt in the box', async () => {
+      const prompt = attachment({
+        id: 'p1',
+        name: 'prompt-1.txt',
+        mimeType: 'text/plain',
+        dataUrl: 'data:text/plain;charset=utf-8,' + encodeURIComponent('A castle scene'),
+      });
+      createFixture(node({ role: 'assistant', content: 'Chapter', attachments: [prompt] }));
+      component.togglePrompt(prompt);
+      fixture.detectChanges();
+
+      const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+      expect(text).toContain('Adapt prompt & re-render');
+      expect(text).toContain('Delete prompt');
+    });
   });
 
   // ------------------------------------------------------------------
@@ -1649,6 +1786,43 @@ describe('ChatNodeComponent', () => {
       );
     });
 
+    it('propagates pure picture mode into generateImage (forces planning)', async () => {
+      const q1 = node({ id: 'q1', content: 'A mild direction.' });
+      const a1 = node({
+        id: 'a1', chatId: 'chat-1', parentId: 'q1', role: 'assistant', content: 'A chapter.',
+      });
+      await openChat([q1, a1]);
+
+      const generation = TestBed.inject(GenerationSettingsService);
+      generation.update('image-create', { providerId: 'prov-1', modelId: 'alpha/model' });
+      llm.generateImage.mockResolvedValueOnce({
+        content: '',
+        images: [{ url: 'data:image/png;base64,QQ==' }],
+      });
+
+      // The user enabled the "pure picture mode" check button in the dialog.
+      illustrateDialog.open.mockResolvedValue({
+        count: 1,
+        style: '',
+        storyboardPrompt: '',
+        purePictures: true,
+      });
+
+      createFixture(q1, 'a1');
+      await component.illustrate();
+      fixture.detectChanges();
+
+      expect(llm.generateImage).toHaveBeenCalledTimes(1);
+      const optsArg = llm.generateImage.mock.calls[0][4] as {
+        purePictures?: boolean;
+        planDescriptions?: boolean;
+      };
+      expect(optsArg.purePictures).toBe(true);
+      // Pure mode forces the description-planning pass so only the derived
+      // descriptions reach the image model.
+      expect(optsArg.planDescriptions).toBe(true);
+    });
+
     it('shows an alert and does not call the LLM when no image model is enabled', async () => {
       const q1 = node({ id: 'q1', content: 'A direction.' });
       const a1 = node({
@@ -1719,6 +1893,7 @@ describe('ChatNodeComponent', () => {
         count: 3,
         style: 'comic style',
         storyboardPrompt: 'no explicit images, hide behind bystanders',
+        purePictures: false,
       });
 
       const imgs = [0, 1, 2].map((i) => ({ url: `data:image/png;base64,AAAA${i}` }));
@@ -1768,6 +1943,44 @@ describe('ChatNodeComponent', () => {
       expect(component.imageProgress()).toBeNull();
     });
 
+    it('uses the ASSISTANT NODE model for storyboard planning, not the image-interpret task', async () => {
+      // Three distinct models: the assistant node writes with gamma, the
+      // configured image-interpret task points at beta, image-create at alpha.
+      api.models.push(makeModel({ id: 'm-3', modelId: 'gamma/model' }));
+      await settings.loadAll();
+
+      const q1 = node({ id: 'q1', content: 'A castle by the sea.' });
+      const a1 = node({
+        id: 'a1',
+        chatId: 'chat-1',
+        parentId: 'q1',
+        role: 'assistant',
+        content: 'Waves batter the old keep.',
+        modelId: 'gamma/model',
+      });
+      await openChat([q1, a1]);
+
+      const generation = TestBed.inject(GenerationSettingsService);
+      generation.update('image-create', { providerId: 'prov-1', modelId: 'alpha/model' });
+      generation.update('image-interpret', { providerId: 'prov-1', modelId: 'beta/model' });
+      llm.generateImage.mockResolvedValueOnce({
+        content: '',
+        images: [{ url: 'data:image/png;base64,QQ==' }],
+      });
+
+      createFixture(a1);
+      await component.illustrate();
+      fixture.detectChanges();
+
+      expect(llm.generateImage).toHaveBeenCalledTimes(1);
+      const optsArg = llm.generateImage.mock.calls[0][4] as {
+        planner?: { model?: { modelId?: string }; provider?: unknown } | null;
+      };
+      // The planner must be the model that wrote the assistant node (gamma),
+      // NOT the configured image-interpret task model (beta).
+      expect(optsArg.planner?.model?.modelId).toBe('gamma/model');
+    });
+
     it('stores an exact prompt file per scene when the service returns scene records', async () => {
       const q1 = node({ id: 'q1', content: 'Two beats.' });
       const a1 = node({ id: 'a1', chatId: 'chat-1', parentId: 'q1', role: 'assistant', content: 'Chapter.' });
@@ -1779,6 +1992,7 @@ describe('ChatNodeComponent', () => {
         count: 2,
         style: 'ink',
         storyboardPrompt: 'keep it clean',
+        purePictures: false,
       });
 
       llm.generateImage.mockResolvedValueOnce({

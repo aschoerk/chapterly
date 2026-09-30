@@ -3,6 +3,7 @@ import { ConfigShellComponent } from './pages/config/config-shell.component';
 import { AppearanceComponent } from './pages/config/appearance/appearance.component';
 import { ProvidersComponent } from './pages/config/providers/providers.component';
 import { TasksComponent } from './pages/config/tasks/tasks.component';
+import { LlmLogsComponent } from './pages/logs/llm-logs.component';
 import { ChatComponent } from './pages/chat/chat.component';
 import { ImportComponent } from './pages/import/import.component';
 import {PersonasComponent} from './pages/personas/personas.component';
@@ -27,6 +28,7 @@ export const routes: Routes = [
   },
   { path: 'chat', component: ChatComponent},
   { path: 'read', component: ChatReaderComponent},
+  { path: 'logs', component: LlmLogsComponent},
   { path: 'personas', component: PersonasComponent},
   { path: 'topics', component: TopicsComponent},
   { path: 'import', component: ImportComponent},

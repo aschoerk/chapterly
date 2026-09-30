@@ -29,7 +29,7 @@ describe('ConfigShellComponent', () => {
     expect(component).toBeTruthy();
   });
 
-  it('renders three sidebar nav entries', () => {
+  it('renders the three sidebar nav entries', () => {
     const links = (fixture.nativeElement as HTMLElement).querySelectorAll('.config-nav-item');
     expect(links.length).toBe(3);
     expect(component.tabs.map(t => t.path)).toEqual([

@@ -13,6 +13,7 @@ import {
 import { extractLlmDelta, LlmChunk, readSseStream } from './llm-sse';
 import {ChatParameters, ResolvedChatParameters} from '../../models/chat-parameters';
 import { ProjectService } from '../project.service';
+import { LlmLogService } from './llm-log.service';
 
 export type { LlmChunk };
 
@@ -21,7 +22,7 @@ export type { LlmChunk };
  * picture-description planning call) — a provider that hangs must never leave
  * the "Illustrate" button stuck in "Creating…".
  */
-const TIMEOUT_MS = 120_000;
+const TIMEOUT_MS = 120_000_000;
 
 /**
  * Per-scene result of an image-generation call. `prompt` is the exact text
@@ -53,6 +54,7 @@ export class LlmService {
   private readonly chatService = inject(ChatService);
   private readonly projectService = inject(ProjectService);
   private readonly parameters = inject(ChatParametersService);
+  private readonly llmLog = inject(LlmLogService);
 
   async askLlm(
     providerBaseUrl: string,
@@ -70,15 +72,32 @@ export class LlmService {
     const useStream = stream !== false && extras['stream'] !== false;
     const { stream: _ignoredStream, ...restExtras } = extras;
 
-    const body =  JSON.stringify({
+    // The EXACT payload that will be sent to the provider — reconstructed
+    // once, used for fetch AND stored verbatim in the log so the full last
+    // message and the rest of the JSON are never lost.
+    const payload = {
       model: modelId,
       messages: payloadMessages,
       temperature: restExtras['temperature'] ?? 0.7,
       ...restExtras,
       stream: useStream
+    };
+
+    // Log full request (message count + first/last preview on console; the
+    // FULL request body including every message is kept in the log buffer).
+    const logEntry = this.llmLog.record({
+      kind: 'chat',
+      modelId,
+      provider: providerBaseUrl,
+      endpoint: 'chat/completions',
+      messages: payloadMessages.map(m => ({ role: m.role, content: m.content })),
+      body: payload,
+      extras: restExtras
     });
 
-    const response =    await fetch(`${config.proxyBase}/chat/completions`, {
+    const body = JSON.stringify(payload);
+
+    const response = await fetch(`${config.proxyBase}/chat/completions`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${apiKey}`,
@@ -87,18 +106,13 @@ export class LlmService {
         'HTTP-Referer': 'https://chat-client.local',
         'X-Title': 'Chapterly'
       },
-      body: JSON.stringify({
-        model: modelId,
-        messages: payloadMessages,
-        temperature: restExtras['temperature'] ?? 0.7,
-        ...restExtras,
-        stream: useStream
-      }),
+      body,
       signal
     });
 
     if (!response.ok) {
       const errText = await response.text();
+      this.llmLog.complete(logEntry, { error: { status: response.status, text: errText } });
       throw new Error(`LLM request failed: ${response.status} ${errText}`);
     }
     if (!response.body) {
@@ -106,11 +120,19 @@ export class LlmService {
     }
 
     try {
-      return await this.readCompletion(response, useStream, onChunk);
+      const read = await this.readCompletion(response, useStream, onChunk);
+      this.llmLog.complete(logEntry, { response: read });
+      return read;
     } catch (err: any) {
       if (err?.name === 'AbortError') {
+        this.llmLog.complete(logEntry, {
+          error: { status: 0, text: 'aborted' }
+        });
         return { content: '', thinking: '' };
       }
+      this.llmLog.complete(logEntry, {
+        error: { status: 0, text: String(err?.message ?? err) }
+      });
       throw err;
     }
   }
@@ -130,12 +152,25 @@ export class LlmService {
   ): Promise<unknown> {
     const config = getServerConfig();
     const payloadMessages = normalizeChatMessages(messages);
-    const body = JSON.stringify({
+
+    const payload = {
       model: modelId,
       messages: payloadMessages,
       ...extras,
       stream: false
+    };
+
+    const logEntry = this.llmLog.record({
+      kind: 'chat',
+      modelId,
+      provider: providerBaseUrl,
+      endpoint: 'chat/completions',
+      messages: payloadMessages.map(m => ({ role: m.role, content: m.content })),
+      body: payload,
+      extras
     });
+
+    const body = JSON.stringify(payload);
     const response = await fetch(`${config.proxyBase}/chat/completions`, {
       method: 'POST',
       headers: {
@@ -150,9 +185,75 @@ export class LlmService {
     });
     if (!response.ok) {
       const errText = await response.text();
+      this.llmLog.complete(logEntry, { error: { status: response.status, text: errText } });
       throw new Error(`LLM request failed: ${response.status} ${errText}`);
     }
-    return await response.json();
+    const json = await response.json();
+    this.llmLog.complete(logEntry, { response: json });
+    return json;
+  }
+
+  /**
+   * Generate pictures through the OpenAI-style IMAGES endpoint
+   * (`POST {base}/images`) instead of chat/completions.
+   *
+   * OpenRouter serves image-generation-only models (e.g. qwen-image-3,
+   * some flux/grok variants) EXCLUSIVELY on `/images` — they reject
+   * chat/completions with 404 "…cannot be used with the chat/completions
+   * endpoint. Use the /api/v1/images endpoint instead." When generateImage
+   * meets that, it retries the same scene here.
+   *
+   * Request is `{ model, prompt, n }`; the response is the OpenAI Images
+   * shape (`data[]` with `b64_json`/`url`), which `extractLlmImages` already
+   * parses. Prior multi-modal context / reference images cannot be forwarded
+   * to this endpoint — only the single scene prompt goes.
+   */
+  private async askImages(
+    providerBaseUrl: string,
+    apiKey: string,
+    modelId: string,
+    prompt: string,
+    n?: number,
+    signal?: AbortSignal
+  ): Promise<unknown> {
+    const config = getServerConfig();
+    const payload = {
+      model: modelId,
+      prompt,
+      ...(n && n > 1 ? { n } : {})
+    };
+    const body = JSON.stringify(payload);
+
+    const logEntry = this.llmLog.record({
+      kind: 'image',
+      modelId,
+      provider: providerBaseUrl,
+      endpoint: 'images',
+      prompt,
+      body: payload,
+      extras: n && n > 1 ? { n } : {}
+    });
+
+    const response = await fetch(`${config.proxyBase}/images`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+        'x-target-base': providerBaseUrl,
+        'HTTP-Referer': 'https://chat-client.local',
+        'X-Title': 'Chapterly'
+      },
+      body,
+      signal
+    });
+    if (!response.ok) {
+      const errText = await response.text();
+      this.llmLog.complete(logEntry, { error: { status: response.status, text: errText } });
+      throw new Error(`Image generation failed: ${response.status} ${errText}`);
+    }
+    const json = await response.json();
+    this.llmLog.complete(logEntry, { response: json });
+    return json;
   }
 
   /**
@@ -193,6 +294,16 @@ export class LlmService {
        */
       planDescriptions?: boolean;
       /**
+       * The "how to draw" instruction (image-create task prompt + optional
+       * style) that heads every scene prompt. When the planning pass has
+       * produced a concrete scene description, the actual prompt sent and
+       * recorded is this instruction + the description — NOT the raw story
+       * anchor text (which, for an assistant chapter, is the whole chapter
+       * verbatim and makes a terrible picture cue). Falls back to the anchor
+       * text when no sceneInstruction is given.
+       */
+      sceneInstruction?: string;
+      /**
        * Model/provider used for the optional picture-description planning
        * pass. Defaults to the rendering (image) model — pass a capable TEXT
        * model here: image models are unreliable at following the strict JSON
@@ -210,6 +321,19 @@ export class LlmService {
        * automatically falls back to per-scene calls.
        */
       singleCall?: boolean;
+      /**
+       * Pure picture mode: only the derived, temporal-free picture
+       * descriptions (plus the consistency rules) are sent to the image model
+       * — never the raw story prose. Image models are less tolerant of
+       * sensitive story content than text models, so stripping the temporal
+       * context lowers moderation rejects. The descriptions are requested
+       * EN-BLOCK first so the image model itself keeps characters / setting /
+       * style consistent across all pictures; if it returns fewer than
+       * `count` images, generateImage falls back to per-scene calls (each
+       * scene driven by its description). Best-effort — if the planning pass
+       * yields no usable descriptions it degrades to the anchor text.
+       */
+      purePictures?: boolean;
       onProgress?: (done: number, total: number) => void;
     }
   ): Promise<GenerateImagesResult> {
@@ -231,6 +355,18 @@ export class LlmService {
     // requested. Without it they reply 200 with text only (no image). Only
     // add it for models that declare image output; a text-only model must not
     // receive a modalities field it does not understand.
+    //
+    // IMPORTANT (OpenRouter): the requested output modalities are used to
+    // FILTER routes — OpenRouter fails with 404 "No endpoints found that
+    // support the requested output modalities: text, image" when the model's
+    // endpoints can't serve the whole requested set. Image-only models fetched
+    // from the Image API catalog (e.g. x-ai/grok-imagine-image-2.0,
+    // output_modalities: ['image']) have NO text output, so asking for
+    // ['text','image'] finds no endpoint. Request 'text' as well only when the
+    // model actually declares text output — otherwise ask for ['image'] only.
+    const declaredOutput = model.architecture?.output_modalities ?? [];
+    const requestModalities =
+      declaredOutput.includes('text') ? ['text', 'image'] : ['image'];
     const wantsModalities = canGenerateImages(model);
 
     /** One completion attempt (with modalities + graceful fallback). */
@@ -243,7 +379,7 @@ export class LlmService {
           msgs,
           signal_,
           wantsModalities
-            ? { ...extras, modalities: ['text', 'image'] }
+            ? { ...extras, modalities: requestModalities }
             : extras
         );
       } catch (err: any) {
@@ -262,6 +398,42 @@ export class LlmService {
             extras
           );
         }
+        // OpenRouter filters routes by the requested output modalities and
+        // returns 404 "No endpoints found …" when the model's endpoints can't
+        // serve the requested set (e.g. text+image when only image is served).
+        // When we over-requested (asked for text), retry once with image only.
+        const routingModalFail = wantsModalities &&
+          requestModalities.includes('text') &&
+          /No endpoints found that support the requested output modalit/i.test(msg);
+        if (routingModalFail) {
+          return await this.askLlmJson(
+            provider.baseUrl,
+            provider.apiKey,
+            model.modelId,
+            msgs,
+            signal_,
+            { ...extras, modalities: ['image'] }
+          );
+        }
+        // Some image-generation models (OpenRouter: e.g. qwen-image-3) are
+        // served ONLY by the `/images` endpoint and reject chat/completions
+        // with a 404 telling us exactly that. Retry the same scene/prompt
+        // through the images endpoint (returns OpenAI-Images data[] shape).
+        const imagesOnlyModel = wantsModalities &&
+          /cannot be used with the chat\/completions endpoint|use the \/api\/v1\/images endpoint|images endpoint instead/i.test(msg);
+        if (imagesOnlyModel) {
+          const prompt = lastUserPromptText(msgs);
+          if (prompt.trim()) {
+            return await this.askImages(
+              provider.baseUrl,
+              provider.apiKey,
+              model.modelId,
+              prompt,
+              undefined,
+              signal_
+            );
+          }
+        }
         throw err;
       }
     };
@@ -275,12 +447,12 @@ export class LlmService {
     // storyboard instruction when count > 1. This is what we record next to
     // each image (or in a refused-prompt file).
     const basePrompt = lastUserPromptText(messages);
-    // Optional planning pass: in storyboard mode, derive a concrete picture
-    // description per scene first, so each image is rendered from a visual
-    // description rather than from the raw story prose. Best-effort — a
-    // `null` entry (or a short array) makes `scenePrompt` fall back to the
-    // generic storyboard instruction for that scene.
-    const scenePrompts = opts?.planDescriptions && total > 1
+    // Optional planning pass: derive a concrete picture description per scene
+    // first, so each image is rendered from a visual description rather than
+    // from the raw story prose (an assistant chapter is a long prose block —
+    // not a picture cue). Best-effort — a `null` entry (or a short array)
+    // makes `scenePrompt` fall back to the anchor text for that scene.
+    const scenePrompts = opts?.planDescriptions
       ? await this.planStoryboardDescriptions(
           provider, model, messages, total, signal, opts?.storyboardPrompt, opts?.planner)
       : [];
@@ -288,16 +460,26 @@ export class LlmService {
       const planned = i < scenePrompts.length ? scenePrompts[i] : null;
       if (planned?.trim()) {
         const desc = planned.trim();
-        return basePrompt
-          ? `${basePrompt}\n\nRender exactly this picture description (it overrides any scene cue above):\n${desc}`
+        // Drive the prompt from the derived scene description + the drawing
+        // instruction. Do NOT re-dump the raw anchor text: when illustrating
+        // an assistant chapter the anchor IS the full chapter.
+        const base = (opts?.sceneInstruction ?? '').trim() || basePrompt;
+        return base
+          ? `${base}\n\nRender exactly this picture description (it overrides any scene cue above):\n${desc}`
           : desc;
       }
       const instruction = total > 1
         ? storyboardInstruction(i, total, opts?.storyboardPrompt)
         : '';
-      return instruction
-        ? `${basePrompt ? basePrompt + '\n\n' : ''}${instruction}`
+      // In pure picture mode never fall back to the raw anchor (it can carry
+      // moderation-triggering prose) — use the drawing instruction alone when
+      // no description was derived.
+      const fallbackBase = opts?.purePictures
+        ? (opts?.sceneInstruction ?? '').trim() || ''
         : basePrompt;
+      return instruction
+        ? `${fallbackBase ? fallbackBase + '\n\n' : ''}${instruction}`
+        : fallbackBase || basePrompt;
     };
 
     // ------------------------------------------------------------------
@@ -306,9 +488,10 @@ export class LlmService {
     // consistent across the whole storyboard. Only useful when the model
     // returns several image parts in one response (OpenAI gpt-image-1,
     // some OpenRouter / Gemini image models); otherwise we silently fall
-    // back to the per-scene loop below.
+    // back to the per-scene loop below. Skipped in pure picture mode — the
+    // pure en-block path below replaces it (and never exposes raw prose).
     // ------------------------------------------------------------------
-    if (opts?.singleCall && total > 1) {
+    if (!opts?.purePictures && opts?.singleCall && total > 1) {
       const oneShotPrompt = oneShotStoryboardPrompt(
         basePrompt, scenePrompts, total, opts?.storyboardPrompt
       );
@@ -354,8 +537,112 @@ export class LlmService {
           // the same wall and double the wait); surface immediately.
           throw err;
         }
+        const moderation = contentModerationReason(err);
+        if (moderation) {
+          // The ONE request for the whole storyboard was rejected by content
+          // moderation — the per-scene fallback would be moderated too.
+          // Treat every scene as refused so their prompts stay findable and
+          // the user can adapt the wording.
+          const scenes: GeneratedImageScene[] = Array.from(
+            { length: total },
+            (_, s) => ({
+              scene: s + 1,
+              prompt: scenePrompt(s),
+              images: [],
+              content: moderation,
+              refused: true
+            })
+          );
+          return { content: moderation, images: [], scenes };
+        }
         console.warn(
           `[image-create] one-shot storyboard failed — falling back to per-scene calls: ${String(err?.message ?? err)}`
+        );
+      } finally {
+        clearTimeout(timer);
+        if (signal) signal.removeEventListener('abort', forwardAbort);
+      }
+    }
+
+    // ------------------------------------------------------------------
+    // Pure picture mode: request ALL pictures EN-BLOCK from the pure,
+    // temporal-free picture descriptions + consistency rules. The image model
+    // sees only sanitized descriptions (never the raw story prose) and
+    // controls character / setting / style consistency across all pictures.
+    // Best-effort: if it returns fewer than `total` images (or fails), fall
+    // back to the per-scene loop below — each scene driven by its own pure
+    // description.
+    // ------------------------------------------------------------------
+    const pureDescriptions = (opts?.purePictures
+      ? scenePrompts.map(s => (s ?? '').trim()).filter(s => s.length > 0)
+      : []);
+    if (opts?.purePictures && pureDescriptions.length > 0) {
+      const purePrompt = purePicturesPrompt(
+        (opts?.sceneInstruction ?? '').trim() || basePrompt,
+        pureDescriptions,
+        total,
+        opts?.storyboardPrompt
+      );
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+      const forwardAbort = (): void => controller.abort();
+      if (signal) {
+        if (signal.aborted) controller.abort();
+        else signal.addEventListener('abort', forwardAbort, { once: true });
+      }
+      try {
+        const json = await callOnce(
+          [...messages, { role: 'user' as const, content: purePrompt }],
+          controller.signal
+        );
+        const imgs = extractLlmImages(json);
+        if (imgs.length >= total) {
+          // All pictures came back in one go — record as a single scene (one
+          // prompt file + illustration-1..N) and stop.
+          const content = extractLlmDelta(json).content.trim() || extractLlmRefusal(json);
+          opts?.onProgress?.(total, total);
+          return {
+            content,
+            images: imgs,
+            scenes: [{
+              scene: 1,
+              prompt: purePrompt,
+              images: imgs,
+              content: content || undefined,
+              refused: false
+            }]
+          };
+        }
+        // Fewer images than requested — do not keep a partial set; the
+        // per-scene loop below re-renders each description separately.
+        console.warn(
+          `[image-create] pure-picture en-block returned ${imgs.length}/${total} images — falling back to per-scene calls`,
+          summarizeCompletion(json)
+        );
+      } catch (err: any) {
+        if (controller.signal.aborted) {
+          // Timeout or caller abort — surface immediately (no fallback that
+          // would double the wait).
+          throw err;
+        }
+        const moderation = contentModerationReason(err);
+        if (moderation) {
+          // The en-block request was moderated — per-scene requests would be
+          // moderated too (same descriptions). Mark every scene refused.
+          const scenes: GeneratedImageScene[] = Array.from(
+            { length: total },
+            (_, s) => ({
+              scene: s + 1,
+              prompt: pureDescriptions[s] ?? scenePrompt(s),
+              images: [],
+              content: moderation,
+              refused: true
+            })
+          );
+          return { content: moderation, images: [], scenes };
+        }
+        console.warn(
+          `[image-create] pure-picture en-block failed — falling back to per-scene calls: ${String(err?.message ?? err)}`
         );
       } finally {
         clearTimeout(timer);
@@ -382,11 +669,42 @@ export class LlmService {
       const prompt = scenePrompt(i);
       let json: unknown;
       try {
-        const msgs = total > 1
-          ? [...messages, { role: 'user' as const, content: prompt }]
-          : messages;
+        const hasPlannedScene = (scenePrompts[i] ?? '').trim().length > 0;
+        let msgs: ChatMessage[];
+        if (total > 1) {
+          msgs = [...messages, { role: 'user' as const, content: prompt }];
+        } else if (hasPlannedScene) {
+          // count=1 with a derived scene description: the final cue becomes
+          // that description (the raw anchor text is already in `messages`
+          // as context and must not be re-sent verbatim).
+          msgs = [...messages, { role: 'user' as const, content: prompt }];
+        } else {
+          msgs = messages;
+        }
         json = await callOnce(msgs, controller.signal);
       } catch (err: any) {
+        const moderation = contentModerationReason(err);
+        if (moderation) {
+          // Provider rejected the request on content-moderation grounds
+          // (e.g. xAI's imagine:content-moderated). This is a per-prompt
+          // decision, not a transport failure — the same scene may pass with
+          // different wording. Treat it like a refusal: keep every scene's
+          // prompt findable and stop (the remaining scenes would be rejected
+          // too).
+          firstContent = moderation;
+          for (let s = i; s < total; s++) {
+            sceneRecords.push({
+              scene: s + 1,
+              prompt: scenePrompt(s),
+              images: [],
+              content: moderation,
+              refused: true
+            });
+          }
+          failures += 1;
+          stopped = true;
+          break;
+        }
         const timedOut = controller.signal.aborted;
         if (timedOut && collected.length === 0) {
           throw new Error(`Image generation timed out after ${TIMEOUT_MS / 1000}s`);
@@ -465,7 +783,7 @@ export class LlmService {
     planner?: { model: ModelEntry; provider: { baseUrl: string; apiKey: string } } | null
   ): Promise<(string | null)[]> {
     const empty = (): (string | null)[] => Array<(string | null)>(total).fill(null);
-    if (total <= 1) return empty();
+    if (total < 1) return empty();
 
     // Plan on a capable TEXT model when one was provided — image models are
     // unreliable at following the strict JSON / still-frame instructions.
@@ -880,6 +1198,35 @@ function storyboardInstruction(index: number, total: number, extra?: string): st
 }
 
 /**
+ * Prompt for pure picture mode: requests ALL `total` pictures EN-BLOCK from
+ * only the derived, temporal-free picture descriptions plus the consistency
+ * rules. The image model never sees the raw story prose (which can trigger
+ * moderation on sensitive story content) — only sanitized, isolated picture
+ * descriptions, and it is told to keep characters / setting / style identical
+ * across all pictures.
+ */
+function purePicturesPrompt(
+  sceneInstruction: string,
+  descriptions: string[],
+  total: number,
+  extra?: string
+): string {
+  let text = sceneInstruction ? `${sceneInstruction}\n\n` : '';
+  text += `Below are EXACTLY ${total} pure picture descriptions — isolated moments of a scene, free of story or temporal context. Render ALL ${total} pictures in ONE single response.
+
+The exact pictures to render (one picture per description, in this order):
+`;
+  descriptions.forEach((d, i) => { text += `${i + 1}. ${d.trim()}\n`; });
+  text += `
+Rules for every picture:
+- Render each picture EXACTLY as described; do not add plot, dialogue or time progression.
+- Keep the SAME characters (identical face, build, costume), the SAME setting/environment and the SAME art style across ALL ${total} pictures — never change appearance or environment between images.
+- Use only what the description states; avoid any sensitive or explicit content.`;
+  if (extra?.trim()) text += `\n\nAdditional rules for every picture:\n${extra.trim()}`;
+  return text;
+}
+
+/**
  * Prompt for one-shot storyboard mode: asks for ALL `total` pictures in a
  * SINGLE completion response, with explicit instructions to keep characters,
  * faces, figures, the environment and the style identical across every image.
@@ -1084,4 +1431,148 @@ function summarizeCompletion(json: unknown): string {
   }
   const snippet = typeof content === 'string' ? JSON.stringify(content.slice(0, 160)) : '';
   return `keys=[${keys}] content=${kind}${snippet ? ` snippet=${snippet}` : ''}`;
+}
+
+/**
+ * Extract a short, human-readable reason from a provider error that rejected a
+ * picture request on CONTENT MODERATION grounds.
+ *
+ * OpenRouter wraps upstream rejections in a 400 "Provider returned error" and
+ * nests the real detail under `error.metadata.raw` — but each provider shapes
+ * that detail differently:
+ *   - xAI:              {"code":"imagine:content-moderated","error":"Generated image rejected by content moderation.", ...}
+ *   - Black Forest Labs: {"status":"Request Moderated","details":{"Moderation Reasons":["Content Policy Violation"]}, ...}
+ *   - OpenAI:           {"error":{"message":"Content policy violation", ...}}
+ * Content moderation is a per-prompt decision, not a transport failure — the
+ * same scene can pass with different wording — so `generateImage` treats any
+ * of these like a refusal (keep the prompt findable, let the user adapt)
+ * instead of a hard error.
+ *
+ * Returns null when the error is NOT a content-moderation rejection.
+ */
+function contentModerationReason(raw: unknown): string | null {
+  // Errors are passed here as Error objects (and sometimes the raw string):
+  // JSON.stringify(Error) is "{}" and would lose the message, so read the
+  // message text explicitly.
+  let rawText: string;
+  if (typeof raw === 'string') rawText = raw;
+  else if (raw instanceof Error) rawText = String(raw.message ?? raw);
+  else rawText = JSON.stringify(raw ?? '');
+
+  // Recognize the wording variations across providers (case-insensitive):
+  // "content-moderated" / "content_moderated" / "content moderation", a bare
+  // "moderated"/"moderation" ("Request Moderated", "Moderation Reasons"),
+  // "content policy violation", "inappropriate/unsafe content".
+  if (!MODERATION_HINT_PATTERNS.some((re) => re.test(rawText))) return null;
+
+  const candidates: unknown[] = [];
+  if (raw && typeof raw === 'object') candidates.push(raw);
+  // askLlmJson wraps errors as "LLM request failed: 400 <json>"; peel the JSON.
+  const brace = rawText.indexOf('{');
+  if (brace >= 0) {
+    try {
+      candidates.push(JSON.parse(rawText.slice(brace)));
+    } catch { /* keep going */ }
+  }
+  for (const candidate of candidates) {
+    const reason = moderationReasonFromPayload(candidate);
+    if (reason) return reason;
+  }
+  return 'Content policy: the provider rejected the picture request.';
+}
+
+/** Wordings that mark an image error as a content-moderation rejection. */
+const MODERATION_HINT_PATTERNS = [
+  /content[\s_-]*m[oö]derat/i,              // content-moderated / content_moderated / content moderation
+  /\bmoderat(?:ed|ion)?\b/i,                // moderated / moderation / "Request Moderated" / "Moderation Reasons"
+  /content[\s_-]*policy[\s_-]*violation/i,  // "Content Policy Violation" / content_policy_violation
+  /inappropriate\s+content/i,
+  /unsafe\s+content/i,
+];
+
+/**
+ * Walk an OpenRouter-shaped error payload and pull out the provider's own,
+ * human-readable moderation reason. Handles the known provider shapes by
+ * looking for an explicit error/message first, then `details`-style reason
+ * lists, then a "moderated" status.
+ */
+function moderationReasonFromPayload(payload: unknown): string | null {
+  if (!payload || typeof payload !== 'object') return null;
+  const p = payload as Record<string, any>;
+  const error = (p['error'] && typeof p['error'] === 'object') ? p['error'] : undefined;
+  const plainError = typeof p['error'] === 'string' ? p['error'] : undefined;
+
+  // OpenRouter nests the provider rejection in error.metadata.raw (a JSON
+  // string for most gateways, or a raw object).
+  const rawMeta = error?.['metadata']?.['raw'];
+  let provider: unknown;
+  if (typeof rawMeta === 'string') {
+    try { provider = JSON.parse(rawMeta); } catch { provider = undefined; }
+  } else if (rawMeta && typeof rawMeta === 'object') {
+    provider = rawMeta;
+  }
+
+  for (const candidate of [provider, error, p]) {
+    const reason = moderationTextFrom(candidate);
+    if (reason) return reason;
+  }
+  if (plainError && !/Provider returned error/i.test(plainError)) return plainError.trim();
+  return null;
+}
+
+/** Pull readable text out of one candidate layer of a moderation payload. */
+function moderationTextFrom(candidate: unknown): string | null {
+  if (!candidate || typeof candidate !== 'object') return null;
+  const o = candidate as Record<string, any>;
+
+  // Explicit provider message — skip the generic OpenRouter wrapper text.
+  for (const key of ['error', 'message']) {
+    const v = o[key];
+    if (typeof v === 'string' && v.trim() && !/Provider returned error/i.test(v)) {
+      return v.trim();
+    }
+  }
+
+  // Provider "details" objects: "Moderation Reasons" (Black Forest Labs),
+  // "reason(s)", "labels", boolean category maps ({violence:true, ...}).
+  const details = o['details'];
+  if (details && typeof details === 'object') {
+    const reasons = moderationDetailsText(details);
+    if (reasons) return reasons;
+  }
+
+  // Flat reason fields.
+  for (const key of ['reason', 'moderation_reasons', 'Moderation Reasons', 'labels', 'categories']) {
+    const v = o[key];
+    if (Array.isArray(v) && v.length) return v.map(String).join(', ');
+    if (typeof v === 'string' && v.trim()) return v.trim();
+  }
+
+  // A "moderated" status, e.g. "Request Moderated".
+  if (typeof o['status'] === 'string' && /moderat/i.test(o['status'])) {
+    return o['status'].trim();
+  }
+
+  return null;
+}
+
+/** Join a provider's moderation `details` object into readable text. */
+function moderationDetailsText(details: Record<string, any>): string | null {
+  for (const key of [
+    'Moderation Reasons', 'moderation_reasons', 'reasons', 'reason',
+    'labels', 'classified_labels', 'categories'
+  ]) {
+    const v = details[key];
+    if (Array.isArray(v) && v.length) return v.map(String).join(', ');
+    if (typeof v === 'string' && v.trim()) return v.trim();
+    if (v && typeof v === 'object') {
+      // Boolean category map, e.g. {"violence":true,"harassment":true}.
+      const hits: string[] = [];
+      for (const [k, val] of Object.entries(v)) {
+        if (val === true) hits.push(k);
+      }
+      if (hits.length) return hits.join(', ');
+    }
+  }
+  return null;
 }
