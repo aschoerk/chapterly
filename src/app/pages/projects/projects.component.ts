@@ -145,16 +145,8 @@ export class ProjectsComponent implements OnInit {
   readonly projectParamsDraft = signal<ChatParametersDraft>(emptyParametersDraft());
   readonly projectParamsInherited = signal<ResolvedChatParameters | null>(null);
 
-  readonly filteredProjects = computed(() => {
-    const term = this.searchTerm().toLowerCase().trim();
-    const list = this.projects();
-    if (!term) return list;
-    return list.filter(
-      p =>
-        p.name.toLowerCase().includes(term) ||
-        (p.systemPrompt || '').toLowerCase().includes(term)
-    );
-  });
+  // Search is applied inside `visibleProjects` (below), so it composes with
+  // the topic filter and the sort mode.
 
   async ngOnInit() {
     try {
@@ -429,19 +421,6 @@ export class ProjectsComponent implements OnInit {
     this.selectedIds.set(next);
   }
 
-  toggleSelectAllVisible(): void {
-    const visible = this.visibleProjects();
-    const selected = this.selectedIds();
-    const allOn = visible.length > 0 && visible.every(p => selected.has(p.id));
-    const next = new Set(selected);
-    if (allOn) {
-      visible.forEach(p => next.delete(p.id));
-    } else {
-      visible.forEach(p => next.add(p.id));
-    }
-    this.selectedIds.set(next);
-  }
-
   clearSelection(): void {
     this.selectedIds.set(new Set());
     this.bulkTopicId.set('');
@@ -552,6 +531,12 @@ export class ProjectsComponent implements OnInit {
       // concrete topic
       const topic = this.topics().find(t => t.id === sel);
       list = topic ? all.filter(p => new Set(topic.projectIds).has(p.id)) : [];
+    }
+
+    // Apply the search query (if any) to the filtered list.
+    const term = this.searchTerm().toLowerCase().trim();
+    if (term) {
+      list = list.filter(p => p.name.toLowerCase().includes(term));
     }
 
     // Apply the selected sort mode to the filtered list.

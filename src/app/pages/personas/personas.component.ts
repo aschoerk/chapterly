@@ -19,6 +19,10 @@ import { Persona } from '../../models/chat';
 import { AvatarPickerComponent } from '../../components/avatar-picker/avatar-picker.component';
 import { AvatarViewComponent } from '../../components/avatar-view/avatar-view.component';
 import { I18nService } from '../../core/i18n/i18n.service';
+import { SortPreferencesService, SortMode } from '../../core/sort-preferences.service';
+
+/** localStorage-backed sort preference key for this (Personas) page. */
+const SORT_PAGE = 'personas';
 
 @Component({
   selector: 'app-personas',
@@ -34,6 +38,7 @@ export class PersonasComponent implements OnInit {
   private readonly router = inject(Router);
   private readonly confirm = inject(ConfirmService);
   readonly i18n = inject(I18nService);
+  private readonly sortPrefs = inject(SortPreferencesService);
 
   readonly personas = this.personaService.personas;
   readonly topics = this.projectService.topics;
@@ -75,6 +80,46 @@ export class PersonasComponent implements OnInit {
 
   private closeInFlight = false;
 
+  // ------------------------------------------------------------
+  // Persona list sorting (persisted per page via SortPreferencesService;
+  // defaults to newest first).
+  // ------------------------------------------------------------
+  readonly sortMode = this.sortPrefs.modeFor(SORT_PAGE);
+  /** true: A→Z, false: Z→A */
+  readonly alphaAsc = this.sortPrefs.alphaAscFor(SORT_PAGE);
+  /** true: most recent first, false: oldest first */
+  readonly updatedDesc = this.sortPrefs.updatedDescFor(SORT_PAGE);
+
+  toggleSort(mode: SortMode): void {
+    if (this.sortMode() === mode) {
+      if (mode === 'alpha') this.sortPrefs.setAlphaAsc(SORT_PAGE, !this.alphaAsc());
+      else this.sortPrefs.setUpdatedDesc(SORT_PAGE, !this.updatedDesc());
+    } else {
+      // First click always starts with the primary direction.
+      this.sortPrefs.setMode(SORT_PAGE, mode);
+      if (mode === 'alpha') this.sortPrefs.setAlphaAsc(SORT_PAGE, true);
+      else this.sortPrefs.setUpdatedDesc(SORT_PAGE, true);
+    }
+  }
+
+  alphaLabel(): string {
+    return this.sortMode() === 'alpha' && !this.alphaAsc() ? 'Z–A' : 'A–Z';
+  }
+
+  alphaSortTitleKey(): string {
+    if (this.sortMode() !== 'alpha') return 'sort.alpha';
+    return this.alphaAsc() ? 'sort.alphaAZ' : 'sort.alphaZA';
+  }
+
+  updatedSortTitleKey(): string {
+    if (this.sortMode() !== 'updated') return 'sort.updated';
+    return this.updatedDesc() ? 'sort.updatedNew' : 'sort.updatedOld';
+  }
+
+  private personaTime(p: Persona): number {
+    return new Date(p.updatedAt || p.createdAt).getTime() || 0;
+  }
+
   readonly filteredPersonas = computed(() => {
     const term = this.searchTerm().toLowerCase().trim();
     const topicId = this.topicFilterId();
@@ -82,14 +127,31 @@ export class PersonasComponent implements OnInit {
     if (topicId !== 'all') {
       list = list.filter(p => p.mainTopicId === topicId);
     }
-    if (!term) return list;
-    return list.filter(
-      p =>
-        p.name.toLowerCase().includes(term) ||
-        p.shortName.toLowerCase().includes(term) ||
-        (p.description || '').toLowerCase().includes(term)
-    );
+    if (term) {
+      list = list.filter(
+        p =>
+          p.name.toLowerCase().includes(term) ||
+          p.shortName.toLowerCase().includes(term) ||
+          (p.description || '').toLowerCase().includes(term)
+      );
+    }
+    return this.applyPersonaSort(list);
   });
+
+  /** Sort by the active mode (newest-first by default). */
+  private applyPersonaSort(list: Persona[]): Persona[] {
+    list = [...list];
+    if (this.sortMode() === 'alpha') {
+      list.sort((a, b) => {
+        const cmp = a.name.localeCompare(b.name, this.i18n.localeId());
+        return this.alphaAsc() ? cmp : -cmp;
+      });
+    } else {
+      list.sort((a, b) => this.personaTime(b) - this.personaTime(a));
+      if (!this.updatedDesc()) list.reverse();
+    }
+    return list;
+  }
 
   readonly selectedCount = computed(() => this.selectedIds().size);
 

@@ -51,11 +51,18 @@
   <!-- ===== RIGHT: Projects ===== -->
   <main class="project-pane">
     <div class="pane-header">
-      <h2>
-        @if (selectedTopicId() === 'all') { {{ i18n.t('projects.allEnvironments') }} }
-        @else if (selectedTopicId() === 'unassigned') { {{ i18n.t('projects.unfiledEnvironments') }} }
-        @else { {{ topics().find(t => t.id === selectedTopicId())?.name }} }
-      </h2>
+      <button class="btn primary" (click)="openCreate()">{{ i18n.t('projects.newEnvironment') }}</button>
+    
+    </div>
+
+    <div class="pane-toolbar">
+      <input
+        type="search"
+        class="pane-search"
+        [placeholder]="i18n.t('projects.search')"
+        [ngModel]="searchTerm()"
+        (ngModelChange)="searchTerm.set($event)"
+      />
       <div class="sort-controls">
         <button
           type="button"
@@ -77,19 +84,10 @@
           </svg>
         </button>
       </div>
-      <button class="btn primary" (click)="openCreate()">{{ i18n.t('projects.newEnvironment') }}</button>
     </div>
 
-    <div class="bulk-toolbar">
-      <label class="select-all">
-        <input
-          type="checkbox"
-          [checked]="visibleProjects().length > 0 && visibleProjects().every(p => isSelected(p.id))"
-          (change)="toggleSelectAllVisible()"
-        />
-        {{ i18n.t('projects.selectVisible') }}
-      </label>
-      @if (selectedCount() > 0) {
+    @if (selectedCount() > 0) {
+      <div class="bulk-toolbar">
         <span>{{ i18n.t('projects.selectedCount', { count: selectedCount() }) }}</span>
         <select
           [ngModel]="bulkTopicId()"
@@ -109,8 +107,8 @@
           {{ bulkAssigning() ? i18n.t('common.saving') : i18n.t('projects.assignSelected') }}
         </button>
         <button class="btn small" type="button" (click)="clearSelection()">{{ i18n.t('common.cancel') }}</button>
-      }
-    </div>
+      </div>
+    }
 
     <div class="project-grid">
       @for (p of visibleProjects(); track p.id) {
@@ -236,7 +234,9 @@
       }
       @if (visibleProjects().length === 0) {
         <div class="empty-state">
-          @if (selectedTopicId() === 'unassigned') {
+          @if (searchTerm()) {
+            <p>{{ i18n.t('projects.emptySearch') }}</p>
+          } @else if (selectedTopicId() === 'unassigned') {
             <p>{{ i18n.t('projects.emptyUnassigned') }}</p>
           } @else if (selectedTopicId() === 'all') {
             <p>{{ i18n.t('projects.emptyAll') }}</p>
