@@ -1434,6 +1434,119 @@ describe('ChatNodeComponent', () => {
       expect(decodeDataUrlToText(promptFile!.dataUrl!)).toContain('brighter dungeon scene');
       expect(emitted).toContain(chapter.id);
     });
+
+    it('attaches re-rendered pictures when the service returns per-scene records (real shape)', async () => {
+      const refused = attachment({
+        id: 'ref',
+        name: 'refused-prompt-2.txt',
+        mimeType: 'text/plain',
+        dataUrl: 'data:text/plain;charset=utf-8,' + encodeURIComponent(
+          'Prompt used:\nA dungeon scene\n\nModel reply:\nNo',
+        ),
+      });
+      // Chapter already has a successful scene 1 + the refused scene 2.
+      const q1 = node({ id: 'q1', chatId: 'chat-1', role: 'user', content: 'Dir' });
+      const a1 = node({
+        id: 'a1',
+        chatId: 'chat-1',
+        parentId: 'q1',
+        role: 'assistant',
+        content: 'Chapter',
+        attachments: [
+          attachment({ id: 'img1', name: 'illustration-1.png', mimeType: 'image/png', dataUrl: 'data:image/png;base64,AAAA' }),
+          attachment({ id: 'p1', name: 'prompt-1.txt', mimeType: 'text/plain', dataUrl: 'data:text/plain;charset=utf-8,scene-1' }),
+          refused,
+        ],
+      });
+      await openChat([q1, a1]);
+
+      const generation = TestBed.inject(GenerationSettingsService);
+      generation.update('image-create', { providerId: 'prov-1', modelId: 'alpha/model' });
+
+      // Mirrors LlmService.generateImage's REAL return shape (scenes populated).
+      llm.generateImage.mockResolvedValueOnce({
+        content: 'done',
+        images: [{ url: 'data:image/png;base64,BBBB' }],
+        scenes: [{
+          scene: 1,
+          prompt: 'adapted scene prompt',
+          images: [{ url: 'data:image/png;base64,BBBB' }],
+          refused: false,
+        }],
+      });
+
+      createFixture(a1, 'a1');
+      component.startPromptEdit(refused);
+      component.promptEditDraft.set('A brighter dungeon scene');
+      await component.rerenderPrompt(refused);
+      fixture.detectChanges();
+
+      const chapter = chatService.getChildren('q1')
+        .find(c => c.role === 'assistant' && c.isCurrent)!;
+      const names = (chapter.attachments || []).map(a => a.name);
+      // Keeps scene 1, replaces refused scene 2 with illustration-2 + prompt-2.
+      expect(names.some(a => a === 'illustration-1.png')).toBe(true);
+      expect(names.some(a => a === 'refused-prompt-2.txt')).toBe(false);
+      expect(names.some(a => a === 'illustration-2.png')).toBe(true);
+      expect(names.some(a => a === 'prompt-2.txt')).toBe(true);
+    });
+
+    it('alerts and saves an updated refused record when the re-render is refused again', async () => {
+      const refused = attachment({
+        id: 'ref',
+        name: 'refused-prompt-1.txt',
+        mimeType: 'text/plain',
+        dataUrl: 'data:text/plain;charset=utf-8,' + encodeURIComponent(
+          'Prompt used:\nA scene\n\nModel reply:\nNo',
+        ),
+      });
+      const q1 = node({ id: 'q1', chatId: 'chat-1', role: 'user', content: 'Dir' });
+      const a1 = node({
+        id: 'a1',
+        chatId: 'chat-1',
+        parentId: 'q1',
+        role: 'assistant',
+        content: 'Chapter',
+        attachments: [refused],
+      });
+      await openChat([q1, a1]);
+
+      const generation = TestBed.inject(GenerationSettingsService);
+      generation.update('image-create', { providerId: 'prov-1', modelId: 'alpha/model' });
+      // Model refuses again: no images, refused scene with a reply.
+      llm.generateImage.mockResolvedValueOnce({
+        content: 'I cannot help with that.',
+        images: [],
+        scenes: [{
+          scene: 1,
+          // In the real flow scene.prompt is the anchor, which embeds the
+          // user's adapted draft text.
+          prompt: 'Illustrate... chapter to illustrate:\nA softer scene',
+          images: [],
+          refused: true,
+          content: 'I cannot help with that.',
+        }],
+      });
+
+      createFixture(a1, 'a1');
+      component.startPromptEdit(refused);
+      component.promptEditDraft.set('A softer scene');
+      await component.rerenderPrompt(refused);
+      fixture.detectChanges();
+
+      // No picture attached, but the refusal is surfaced — no silent success.
+      const chapter = chatService.getChildren('q1')
+        .find(c => c.role === 'assistant' && c.isCurrent)!;
+      expect(chapter.attachments?.some(a => a.name === 'illustration-1.png')).toBe(false);
+      // The adapted prompt is preserved in the updated refused record.
+      const kept = chapter.attachments!.find(a => a.name === 'refused-prompt-1.txt');
+      expect(kept).toBeTruthy();
+      expect(decodeDataUrlToText(kept!.dataUrl!)).toContain('A softer scene');
+      expect(window.alert).toHaveBeenCalledWith(expect.stringContaining('I cannot help with that.'));
+      // Editor resets after the attempt.
+      expect(component.editingPromptId()).toBeNull();
+      expect(component.expandedPromptId()).toBeNull();
+    });
   });
 
   // ------------------------------------------------------------------
@@ -1482,9 +1595,14 @@ describe('ChatNodeComponent', () => {
       const lastText = JSON.stringify(imagesArgs[imagesArgs.length - 1].content);
       expect(lastText).toContain('Night train, Mara at the window.');
 
-      // Single picture (count 1): no storyboard, no description planning.
-      const optsArg = llm.generateImage.mock.calls[0][4] as { planDescriptions?: boolean };
+      // Single picture (count 1): no storyboard, no description planning,
+      // no one-shot batch call.
+      const optsArg = llm.generateImage.mock.calls[0][4] as {
+        planDescriptions?: boolean;
+        singleCall?: boolean;
+      };
       expect(optsArg.planDescriptions).not.toBe(true);
+      expect(optsArg.singleCall).not.toBe(true);
 
       const chapter = chatService.getChildren('q1').find((c) => c.role === 'assistant' && c.isCurrent)!;
       expect(chapter.attachments?.length).toBe(2);
@@ -1618,6 +1736,7 @@ describe('ChatNodeComponent', () => {
         count: number;
         storyboardPrompt: string;
         planDescriptions?: boolean;
+        singleCall?: boolean;
         planner?: { model?: unknown; provider?: unknown } | null;
         onProgress?: unknown;
       };
@@ -1626,6 +1745,10 @@ describe('ChatNodeComponent', () => {
       // Storyboard mode asks the service to plan concrete picture
       // descriptions before rendering each scene.
       expect(optsArg.planDescriptions).toBe(true);
+      // Storyboard mode asks the service to render all pictures in ONE
+      // completion so faces/figures/environment stay consistent (falls back
+      // to per-scene automatically when the model returns fewer).
+      expect(optsArg.singleCall).toBe(true);
       // A planner (text model/provider, fallback = rendering model) is passed
       // so the pure-text storyboard planning does not depend on the image model.
       expect(optsArg.planner?.model).toBeDefined();

@@ -1,4 +1,4 @@
-<div class="projects-layout">
+<div class="projects-layout" [class.topic-menu-open]="topicMenuOpen()">
   <!-- ===== LEFT: Topics ===== -->
   <aside class="topic-pane">
     <div class="pane-header">
@@ -172,22 +172,61 @@
           <div class="card-actions" (click)="$event.stopPropagation()">
             @if (selectedTopicId() !== 'all' && selectedTopicId() !== 'unassigned') {
               <!-- we are inside a concrete topic -->
-              <button class="btn small danger-outline"
-                      (click)="removeProjectFromCurrentTopic(p.id)">
-                {{ i18n.t('projects.removeFromTopic') }}
-              </button>
-            } @else {
-              <!-- All or Unassigned view → offer “Add environment to topic…” -->
-              <select class="add-to-topic"
-                      (change)="onAddToTopic(p.id, $event)">
-                <option value="">{{ i18n.t('projects.addToTopic') }}</option>
-                @for (t of sortedTopics(); track t.id) {
-                  @if (!t.projectIds.includes(p.id)) {
-                    <option [value]="t.id">{{ t.name }}</option>
+              @if (isMainTopicOfCurrent(p)) {
+                <!-- current topic is the environment's main topic → offer change instead of remove -->
+                <div class="add-topic-wrap" data-topic-menu="change">
+                  <button type="button" class="btn small" (click)="toggleChangeTopic(p.id, $event)">
+                    {{ i18n.t('projects.changeTopic') }}
+                  </button>
+                  @if (openChangeTopicId() === p.id) {
+                    <div class="add-topic-popover">
+                      @for (t of topicsToChangeTo(p.id); track t.id) {
+                        <button type="button" (click)="changeMainTopicFor(p, t.id)">
+                          <app-avatar-view
+                            class="chip-icon"
+                            [value]="t.icon"
+                            [alt]="t.name"
+                            fallback="📌"
+                          />
+                          {{ t.name }}
+                        </button>
+                      } @empty {
+                        <span class="popover-empty">{{ i18n.t('projects.changeTopicEmpty') }}</span>
+                      }
+                    </div>
                   }
-                }
-              </select>
+                </div>
+              } @else {
+                <button class="btn small danger-outline"
+                        (click)="removeProjectFromCurrentTopic(p.id)">
+                  {{ i18n.t('projects.removeFromTopic') }}
+                </button>
+              }
             }
+
+            <!-- add this environment to another topic -->
+            <div class="add-topic-wrap" data-topic-menu="add">
+              <button type="button" class="btn small" (click)="toggleAddTopic(p.id, $event)">
+                {{ i18n.t('projects.addToTopic') }}
+              </button>
+              @if (openAddTopicId() === p.id) {
+                <div class="add-topic-popover">
+                  @for (t of topicsToAddFor(p.id); track t.id) {
+                    <button type="button" (click)="addProjectToTopicFor(p, t.id)">
+                      <app-avatar-view
+                        class="chip-icon"
+                        [value]="t.icon"
+                        [alt]="t.name"
+                        fallback="📌"
+                      />
+                      {{ t.name }}
+                    </button>
+                  } @empty {
+                    <span class="popover-empty">{{ i18n.t('projects.addToTopicEmpty') }}</span>
+                  }
+                </div>
+              }
+            </div>
 
             <button class="btn small" (click)="openEdit(p)">{{ i18n.t('common.edit') }}</button>
             <button class="btn small danger" (click)="deleteProject(p)">{{ i18n.t('common.delete') }}</button>

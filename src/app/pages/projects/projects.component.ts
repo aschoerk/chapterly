@@ -97,6 +97,17 @@ export class ProjectsComponent implements OnInit {
   readonly saving = signal(false);
   readonly error = signal<string | null>(null);
   readonly openMenuId = signal<string | null>(null);
+  /** The environment whose "add to topic" popover is currently open. */
+  readonly openAddTopicId = signal<string | null>(null);
+  /** The environment whose "change topic" popover is currently open. */
+  readonly openChangeTopicId = signal<string | null>(null);
+  /**
+   * True while a topic popover (change/add) is open. Used to disable the card
+   * hover transform, which would otherwise create a stacking context on a card
+   * and paint the card below ON TOP of the floating popover (flicker / hidden
+   * list items / dead clicks).
+   */
+  readonly topicMenuOpen = computed(() => !!(this.openChangeTopicId() || this.openAddTopicId()));
   /** Currently selected filter in the left column (shared with sidebar + topics) */
   readonly selectedTopicId = this.topicSelection.selectedTopicId;
   readonly selectedIds = signal<Set<string>>(new Set());
@@ -217,6 +228,7 @@ export class ProjectsComponent implements OnInit {
   openCreate() {
     this.editingId.set(null);
     const selected = this.selectedTopicId();
+    const hasCurrentTopic = !!selected && selected !== 'all' && selected !== 'unassigned';
     this.form = {
       name: '',
       greeting: '',
@@ -225,9 +237,10 @@ export class ProjectsComponent implements OnInit {
       avatar: '',
       personaIds: [],
       chatParametersId: null,
-      mainTopicId: selected !== 'all' && selected !== 'unassigned'
-        ? selected
-        : (this.topics()[0]?.id || '')
+      // A new environment must be created in the current topic. When the current
+      // selection is "all"/"unassigned" (or no topics exist), keep the topic empty
+      // so the user has to pick one explicitly — save() enforces a required topic.
+      mainTopicId: hasCurrentTopic ? selected : ''
     };
     this.projectParamsOverride.set(false);
     this.projectParamsDraft.set(emptyParametersDraft());
@@ -738,13 +751,67 @@ export class ProjectsComponent implements OnInit {
     }
   }
 
-  async onAddToTopic(projectId: string, event: Event) {
-    const select = event.target as HTMLSelectElement;
-    const topicId = select.value;
-    if (!topicId) return;
+  /**
+   * The current topic is the environment's main topic.
+   * In that case the destructive "remove from this topic" action would strip
+   * the environment of its main topic, so we offer a "change topic" instead.
+   */
+  isMainTopicOfCurrent(project: Project): boolean {
+    const sel = this.selectedTopicId();
+    return !!sel && sel !== 'all' && sel !== 'unassigned' && project.mainTopicId === sel;
+  }
 
-    await this.projectService.addProjectToTopic(topicId, projectId);
-    select.value = '';          // reset the dropdown
+  /** Topics a change-topic action offers (everything except the current main topic). */
+  topicsToChangeTo(projectId: string): Topic[] {
+    const project = this.projects().find(p => p.id === projectId);
+    const except = project?.mainTopicId ?? this.selectedTopicId();
+    return this.topics().filter(t => t.id !== except);
+  }
+
+  /** Change the environment's main topic (same semantics as saving the edit dialog). */
+  async changeMainTopicFor(project: Project, topicId: string) {
+    this.openChangeTopicId.set(null);
+    try {
+      await this.projectService.updateProject(project.id, { mainTopicId: topicId, topicId });
+      await this.projectService.addProjectToTopic(topicId, project.id);
+    } catch (err: any) {
+      console.error(err);
+      alert(this.i18n.t('projects.addFailed'));
+    }
+  }
+
+  /** Toggle the "change topic" popover for an environment card. */
+  toggleChangeTopic(id: string, event: Event) {
+    event.stopPropagation();
+    this.openAddTopicId.set(null);
+    this.openChangeTopicId.update(current => (current === id ? null : id));
+  }
+
+  /** Toggle the "add to topic" popover for an environment card. */
+  toggleAddTopic(id: string, event: Event) {
+    event.stopPropagation();
+    this.openChangeTopicId.set(null);
+    this.openAddTopicId.update(current => (current === id ? null : id));
+  }
+
+  closeAddTopic() {
+    this.openAddTopicId.set(null);
+  }
+
+  /** Topics the given environment is not yet a member of (candidates for "add to topic"). */
+  topicsToAddFor(projectId: string): Topic[] {
+    return this.topics().filter(t => !t.projectIds.includes(projectId));
+  }
+
+  /** Add the environment to the topic picked in the "add to topic" popover. */
+  async addProjectToTopicFor(project: Project, topicId: string) {
+    this.openAddTopicId.set(null);
+    try {
+      await this.projectService.addProjectToTopic(topicId, project.id);
+    } catch (err: any) {
+      console.error(err);
+      alert(this.i18n.t('projects.addFailed'));
+    }
   }
 
   /** Returns all topics that currently contain the given project */
@@ -847,9 +914,25 @@ export class ProjectsComponent implements OnInit {
     if (this.showForm()) this.fitEditorToContent();
   }
 
+  @HostListener('document:pointerdown', ['$event'])
+  onDocumentPointerDown(ev: PointerEvent): void {
+    const target = ev.target as HTMLElement | null;
+    if (target && typeof target.closest === 'function' && target.closest('[data-topic-menu]')) {
+      return;
+    }
+    this.openAddTopicId.set(null);
+    this.openChangeTopicId.set(null);
+  }
+
   @HostListener('document:keydown', ['$event'])
   onDocumentKeydown(ev: KeyboardEvent): void {
     if (ev.key !== 'Escape') return;
+
+    if (!this.showForm()) {
+      this.openAddTopicId.set(null);
+      this.openChangeTopicId.set(null);
+      return;
+    }
 
     if (this.confirm.current()) {
       ev.preventDefault();

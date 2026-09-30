@@ -703,6 +703,7 @@ export class ChatNodeComponent {
           onProgress: (done, total) => this.imageProgress.set({ done, total })
         }
       );
+      const imageCount = result.images.length;
 
       const generated = this.buildIllustrationAttachments(result, anchor)
         .map(x => ({ ...x, id: x.id || newId() }));
@@ -735,6 +736,18 @@ export class ChatNodeComponent {
       this.promptEditDraft.set('');
       this.expandedPromptId.set(null);
       this.activate.emit(saved.id);
+
+      if (imageCount === 0) {
+        // The model refused again (or returned nothing parseable): the updated
+        // refused-prompt record was saved above so the adapted prompt stays
+        // findable and pre-fills the next attempt — but there is STILL no
+        // picture. Surface the model's reply instead of silently "succeeding"
+        // (same as `illustrate`).
+        const reply = (result.content || '').trim();
+        alert(reply
+          ? `${this.i18n.t('node.imageEmpty')} — ${reply.slice(0, 300)}`
+          : this.i18n.t('node.imageEmpty'));
+      }
     } catch (err: any) {
       console.error(err);
       alert(this.i18n.t('node.imageFailed', { error: err?.message || err }));
@@ -773,7 +786,11 @@ export class ChatNodeComponent {
         used.add(scene);
         return { ...a, name: `illustration-${scene}${ill[2] ?? ''}` };
       }
-      const pr = a.name.match(/^(?:refused-)?prompt-(\d+)(\.\w+)?$/i);
+      // Keep a re-refused attempt REFUSED (do not demote it to a success
+      // "prompt" file — the model returned no picture for it).
+      const re = a.name.match(/^refused-prompt-(\d+)(\.\w+)?$/i);
+      if (re) return { ...a, name: `refused-prompt-${scene}${re[2] ?? '.txt'}` };
+      const pr = a.name.match(/^prompt-(\d+)(\.\w+)?$/i);
       if (pr) return { ...a, name: `prompt-${scene}${pr[2] ?? '.txt'}` };
       return a;
     });
@@ -955,6 +972,11 @@ export class ChatNodeComponent {
           // story, then render each image from its description (instead of
           // letting the model pick scenes from the raw prose).
           planDescriptions: count > 1,
+          // Storyboard: render the whole storyboard in ONE completion so
+          // characters/faces/environment stay consistent across all images
+          // (falls back to per-scene automatically when the model returns
+          // fewer than requested).
+          singleCall: count > 1,
           planner,
           onProgress: (done, total) => this.imageProgress.set({ done, total })
         }

@@ -199,6 +199,17 @@ export class LlmService {
        * / still-frame planning instructions.
        */
       planner?: { model: ModelEntry; provider: { baseUrl: string; apiKey: string } } | null;
+      /**
+       * Storyboard mode: generate ALL pictures in a SINGLE completion instead
+       * of one call per scene. Keeping every image in one request lets the
+       * model keep characters/faces/figures/environment/style consistent
+       * across the whole storyboard (per-scene calls make each image start
+       * from scratch). Only works when the model returns multiple image parts
+       * per response (OpenAI gpt-image-1, some OpenRouter/Gemini image
+       * models); when it returns fewer than `count` images, generateImage
+       * automatically falls back to per-scene calls.
+       */
+      singleCall?: boolean;
       onProgress?: (done: number, total: number) => void;
     }
   ): Promise<GenerateImagesResult> {
@@ -288,6 +299,69 @@ export class LlmService {
         ? `${basePrompt ? basePrompt + '\n\n' : ''}${instruction}`
         : basePrompt;
     };
+
+    // ------------------------------------------------------------------
+    // One-shot storyboard: ask for ALL pictures in a SINGLE completion so
+    // characters / faces / figures / environment / lighting / style stay
+    // consistent across the whole storyboard. Only useful when the model
+    // returns several image parts in one response (OpenAI gpt-image-1,
+    // some OpenRouter / Gemini image models); otherwise we silently fall
+    // back to the per-scene loop below.
+    // ------------------------------------------------------------------
+    if (opts?.singleCall && total > 1) {
+      const oneShotPrompt = oneShotStoryboardPrompt(
+        basePrompt, scenePrompts, total, opts?.storyboardPrompt
+      );
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+      const forwardAbort = (): void => controller.abort();
+      if (signal) {
+        if (signal.aborted) controller.abort();
+        else signal.addEventListener('abort', forwardAbort, { once: true });
+      }
+      try {
+        const json = await callOnce(
+          [...messages, { role: 'user' as const, content: oneShotPrompt }],
+          controller.signal
+        );
+        const imgs = extractLlmImages(json);
+        if (imgs.length >= total) {
+          // The full storyboard came back in one go — record it as a single
+          // scene (one prompt file + illustration-1..N) and stop.
+          const content = extractLlmDelta(json).content.trim() || extractLlmRefusal(json);
+          opts?.onProgress?.(total, total);
+          return {
+            content,
+            images: imgs,
+            scenes: [{
+              scene: 1,
+              prompt: oneShotPrompt,
+              images: imgs,
+              content: content || undefined,
+              refused: false
+            }]
+          };
+        }
+        // Fewer (or no) images than requested — do not keep a partial set
+        // (mixing would break consistency); fall back to per-scene calls.
+        console.warn(
+          `[image-create] one-shot storyboard returned ${imgs.length}/${total} images — falling back to per-scene calls`,
+          summarizeCompletion(json)
+        );
+      } catch (err: any) {
+        if (controller.signal.aborted) {
+          // Timeout or caller abort — do not fall back (per-scene would hit
+          // the same wall and double the wait); surface immediately.
+          throw err;
+        }
+        console.warn(
+          `[image-create] one-shot storyboard failed — falling back to per-scene calls: ${String(err?.message ?? err)}`
+        );
+      } finally {
+        clearTimeout(timer);
+        if (signal) signal.removeEventListener('abort', forwardAbort);
+      }
+    }
 
     const sceneRecords: GeneratedImageScene[] = [];
     const collected: LlmImagePart[] = [];
@@ -803,6 +877,42 @@ export class LlmService {
 function storyboardInstruction(index: number, total: number, extra?: string): string {
   const base = `Storyboard: render picture ${index + 1} of ${total}. Choose a DISTINCT scene from the story above (do not repeat a scene you already rendered) and draw it. Keep characters, setting and style consistent across all ${total} pictures.`;
   return extra?.trim() ? `${base}\n\nRules for every picture:\n${extra.trim()}` : base;
+}
+
+/**
+ * Prompt for one-shot storyboard mode: asks for ALL `total` pictures in a
+ * SINGLE completion response, with explicit instructions to keep characters,
+ * faces, figures, the environment and the style identical across every image.
+ * When `scenePrompts` (from the picture-description planning pass) is present
+ * it lists those concrete scenes so each image renders exactly its scene.
+ */
+function oneShotStoryboardPrompt(
+  basePrompt: string,
+  scenePrompts: (string | null)[],
+  total: number,
+  extra?: string
+): string {
+  let text = basePrompt ? `${basePrompt}\n\n` : '';
+  text += `Storyboard one-shot: create EXACTLY ${total} pictures in ONE single response — all ${total} images together in this same completion.
+
+Produce all ${total} images in the same response so that characters, faces, figures, costumes, the environment/setting, lighting and art style are perfectly consistent across every image.
+
+Rules:
+- One DIFFERENT scene per image, covering the key moments of the story beat above, in story order.
+- The SAME characters (identical face, build, costume), the SAME setting/environment and the SAME style in every image — never change appearance or environment between images.
+- Stay consistent with characters, setting and style established earlier.
+- Return all ${total} images now.`;
+  const planned = scenePrompts
+    .map(s => (s ?? '').trim())
+    .filter(s => s.length > 0);
+  if (planned.length > 0) {
+    text += `\n\nThe exact scenes to render (one image per scene, in this order):\n`;
+    planned.forEach((p, i) => { text += `${i + 1}. ${p}\n`; });
+  }
+  if (extra?.trim()) {
+    text += `\n\nAdditional storyboard rules for every picture:\n${extra.trim()}`;
+  }
+  return text;
 }
 
 /**
