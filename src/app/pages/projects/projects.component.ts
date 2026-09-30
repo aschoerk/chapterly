@@ -30,6 +30,10 @@ import {
 import {PersonaService} from '../../core/persona.service';
 import { I18nService } from '../../core/i18n/i18n.service';
 import { TopicSelectionService } from '../../core/topic-selection.service';
+import { SortPreferencesService, SortMode } from '../../core/sort-preferences.service';
+
+/** localStorage-backed sort preference key for this (Projects) page. */
+const SORT_PAGE = 'projects';
 
 @Component({
   selector: 'app-projects',
@@ -49,6 +53,7 @@ export class ProjectsComponent implements OnInit {
   private readonly route = inject(ActivatedRoute);
   private readonly confirm = inject(ConfirmService);
   private readonly topicSelection = inject(TopicSelectionService);
+  private readonly sortPrefs = inject(SortPreferencesService);
 
   /** Modal width in CSS pixels, already clamped to ≤ 90vw. */
   readonly editorWidthPx = signal(560);
@@ -489,23 +494,24 @@ export class ProjectsComponent implements OnInit {
   });
 
   // ------------------------------------------------------------
-  // Project list sorting
+  // Project list sorting (persisted per page via SortPreferencesService;
+  // defaults to newest first).
   // ------------------------------------------------------------
-  readonly sortMode = signal<'alpha' | 'updated'>('alpha');
+  readonly sortMode = this.sortPrefs.modeFor(SORT_PAGE);
   /** true: A→Z, false: Z→A */
-  readonly alphaAsc = signal(true);
+  readonly alphaAsc = this.sortPrefs.alphaAscFor(SORT_PAGE);
   /** true: most recent first, false: oldest first */
-  readonly updatedDesc = signal(true);
+  readonly updatedDesc = this.sortPrefs.updatedDescFor(SORT_PAGE);
 
-  toggleSort(mode: 'alpha' | 'updated'): void {
+  toggleSort(mode: SortMode): void {
     if (this.sortMode() === mode) {
-      if (mode === 'alpha') this.alphaAsc.update(v => !v);
-      else this.updatedDesc.update(v => !v);
+      if (mode === 'alpha') this.sortPrefs.setAlphaAsc(SORT_PAGE, !this.alphaAsc());
+      else this.sortPrefs.setUpdatedDesc(SORT_PAGE, !this.updatedDesc());
     } else {
-      this.sortMode.set(mode);
       // First click always starts with the primary direction.
-      if (mode === 'alpha') this.alphaAsc.set(true);
-      else this.updatedDesc.set(true);
+      this.sortPrefs.setMode(SORT_PAGE, mode);
+      if (mode === 'alpha') this.sortPrefs.setAlphaAsc(SORT_PAGE, true);
+      else this.sortPrefs.setUpdatedDesc(SORT_PAGE, true);
     }
   }
 

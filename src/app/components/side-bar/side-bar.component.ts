@@ -14,8 +14,11 @@ import {ProjectService} from '../../core/project.service';
 import {PersonaService} from '../../core/persona.service';
 import { I18nService } from '../../core/i18n/i18n.service';
 import { TopicSelectionService } from '../../core/topic-selection.service';
+import { SortPreferencesService, SortMode } from '../../core/sort-preferences.service';
 
 const LS_EXPANDED_KEY = 'chat-client.projects.expanded';
+/** localStorage-backed sort preference key for this (sidebar) page. */
+const SORT_PAGE = 'sidebar';
 
 @Component({
   selector: 'side-bar',
@@ -36,6 +39,7 @@ export class SideBarComponent implements OnInit {
   readonly i18n = inject(I18nService);
   private readonly api = inject(CHAT_API);
   private readonly topicSelection = inject(TopicSelectionService);
+  private readonly sortPrefs = inject(SortPreferencesService);
 
   readonly projects = this.projectService.projects;
   readonly currentChatId = this.chatService.currentChatId;
@@ -55,12 +59,13 @@ export class SideBarComponent implements OnInit {
   readonly editName = signal('');
   readonly editSystemPrompt = signal('');
   readonly editDefaultModelId = signal<string | null>(null);
-  // Project list sorting (harmonized with the Topics / Projects pages).
-  readonly sortMode = signal<'alpha' | 'updated'>('alpha');
+  // Project list sorting (harmonized with the Topics / Projects pages and
+  // persisted per page via SortPreferencesService; defaults to newest first).
+  readonly sortMode = this.sortPrefs.modeFor(SORT_PAGE);
   /** true: A→Z, false: Z→A */
-  readonly alphaAsc = signal(true);
+  readonly alphaAsc = this.sortPrefs.alphaAscFor(SORT_PAGE);
   /** true: most recent first, false: oldest first */
-  readonly updatedDesc = signal(true);
+  readonly updatedDesc = this.sortPrefs.updatedDescFor(SORT_PAGE);
   /**
    * The project pinned to the top by the last sort-button press (the "current"
    * project at that moment). Pinning only happens on an explicit sort action,
@@ -201,18 +206,18 @@ export class SideBarComponent implements OnInit {
     this.persistExpanded();
   }
 
-  toggleSort(mode: 'alpha' | 'updated'): void {
+  toggleSort(mode: SortMode): void {
     // An explicit sort press pins the current (last opened) project to the top.
     this.pinnedProjectId.set(this.currentProjectId());
 
     if (this.sortMode() === mode) {
-      if (mode === 'alpha') this.alphaAsc.update(v => !v);
-      else this.updatedDesc.update(v => !v);
+      if (mode === 'alpha') this.sortPrefs.setAlphaAsc(SORT_PAGE, !this.alphaAsc());
+      else this.sortPrefs.setUpdatedDesc(SORT_PAGE, !this.updatedDesc());
     } else {
-      this.sortMode.set(mode);
       // First click always starts with the primary direction.
-      if (mode === 'alpha') this.alphaAsc.set(true);
-      else this.updatedDesc.set(true);
+      this.sortPrefs.setMode(SORT_PAGE, mode);
+      if (mode === 'alpha') this.sortPrefs.setAlphaAsc(SORT_PAGE, true);
+      else this.sortPrefs.setUpdatedDesc(SORT_PAGE, true);
     }
   }
 

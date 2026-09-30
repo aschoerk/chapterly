@@ -149,14 +149,14 @@ describe('SideBarComponent', () => {
       expect(projectBlock('Beta')).not.toBeNull();
     });
 
-    it('sorts projects alphabetically by default', async () => {
+    it('sorts projects by newest first by default', async () => {
       await setup(a => {
         const now = Date.now();
         a.projects.push(project({ id: 'p-z', name: 'Zeta', createdAt: new Date(now).toISOString() }));
         a.projects.push(project({ id: 'p-a', name: 'Alpha', createdAt: new Date(now - 5000).toISOString() }));
       });
       const names = component.filteredProjects().map(p => p.name);
-      expect(names).toEqual(['Alpha', 'Zeta']);
+      expect(names).toEqual(['Zeta', 'Alpha']);
     });
 
     it('shows the empty state when there are no projects', async () => {
@@ -481,15 +481,15 @@ describe('SideBarComponent', () => {
       return btns.find(b => !!b.querySelector('svg'))!;
     }
 
-    it('defaults to A–Z and highlights the alphabetical sort button', async () => {
+    it('defaults to newest-first (by age) and highlights the updated sort button', async () => {
       await setup(a => {
         a.projects.push(project({ id: 'p-1' }));
       });
-      expect(component.sortMode()).toBe('alpha');
-      expect(component.alphaAsc()).toBe(true);
-      const btn = alphaBtn();
+      expect(component.sortMode()).toBe('updated');
+      expect(component.updatedDesc()).toBe(true);
+      const btn = updatedBtn();
       expect(btn.classList.contains('active')).toBe(true);
-      expect(btn.title).toBe(i18n.t('sort.alphaAZ'));
+      expect(btn.title).toBe(i18n.t('sort.updatedNew'));
     });
 
     it('toggles the alphabetical direction (A-Z → Z-A) on click', async () => {
@@ -497,11 +497,14 @@ describe('SideBarComponent', () => {
         a.projects.push(project({ id: 'p-z', name: 'Zeta' }));
         a.projects.push(project({ id: 'p-a', name: 'Alpha' }));
       });
+      // The default is newest-first; switch to alphabetical A–Z first.
+      alphaBtn().dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await settle();
+      expect(component.sortMode()).toBe('alpha');
       expect(component.filteredProjects().map(p => p.name)).toEqual(['Alpha', 'Zeta']);
 
       alphaBtn().dispatchEvent(new MouseEvent('click', { bubbles: true }));
       await settle();
-
       expect(component.alphaAsc()).toBe(false);
       expect(component.filteredProjects().map(p => p.name)).toEqual(['Zeta', 'Alpha']);
       expect(alphaBtn().title).toBe(i18n.t('sort.alphaZA'));
@@ -512,15 +515,14 @@ describe('SideBarComponent', () => {
       expect(component.filteredProjects().map(p => p.name)).toEqual(['Alpha', 'Zeta']);
     });
 
-    it('switches to last-update sorting and toggles newest/oldest', async () => {
+    it('toggles newest-first / oldest-first', async () => {
       await setup(a => {
         const now = Date.now();
         a.projects.push(project({ id: 'p-old', name: 'Alpha', createdAt: new Date(now - 9000).toISOString() }));
         a.projects.push(project({ id: 'p-new', name: 'Zeta', createdAt: new Date(now).toISOString() }));
       });
 
-      updatedBtn().dispatchEvent(new MouseEvent('click', { bubbles: true }));
-      await settle();
+      // Newest first is the default.
       expect(component.sortMode()).toBe('updated');
       expect(component.filteredProjects().map(p => p.name)).toEqual(['Zeta', 'Alpha']);
       expect(updatedBtn().classList.contains('active')).toBe(true);
@@ -531,6 +533,13 @@ describe('SideBarComponent', () => {
       expect(component.updatedDesc()).toBe(false);
       expect(component.filteredProjects().map(p => p.name)).toEqual(['Alpha', 'Zeta']);
       expect(updatedBtn().title).toBe(i18n.t('sort.updatedOld'));
+
+      // Clicking again restores newest-first.
+      updatedBtn().dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await settle();
+      expect(component.updatedDesc()).toBe(true);
+      expect(component.filteredProjects().map(p => p.name)).toEqual(['Zeta', 'Alpha']);
+      expect(updatedBtn().title).toBe(i18n.t('sort.updatedNew'));
     });
 
     it('keeps sort order when a chat is merely opened (no pin)', async () => {
