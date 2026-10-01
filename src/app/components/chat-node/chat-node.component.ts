@@ -1922,16 +1922,15 @@ export class ChatNodeComponent {
   }
 
   /**
-   * Call the LLM with the newest complete assistant chapters (capped at
-   * `PREPEND_MAX_TOKENS`) as context plus the edited director prompt as the
-   * final user message, then insert TWO nodes BEFORE the current direction
-   * node, mirroring the "insert" flow:
+   * Stream the LLM answer (the normal way — SSE reveal, versioning, stop
+   * button) and insert TWO nodes BEFORE the current direction node, mirroring
+   * the "insert" flow:
    *
-   *   [parent] → director(user, prompt) → result(assistant, LLM) → node
+   *   [parent] → director(user, prompt) → result(assistant, streamed) → node
    *
    * The prompt-prefix becomes a USER node (the "proposed standard text + user
-   * edits"); the generated narration becomes the assistant answer. On failure
-   * nothing is inserted and the error is surfaced.
+   * edits"); the generated narration streams into a new assistant node exactly
+   * like a normal send. On failure the stored flag is rolled back.
    */
   private async generatePrependNodes(
     node: ChatNode,
@@ -1971,54 +1970,41 @@ export class ChatNodeComponent {
       { role: 'user' as const, content: prompt }
     ];
 
+    const chatParametersId = this.chatService.chats()
+      .find(c => c.id === chatId)?.chatParametersId
+      || model.chatParametersId
+      || undefined;
+
+    // 1. The prompt-prefix (director) node — a USER node inserted before the
+    //    current direction, holding the proposed + edited standard text.
+    const directorNode = await this.chatService.addNode(chatId, {
+      parentId: node.parentId,
+      role: 'user',
+      content: directorText,
+      modelId: model.modelId,
+      providerId: model.providerId,
+      chatParametersId
+    });
+    this.chatService.setActiveChild(node.parentId, directorNode.id);
+
     this.isLoading.set(true);
     this.pendingAction.set('prepend');
     try {
-      const resolved = await this.llmService.resolveForCurrentChat(model);
-      const result = await this.llmService.askLlm(
-        provider.baseUrl,
-        provider.apiKey,
-        model.modelId,
+      // 2. Stream the answer into a new assistant node under the director (the
+      //    normal way: content reveals live in the chat-node window, a Stop
+      //    button appears, and the node is versioned on completion). The
+      //    current direction is adopted (re-parented) under the result so it
+      //    stays the active leaf.
+      const resultNode = await this.llmService.streamAnswer(
+        chatId,
+        directorNode.id,
+        provider,
+        model,
         messages,
-        false, // non-streaming — we need the full narration to store it
         undefined,
-        undefined,
-        { ...this.llmService.toLlmExtras(resolved), stream: false },
-        model.providerId
+        { adoptNodeIds: [node.id] }
       );
-      const content = result.content.trim();
-      if (!content) throw new Error(this.i18n.t('node.structureEmpty'));
-
-      const chatParametersId = this.chatService.chats()
-        .find(c => c.id === chatId)?.chatParametersId
-        || model.chatParametersId
-        || undefined;
-
-      // 1. The prompt-prefix (director) node — a USER node inserted before the
-      //    current direction, holding the proposed + edited standard text.
-      const directorNode = await this.chatService.addNode(chatId, {
-        parentId: node.parentId,
-        role: 'user',
-        content: directorText,
-        modelId: model.modelId,
-        providerId: model.providerId,
-        chatParametersId
-      });
-      // 2. The LLM result node — an ASSISTANT node inserted before the current
-      //    direction, holding the generated narration.
-      const resultNode = await this.chatService.addNode(chatId, {
-        parentId: directorNode.id,
-        role: 'assistant',
-        content,
-        modelId: model.modelId,
-        providerId: model.providerId,
-        chatParametersId
-      });
-      // Re-parent the current direction under the new result node.
-      await this.chatService.reparentNodes(chatId, [node.id], resultNode.id);
       this.chatService.setActiveChild(node.parentId, directorNode.id);
-      this.chatService.setActiveChild(directorNode.id, resultNode.id);
-      this.chatService.setActiveChild(resultNode.id, node.id);
       this.activate.emit(resultNode.id);
     } catch (err: any) {
       console.error(err);

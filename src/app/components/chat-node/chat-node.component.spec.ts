@@ -2184,10 +2184,9 @@ describe('ChatNodeComponent', () => {
       await component.openPrependDialog();
       fixture.detectChanges();
 
-      // "Like insert": the message array is the normal prior context up to the
-      // node's parent, and the newly created prompt is the LAST user message.
-      expect(llm.askLlm).toHaveBeenCalledTimes(1);
-      const askMessages = llm.askLlm.mock.calls[0][3] as { role: string; content: unknown }[];
+      // The answer is streamed through the normal streaming path (streamAnswer).
+      expect(llm.streamAnswer).toHaveBeenCalledTimes(1);
+      const askMessages = llm.streamAnswer.mock.calls[0][4] as { role: string; content: unknown }[];
       expect(askMessages.map(m => m.role)).toEqual(['user', 'assistant', 'user']);
       // Prior context is unchanged (interleaved, like a normal send).
       expect(String(askMessages[0].content)).toBe('Root direction');
@@ -2201,13 +2200,15 @@ describe('ChatNodeComponent', () => {
       // assistant result, both BEFORE the current direction node.
       const nodes = chatService.nodes();
       const director = nodes.find(n => n.role === 'user' && n.content === 'Custom director: these events are retold from outside the named characters.');
-      const resultNode = nodes.find(n => n.role === 'assistant' && n.content === 'Generated structure');
+      const resultNode = nodes.find(n => n.role === 'assistant' && n.content === 'Generated');
       expect(director).toBeDefined();
       expect(resultNode).toBeDefined();
       // Chain: a1 → director(user) → result(assistant) → q3 (both before the current direction).
       expect(director!.parentId).toBe('a1');
       expect(resultNode!.parentId).toBe(director!.id);
       expect(chatService.nodes().find(n => n.id === 'q3')?.parentId).toBe(resultNode!.id);
+      // The current direction was adopted under the streamed result.
+      expect(llm.streamAnswer.mock.calls[0][6]).toEqual({ adoptNodeIds: ['q3'] });
 
       // Persisted + active for the current node.
       expect(component.prependEnabled()).toBe(true);
@@ -2233,8 +2234,8 @@ describe('ChatNodeComponent', () => {
       await component.openPrependDialog();
 
       // Prior context = path up to q2's parent (a1) — like insert.
-      expect(llm.askLlm).toHaveBeenCalledTimes(1);
-      const askMessages = llm.askLlm.mock.calls[0][3] as { role: string; content: unknown }[];
+      expect(llm.streamAnswer).toHaveBeenCalledTimes(1);
+      const askMessages = llm.streamAnswer.mock.calls[0][4] as { role: string; content: unknown }[];
       expect(askMessages.map(m => m.role)).toEqual(['user', 'assistant', 'user']);
       expect(String(askMessages[0].content)).toBe('Root direction');
       expect(String(askMessages[1].content)).toBe('Chapter one.');
@@ -2322,7 +2323,7 @@ describe('ChatNodeComponent', () => {
       prependConfirm('My own director text (chars ignored).');
       await component.openPrependDialog();
 
-      const askMessages = llm.askLlm.mock.calls[0][3] as { role: string; content: unknown }[];
+      const askMessages = llm.streamAnswer.mock.calls[0][4] as { role: string; content: unknown }[];
       // The LAST message (the prompt) = edited text + the following chapter.
       const instruction = String(askMessages[askMessages.length - 1].content);
       expect(instruction).toContain('My own director text');
@@ -2343,7 +2344,7 @@ describe('ChatNodeComponent', () => {
       const proposed = (prependDialog.open as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
       expect(proposed).toContain('first person');
       expect(proposed).not.toContain('{{characters}}');
-      expect(llm.askLlm).not.toHaveBeenCalled();
+      expect(llm.streamAnswer).not.toHaveBeenCalled();
     });
 
     it('restricts the FOLLOWING chapter sequence in the prompt to 5000 tokens, dropping the farthest whole chapters', async () => {
@@ -2373,8 +2374,8 @@ describe('ChatNodeComponent', () => {
       prependConfirm('DIRECTOR');
       await component.openPrependDialog();
 
-      expect(llm.askLlm).toHaveBeenCalledTimes(1);
-      const askMessages = llm.askLlm.mock.calls[0][3] as { role: string; content: unknown }[];
+      expect(llm.streamAnswer).toHaveBeenCalledTimes(1);
+      const askMessages = llm.streamAnswer.mock.calls[0][4] as { role: string; content: unknown }[];
       // Last message (the prompt) = DIRECTOR + the 3 nearest following chapters.
       const prompt = String(askMessages[askMessages.length - 1].content);
       expect(prompt).toContain('DIRECTOR');
@@ -2389,24 +2390,24 @@ describe('ChatNodeComponent', () => {
       expect(String(askMessages[1].content)).toBe(ch1);
     });
 
-    it('a failed LLM call clears the prepend flag and inserts no nodes', async () => {
+      it('a failed LLM call clears the prepend flag and inserts no nodes', async () => {
       const q1 = node({ id: 'q1', content: 'A' });
       const a1 = node({ id: 'a1', chatId: 'chat-1', parentId: 'q1', role: 'assistant', content: 'Chapter one.' });
       const q3 = node({ id: 'q3', chatId: 'chat-1', parentId: 'a1', role: 'user', content: '' });
       await openChat([q1, a1, q3]);
       createFixture(q3);
 
-      llm.askLlm.mockRejectedValueOnce(new Error('boom'));
+      (llm.streamAnswer as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('boom'));
       prependConfirm('DIRECTOR');
       await component.openPrependDialog();
       await fixture.whenStable();
       fixture.detectChanges();
 
       expect(component.prependEnabled()).toBe(false);
-      // No user director / assistant result node was inserted.
+      // The failed stream still created the director user node; the flag is
+      // rolled back and no result was inserted.
       const nodes = chatService.nodes();
-      expect(nodes.some(n => n.role === 'user' && n.content === 'DIRECTOR')).toBe(false);
-      expect(nodes.some(n => n.role === 'assistant' && n.content === 'Generated structure')).toBe(false);
+      expect(nodes.some(n => n.role === 'assistant' && n.content === 'Generated')).toBe(false);
       expect(nodes.find(n => n.id === 'q3')?.parentId).toBe('a1');
     });
 

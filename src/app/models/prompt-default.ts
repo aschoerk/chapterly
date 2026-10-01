@@ -82,13 +82,14 @@ export const PROMPT_DEFAULTS: PromptDefaultDef[] = [
     label: 'Director instruction (with Characters)',
     description: 'Prepended in front of the story context when the direction-node "Prepend" toggle is on. `{{characters}}` is the Elaborate Characters string.',
     default:
-      'Invent and insert the events, situations and scenes that illustrate — and lead up to — ' +
-      'the information added at the end of this prompt (the suffix). Keep them faithful to it: ' +
-      'do NOT preclude, contradict or negate any of the events, facts or situations described ' +
-      'there; they must remain true and consistent. Narrate in the first person (speak as "I"), ' +
-      'from the point of view of someone who is outside and above the views of the named ' +
-      'characters: {{characters}}. Do not reproduce any chapter verbatim; write everything in ' +
-      'your own words, without inventing unstated facts.'
+      `Assume the events described after **** are lying in the future.
+Describe what happens up to that moment, in no way preclude any of those events, happening. 
+Narrate in the first person (speak as "I"), 
+from the point of view of someone who is outside and above the views of the named 
+characters: {{characters}}.
+
+****
+`
   },
   {
     id: 'structure.prepend-basic',
@@ -96,12 +97,11 @@ export const PROMPT_DEFAULTS: PromptDefaultDef[] = [
     label: 'Director instruction (no Characters)',
     description: 'Used when the Elaborate Characters string is empty.',
     default:
-      'Invent and insert the events, situations and scenes that illustrate — and lead up to — ' +
-      'the information added at the end of this prompt (the suffix). Keep them faithful to it: ' +
-      'do NOT preclude, contradict or negate any of the events, facts or situations described ' +
-      'there; they must remain true and consistent. Narrate in the first person (speak as "I"), ' +
-      'staying faithful to what happened. Do not reproduce any chapter verbatim; write ' +
-      'everything in your own words, without inventing unstated facts.'
+      `Assume the events described after **** are lying in the future. 
+Describe what happens up to that moment, in no way preclude any of those events, happening.
+
+****
+`
   },
 
   // ------------------------------------------------------------------- image
