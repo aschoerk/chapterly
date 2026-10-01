@@ -323,24 +323,31 @@ describe('LlmService.generateImage — one-shot storyboard (singleCall)', () => 
     expect(result.scenes[0].refused).toBe(false);
   });
 
-  it('lets an /images fallback failure propagate (no infinite loop)', async () => {
-    // chat/completions says "use /images", but /images also fails.
+  it('turns an /images fallback failure into a REFUSED scene instead of losing the illustrate', async () => {
+    // chat/completions says "use /images", but /images also fails. This is a
+    // plain transport failure — it must NOT throw and lose the illustrate: it
+    // is surfaced as a refused scene whose prompt stays re-renderable.
     fetchMock.mockResolvedValueOnce(errorResponse(
       404,
       '{"error":{"message":"qwen/qwen-image-3 cannot be used with the chat/completions endpoint. Use the /api/v1/images endpoint instead.","code":404}}'
     ));
     fetchMock.mockResolvedValueOnce(errorResponse(503, 'upstream down'));
 
-    await expect(
-      service.generateImage(
-        { baseUrl: 'https://openrouter.ai/api/v1', apiKey: 'sk-test' },
-        MODEL,
-        [user('Draw a castle')],
-        undefined,
-        { count: 1 }
-      )
-    ).rejects.toThrow(/Image generation failed: 503/);
+    const result = await service.generateImage(
+      { baseUrl: 'https://openrouter.ai/api/v1', apiKey: 'sk-test' },
+      MODEL,
+      [user('Draw a castle')],
+      undefined,
+      { count: 1 }
+    );
+
+    // No rejection: one failed attempt = one refused scene (prompt preserved).
     expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(result.images).toHaveLength(0);
+    expect(result.scenes).toHaveLength(1);
+    expect(result.scenes[0].refused).toBe(true);
+    expect(result.scenes[0].content).toContain('Image generation failed: 503');
+    expect(result.scenes[0].prompt).toContain('Draw a castle');
   });
 
   it('sends ONLY the prepared prompt to the image model, never the story history', async () => {
@@ -523,11 +530,16 @@ describe('LlmService.generateImage — one-shot storyboard (singleCall)', () => 
     }
   });
 
-  it('pure picture mode marks every scene refused when the en-block call is moderated', async () => {
+  it('recovers from a moderated pure-picture en-block by rendering each description per-scene', async () => {
+    // Planning answers with ONE pure description.
     fetchMock.mockResolvedValueOnce(textResponse(
       '{"pictures":["A bridge over a frozen river."]}'
     ));
+    // The en-block batch is content-moderated — previously that refused the
+    // WHOLE set immediately …
     fetchMock.mockResolvedValueOnce(errorResponse(400, MODERATED_ERROR));
+    // …but the per-scene retry of the same description still succeeds.
+    fetchMock.mockResolvedValueOnce(completionResponse(1));
 
     const result = await service.generateImage(
       { baseUrl: 'https://openrouter.ai/api/v1', apiKey: 'sk-test' },
@@ -537,11 +549,73 @@ describe('LlmService.generateImage — one-shot storyboard (singleCall)', () => 
       { count: 1, planDescriptions: true, purePictures: true, sceneInstruction: 'Draw.' }
     );
 
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(result.images).toHaveLength(0);
+    // planning + moderated en-block + per-scene = 3 fetches.
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    // The per-scene call sends the derived description — never raw prose.
+    const perScenePrompt = String(lastUserMessage(fetchMock, 2));
+    expect(perScenePrompt).toContain('A bridge over a frozen river.');
+    expect(perScenePrompt).not.toContain('A violent scene');
+    // One moderated batch must not refuse the picture.
+    expect(result.images).toHaveLength(1);
     expect(result.scenes).toHaveLength(1);
+    expect(result.scenes[0].refused).toBe(false);
+  });
+
+  it('keeps generating the remaining scenes after ONE scene is content-moderated', async () => {
+    // Planning answers with TWO concrete descriptions.
+    fetchMock.mockResolvedValueOnce(textResponse(
+      '{"pictures":["A knight at dawn.","A dragon over the city."]}'
+    ));
+    // Scene 1's description is content-moderated …
+    fetchMock.mockResolvedValueOnce(errorResponse(400, MODERATED_ERROR));
+    // …but scene 2's INDEPENDENT description still renders.
+    fetchMock.mockResolvedValueOnce(completionResponse(1));
+
+    const result = await service.generateImage(
+      { baseUrl: 'https://openrouter.ai/api/v1', apiKey: 'sk-test' },
+      MODEL,
+      [user('A story about a knight and a dragon.')],
+      undefined,
+      { count: 2, planDescriptions: true, sceneInstruction: 'Draw.' }
+    );
+
+    // planning + moderated scene 1 + successful scene 2 = 3 fetches.
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    // A single moderation no longer costs the second scene's picture.
+    expect(result.images).toHaveLength(1);
+    expect(result.scenes).toHaveLength(2);
     expect(result.scenes[0].refused).toBe(true);
+    expect(result.scenes[0].prompt).toContain('A knight at dawn.');
     expect(result.scenes[0].content).toContain('Generated image rejected by content moderation');
+    expect(result.scenes[1].refused).toBe(false);
+    expect(result.scenes[1].prompt).toContain('A dragon over the city.');
+  });
+
+  it('never throws nor discards generated pictures when a later scene fails hard', async () => {
+    // Planning answers with TWO descriptions.
+    fetchMock.mockResolvedValueOnce(textResponse(
+      '{"pictures":["A bridge at noon.","A castle at night."]}'
+    ));
+    // Scene 1 renders a picture; scene 2 hits a hard transport error (503).
+    fetchMock.mockResolvedValueOnce(completionResponse(1));
+    fetchMock.mockResolvedValueOnce(errorResponse(503, 'upstream down'));
+
+    const result = await service.generateImage(
+      { baseUrl: 'https://openrouter.ai/api/v1', apiKey: 'sk-test' },
+      MODEL,
+      [user('The bridge and the castle.')],
+      undefined,
+      { count: 2, planDescriptions: true, sceneInstruction: 'Draw.' }
+    );
+
+    // No rejection — the transport error is a REFUSED scene and the picture
+    // already generated is preserved (never lost).
+    expect(result.images).toHaveLength(1);
+    expect(result.scenes).toHaveLength(2);
+    expect(result.scenes[0].refused).toBe(false);
+    expect(result.scenes[1].refused).toBe(true);
+    expect(result.scenes[1].content).toContain('LLM request failed: 503');
+    expect(result.scenes[1].prompt).toContain('A castle at night.');
   });
 
   // ------------------------------------------------------------------
@@ -707,15 +781,20 @@ describe('LlmService.generateImage — one-shot storyboard (singleCall)', () => 
         '{"error":{"message":"bad request","code":400}}'
       ));
 
-    await expect(
-      service.generateImage(
-        { baseUrl: 'https://openrouter.ai/api/v1', apiKey: 'sk-test' },
-        MODEL,
-        [user('Draw a castle')],
-        undefined,
-        { count: 1 }
-      )
-    ).rejects.toThrow(/Image generation failed: 400/);
+    const result = await service.generateImage(
+      { baseUrl: 'https://openrouter.ai/api/v1', apiKey: 'sk-test' },
+      MODEL,
+      [user('Draw a castle')],
+      undefined,
+      { count: 1 }
+    );
+
+    // No rejection — the failed generation is a refused scene, never a thrown
+    // error that would lose the illustrate.
+    expect(result.images).toHaveLength(0);
+    expect(result.scenes).toHaveLength(1);
+    expect(result.scenes[0].refused).toBe(true);
+    expect(result.scenes[0].content).toContain('bad request');
 
     const llmLog = TestBed.inject(LlmLogService);
     await llmLog.flush();

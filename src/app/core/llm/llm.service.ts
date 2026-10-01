@@ -397,9 +397,13 @@ export class LlmService {
    * was refused — so the caller can attach the prompt next to each image and
    * preserve the prompt of refused images too.
    *
-   * Partial results: if the last scene(s) fail after at least one image was
-   * produced, the collected images are returned (the caller decides how to
-   * surface that). If nothing was produced the error is rethrown.
+   * Partial results: ANY failed scene is recorded as refused (its prompt and
+   * the failure reason stay findable) and NEVER discards pictures that were
+   * already generated. A hard error mid-storyboard degrades to a refusal, keeps
+   * the collected images, and generation continues with the next scene (unless
+   * timed out / aborted). Apart from a caller-initiated abort of a one-shot
+   * batch, generateImage does not throw a generation error — failures are
+   * surfaced as refused scenes for the caller to attach and let the user adapt.
    */
   async generateImage(
     provider: { baseUrl: string; apiKey: string },
@@ -771,24 +775,15 @@ export class LlmService {
           // would double the wait).
           throw err;
         }
-        const moderation = contentModerationReason(err);
-        if (moderation) {
-          // The en-block request was moderated — per-scene requests would be
-          // moderated too (same descriptions). Mark every scene refused.
-          const scenes: GeneratedImageScene[] = Array.from(
-            { length: total },
-            (_, s) => ({
-              scene: s + 1,
-              prompt: pureDescriptions[s] ?? scenePrompt(s),
-              images: [],
-              content: moderation,
-              refused: true
-            })
-          );
-          return { content: moderation, images: [], scenes };
-        }
+        // Whether the en-block was content-moderated or failed for any other
+        // reason, fall back to the per-scene loop below instead of giving up.
+        // Each picture-description is then sent in its OWN request, where the
+        // provider moderates per request — so ONE rejected description can no
+        // longer cost the whole storyboard: only the scenes whose individual
+        // description is refused come back as refused, the rest still render.
+        const reason = contentModerationReason(err) ?? String(err?.message ?? err);
         console.warn(
-          `[image-create] pure-picture en-block failed — falling back to per-scene calls: ${String(err?.message ?? err)}`
+          `[image-create] pure-picture en-block rejected (${reason}) — rendering each description per-scene`
         );
       } finally {
         clearTimeout(timer);
@@ -820,39 +815,49 @@ export class LlmService {
         // which would overflow the model's context window.
         json = await callOnce(this.renderMessages(prompt, messages), controller.signal);
       } catch (err: any) {
-        const moderation = contentModerationReason(err);
-        if (moderation) {
-          // Provider rejected the request on content-moderation grounds
-          // (e.g. xAI's imagine:content-moderated). This is a per-prompt
-          // decision, not a transport failure — the same scene may pass with
-          // different wording. Treat it like a refusal: keep every scene's
-          // prompt findable and stop (the remaining scenes would be rejected
-          // too).
-          firstContent = moderation;
-          for (let s = i; s < total; s++) {
+        // ANY failure during a scene is handled like a REFUSAL — never throw
+        // and never discard pictures that were already generated. The failed
+        // scene is recorded as refused (its prompt stays findable so the user
+        // can adapt & re-render it) and generation CONTINUES with the next
+        // scene: every scene is an independent request, so a single moderated
+        // or failed description can never take down the remaining pictures.
+        const reason = contentModerationReason(err)
+          ?? (controller.signal.aborted
+            ? `Image generation timed out after ${TIMEOUT_MS / 1000}s`
+            : String(err?.message ?? err));
+        if (!firstContent) firstContent = reason;
+        sceneRecords.push({
+          scene: i + 1,
+          prompt,
+          images: [],
+          content: reason,
+          refused: true
+        });
+        failures += 1;
+
+        if (controller.signal.aborted) {
+          // Internal timeout (or caller abort) — the remaining scenes would
+          // hit the same wall and re-calling would double the wait. Record
+          // them as refused so their prompts stay findable, then stop.
+          for (let s = i + 1; s < total; s++) {
             sceneRecords.push({
               scene: s + 1,
               prompt: scenePrompt(s),
               images: [],
-              content: moderation,
+              content: reason,
               refused: true
             });
           }
-          failures += 1;
           stopped = true;
           break;
         }
-        const timedOut = controller.signal.aborted;
-        if (timedOut && collected.length === 0) {
-          throw new Error(`Image generation timed out after ${TIMEOUT_MS / 1000}s`);
-        }
-        if (collected.length > 0) {
-          // Partial storyboard — keep what we have and continue (or bail).
-          failures += 1;
-          stopped = true;
-          break;
-        }
-        throw err;
+
+        console.warn(
+          `[image-create] scene ${i + 1} failed — kept as refused, continuing with the next scene: ${reason}`
+        );
+        // Skip the success-processing below — this scene is already recorded as
+        // refused and must not be recorded a second time.
+        continue;
       } finally {
         clearTimeout(timer);
         if (signal) signal.removeEventListener('abort', forwardAbort);

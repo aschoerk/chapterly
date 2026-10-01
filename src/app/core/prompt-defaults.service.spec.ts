@@ -29,7 +29,7 @@ describe('PromptDefaultsService', () => {
     // Both direct the model to a first-person retelling of already-occurred events.
     expect(withChars).toContain('first person');
     expect(withChars).toContain('{{characters}}');
-    expect(basic).toContain('first person');
+    expect(basic).toContain('Assume the events');
     // Only the characters variant references the named characters.
     expect(basic).not.toContain('{{characters}}');
   });

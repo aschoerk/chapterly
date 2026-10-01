@@ -2342,7 +2342,7 @@ describe('ChatNodeComponent', () => {
       prependConfirm(null); // cancel, nothing is stored / called
       await component.openPrependDialog();
       const proposed = (prependDialog.open as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
-      expect(proposed).toContain('first person');
+      expect(proposed).toContain('Assume the events');
       expect(proposed).not.toContain('{{characters}}');
       expect(llm.streamAnswer).not.toHaveBeenCalled();
     });
@@ -2390,7 +2390,7 @@ describe('ChatNodeComponent', () => {
       expect(String(askMessages[1].content)).toBe(ch1);
     });
 
-      it('a failed LLM call clears the prepend flag and inserts no nodes', async () => {
+    it('a failed LLM call clears the prepend flag and inserts no nodes', async () => {
       const q1 = node({ id: 'q1', content: 'A' });
       const a1 = node({ id: 'a1', chatId: 'chat-1', parentId: 'q1', role: 'assistant', content: 'Chapter one.' });
       const q3 = node({ id: 'q3', chatId: 'chat-1', parentId: 'a1', role: 'user', content: '' });
