@@ -1,0 +1,39 @@
+@if (dialog.current(); as d) {
+  <div
+    class="prepend-backdrop"
+    (click)="onBackdrop($event)"
+    (keydown)="onKey($event)"
+    tabindex="0"
+  >
+    <div
+      class="prepend-dialog"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="prepend-title"
+      (click)="$event.stopPropagation()"
+    >
+      <h3 id="prepend-title">{{ i18n.t('prependDialog.title') }}</h3>
+      <p class="prepend-hint">
+        {{ d.hasExisting ? i18n.t('prependDialog.hintEdit') : i18n.t('prependDialog.hint') }}
+      </p>
+
+      <label class="prepend-field">
+        <textarea
+          rows="6"
+          [ngModel]="text()"
+          (ngModelChange)="text.set($event)"
+          [placeholder]="i18n.t('prependDialog.placeholder')"
+        ></textarea>
+      </label>
+
+      <div class="prepend-actions">
+        <button class="btn" type="button" (click)="dialog.cancel()">
+          {{ i18n.t('common.cancel') }}
+        </button>
+        <button class="btn primary" type="button" (click)="submit()">
+          {{ i18n.t('prependDialog.confirm') }}
+        </button>
+      </div>
+    </div>
+  </div>
+}

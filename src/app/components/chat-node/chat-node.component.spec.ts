@@ -18,6 +18,7 @@ import { GenerationSettingsService } from '../../core/generation-settings.servic
 import { LightboxService } from '../../core/lightbox.service';
 import { decodeDataUrlToText } from '../../core/llm/llm-message';
 import { IllustrateDialogService } from '../../core/illustrate-dialog.service';
+import { PrependDialogService } from '../../core/prepend-dialog.service';
 
 /** Thin aliases over the shared test-helpers factories. */
 const node = makeNode;
@@ -45,6 +46,7 @@ describe('ChatNodeComponent', () => {
     generateImage: ReturnType<typeof vi.fn>;
   };
   let illustrateDialog: { open: ReturnType<typeof vi.fn>; current: ReturnType<typeof vi.fn> };
+  let prependDialog: { open: ReturnType<typeof vi.fn>; current: ReturnType<typeof vi.fn> };
   let emitted: string[];
 
   beforeEach(async () => {
@@ -75,6 +77,13 @@ describe('ChatNodeComponent', () => {
           useValue: {
             // Default: a simple single-scene, no-style run.
             open: vi.fn(async () => ({ count: 1, style: '', storyboardPrompt: '', purePictures: false })),
+            current: vi.fn(() => null)
+          }
+        },
+        {
+          provide: PrependDialogService,
+          useValue: {
+            open: vi.fn(async () => null),
             current: vi.fn(() => null)
           }
         },
@@ -126,6 +135,10 @@ describe('ChatNodeComponent', () => {
       generateImage: ReturnType<typeof vi.fn>;
     };
     illustrateDialog = TestBed.inject(IllustrateDialogService) as unknown as {
+      open: ReturnType<typeof vi.fn>;
+      current: ReturnType<typeof vi.fn>;
+    };
+    prependDialog = TestBed.inject(PrependDialogService) as unknown as {
       open: ReturnType<typeof vi.fn>;
       current: ReturnType<typeof vi.fn>;
     };
@@ -182,6 +195,11 @@ describe('ChatNodeComponent', () => {
 
   function confirmResolves(value: boolean): void {
     vi.spyOn(confirm, 'ask').mockResolvedValue(value);
+  }
+
+  /** Make the next Prepend dialog resolve with the given director text. */
+  function prependConfirm(text: string | null): void {
+    (prependDialog.open as ReturnType<typeof vi.fn>).mockResolvedValueOnce(text);
   }
 
   function expectButtonDisabled(btn: HTMLButtonElement | null): void {
@@ -2147,6 +2165,283 @@ describe('ChatNodeComponent', () => {
     it('renderedHtml follows the node content', () => {
       createFixture(node({ content: '**Bold**' }));
       expect(component.renderedHtml()).toContain('Bold');
+    });
+  });
+
+  // ------------------------------------------------------------------
+  // Prepend (director) feature
+  // ------------------------------------------------------------------
+
+  describe('prepend (director) feature', () => {
+    it('opens the director dialog, calls the LLM, and inserts the two nodes before the current direction', async () => {
+      const q1 = node({ id: 'q1', content: 'Root direction' });
+      const a1 = node({ id: 'a1', chatId: 'chat-1', parentId: 'q1', role: 'assistant', content: 'Chapter one.' });
+      const q3 = node({ id: 'q3', chatId: 'chat-1', parentId: 'a1', role: 'user', content: '' });
+      await openChat([q1, a1, q3]);
+      createFixture(q3);
+
+      prependConfirm('Custom director: these events are retold from outside the named characters.');
+      await component.openPrependDialog();
+      fixture.detectChanges();
+
+      // "Like insert": the message array is the normal prior context up to the
+      // node's parent, and the newly created prompt is the LAST user message.
+      expect(llm.askLlm).toHaveBeenCalledTimes(1);
+      const askMessages = llm.askLlm.mock.calls[0][3] as { role: string; content: unknown }[];
+      expect(askMessages.map(m => m.role)).toEqual(['user', 'assistant', 'user']);
+      // Prior context is unchanged (interleaved, like a normal send).
+      expect(String(askMessages[0].content)).toBe('Root direction');
+      expect(String(askMessages[1].content)).toBe('Chapter one.');
+      // The LAST message is the prompt (director instruction). q3 is a leaf so
+      // there is no following assistant content.
+      const prompt = String(askMessages[2].content);
+      expect(prompt).toContain('Custom director: these events are retold');
+
+      // Two new nodes were created: a USER director (the prompt) + an
+      // assistant result, both BEFORE the current direction node.
+      const nodes = chatService.nodes();
+      const director = nodes.find(n => n.role === 'user' && n.content === 'Custom director: these events are retold from outside the named characters.');
+      const resultNode = nodes.find(n => n.role === 'assistant' && n.content === 'Generated structure');
+      expect(director).toBeDefined();
+      expect(resultNode).toBeDefined();
+      // Chain: a1 → director(user) → result(assistant) → q3 (both before the current direction).
+      expect(director!.parentId).toBe('a1');
+      expect(resultNode!.parentId).toBe(director!.id);
+      expect(chatService.nodes().find(n => n.id === 'q3')?.parentId).toBe(resultNode!.id);
+
+      // Persisted + active for the current node.
+      expect(component.prependEnabled()).toBe(true);
+      expect(JSON.parse(localStorage.getItem('chat.prependByNodeId')!)).toEqual({
+        q3: 'Custom director: these events are retold from outside the named characters.'
+      });
+    });
+
+    it('appends the assistant node content FOLLOWING the current node at the end of the prompt', async () => {
+      // Upstream: q1 → a1(Chapter one.). Current direction: q2. Downstream
+      // following chapters: a2 (Chapter two.), a3 (Chapter three.).
+      const q1 = node({ id: 'q1', content: 'Root direction' });
+      const a1 = node({ id: 'a1', chatId: 'chat-1', parentId: 'q1', role: 'assistant', content: 'Chapter one.' });
+      const q2 = node({ id: 'q2', chatId: 'chat-1', parentId: 'a1', role: 'user', content: 'Direction two' });
+      const a2 = node({ id: 'a2', chatId: 'chat-1', parentId: 'q2', role: 'assistant', content: 'Chapter two.' });
+      const q3 = node({ id: 'q3', chatId: 'chat-1', parentId: 'a2', role: 'user', content: 'Direction three' });
+      const a3 = node({ id: 'a3', chatId: 'chat-1', parentId: 'q3', role: 'assistant', content: 'Chapter three.' });
+      const q4 = node({ id: 'q4', chatId: 'chat-1', parentId: 'a3', role: 'user', content: '' });
+      await openChat([q1, a1, q2, a2, q3, a3, q4]);
+      createFixture(q2);
+
+      prependConfirm('RECAP');
+      await component.openPrependDialog();
+
+      // Prior context = path up to q2's parent (a1) — like insert.
+      expect(llm.askLlm).toHaveBeenCalledTimes(1);
+      const askMessages = llm.askLlm.mock.calls[0][3] as { role: string; content: unknown }[];
+      expect(askMessages.map(m => m.role)).toEqual(['user', 'assistant', 'user']);
+      expect(String(askMessages[0].content)).toBe('Root direction');
+      expect(String(askMessages[1].content)).toBe('Chapter one.');
+      // The LAST message (the prompt) ends with the FOLLOWING assistant
+      // chapters — Chapter two. and Chapter three. — appended after the
+      // director instruction.
+      const prompt = String(askMessages[2].content);
+      expect(prompt).toContain('RECAP');
+      expect(prompt).toContain('Chapter two.');
+      expect(prompt).toContain('Chapter three.');
+      // The prompt must end with the following content, not the prior chapter.
+      expect(prompt.indexOf('Chapter three.')).toBeGreaterThan(prompt.indexOf('Chapter two.'));
+      expect(prompt.indexOf('Chapter two.')).toBeGreaterThan(prompt.indexOf('RECAP'));
+    });
+
+    it('a cancelled dialog keeps the state', async () => {
+      const q1 = node({ id: 'q1', content: '' });
+      await openChat([q1]);
+      createFixture(q1);
+
+      prependConfirm('The events have already occurred.');
+      await component.openPrependDialog();
+      expect(component.prependEnabled()).toBe(true);
+
+      prependConfirm(null); // cancel
+      await component.openPrependDialog();
+      expect(component.prependEnabled()).toBe(true);
+    });
+
+    it('an empty confirmation clears the director', async () => {
+      const q1 = node({ id: 'q1', content: '' });
+      await openChat([q1]);
+      createFixture(q1);
+
+      prependConfirm('Some text');
+      await component.openPrependDialog();
+      expect(component.prependEnabled()).toBe(true);
+
+      prependConfirm('');
+      await component.openPrependDialog();
+      expect(component.prependEnabled()).toBe(false);
+      expect(JSON.parse(localStorage.getItem('chat.prependByNodeId')!)).toEqual({});
+    });
+
+    it('reads a pre-stored prepend text for the rendered node', async () => {
+      const q1 = node({ id: 'q1', content: '' });
+      localStorage.setItem('chat.prependByNodeId', JSON.stringify({ q1: 'custom director' }));
+      await openChat([q1]);
+      createFixture(q1);
+
+      expect(component.prependEnabled()).toBe(true);
+      expect(component.prependText()).toBe('custom director');
+    });
+
+    it('shows the prepend toggle only for a user (direction) node', async () => {
+      // A user node that already has an answer (not the empty draft composer).
+      const q1 = node({ id: 'q1', content: 'A direction with a chapter' });
+      const a1 = node({ id: 'a1', chatId: 'chat-1', parentId: 'q1', role: 'assistant', content: 'The chapter.' });
+      await openChat([q1, a1]);
+      createFixture(q1);
+
+      const toggle = buttons().find((b) => (b.textContent || '').trim() === 'Prepend');
+      expect(toggle).not.toBeNull();
+      expect(toggle!.getAttribute('title')).toBe('Insert a director instruction before this direction: it invents events and situations that illustrate and lead up to the following chapters (≤ 5000 tokens) without contradicting them.');
+
+      // A non-user (assistant) node should NOT carry the prepend button.
+      createFixture(a1);
+      fixture.detectChanges();
+      const notFound = buttons().find((b) => (b.textContent || '').trim() === 'Prepend');
+      expect(notFound).toBeUndefined();
+    });
+
+    it('uses the stored edited text over the characters-based default in the LLM call', async () => {
+      const q1 = node({ id: 'q1', content: 'A' });
+      const a1 = node({ id: 'a1', chatId: 'chat-1', parentId: 'q1', role: 'assistant', content: 'Chapter one.' });
+      const q3 = node({ id: 'q3', chatId: 'chat-1', parentId: 'a1', role: 'user', content: 'Direction three' });
+      const a3 = node({ id: 'a3', chatId: 'chat-1', parentId: 'q3', role: 'assistant', content: 'Chapter following.' });
+      await openChat([q1, a1, q3, a3]);
+      createFixture(q3);
+
+      localStorage.setItem(
+        'chat-client.elaborate.byChatId',
+        JSON.stringify({ 'chat-1': { lastChapter: 2, characters: 'Anna, Ben' } }),
+      );
+      prependConfirm('My own director text (chars ignored).');
+      await component.openPrependDialog();
+
+      const askMessages = llm.askLlm.mock.calls[0][3] as { role: string; content: unknown }[];
+      // The LAST message (the prompt) = edited text + the following chapter.
+      const instruction = String(askMessages[askMessages.length - 1].content);
+      expect(instruction).toContain('My own director text');
+      expect(instruction).toContain('Chapter following.');
+      expect(instruction).not.toContain('Anna');
+    });
+
+    it('falls back to the default director instruction when opening with no stored text', async () => {
+      const q1 = node({ id: 'q1', content: 'A' });
+      const a1 = node({ id: 'a1', chatId: 'chat-1', parentId: 'q1', role: 'assistant', content: 'Chapter one.' });
+      const q3 = node({ id: 'q3', chatId: 'chat-1', parentId: 'a1', role: 'user', content: '' });
+      await openChat([q1, a1, q3]);
+      createFixture(q3);
+
+      // The dialog is seeded with the (basic) default — assert the proposal.
+      prependConfirm(null); // cancel, nothing is stored / called
+      await component.openPrependDialog();
+      const proposed = (prependDialog.open as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
+      expect(proposed).toContain('first person');
+      expect(proposed).not.toContain('{{characters}}');
+      expect(llm.askLlm).not.toHaveBeenCalled();
+    });
+
+    it('restricts the FOLLOWING chapter sequence in the prompt to 5000 tokens, dropping the farthest whole chapters', async () => {
+      const ch1 = 'A'.repeat(6000); // ~1500 tokens each (chars/4)
+      const ch2 = 'B'.repeat(6000);
+      const ch3 = 'C'.repeat(6000);
+      const ch4 = 'D'.repeat(6000);
+
+      // Current node = q2. Following chapters after it: a2(ch2), a3(ch3), a4(ch4)
+      // = 4500 tokens (≤ 5000). Adding a fifth (ch5) would exceed the cap, so
+      // only the 3 nearest following chapters make it into the prompt.
+      const ch5 = 'E'.repeat(6000);
+      const q1 = node({ id: 'q1', content: 'q1' });
+      const a1 = node({ id: 'a1', chatId: 'chat-1', parentId: 'q1', role: 'assistant', content: ch1 });
+      const q2 = node({ id: 'q2', chatId: 'chat-1', parentId: 'a1', role: 'user', content: 'Direction 2' });
+      const a2 = node({ id: 'a2', chatId: 'chat-1', parentId: 'q2', role: 'assistant', content: ch2 });
+      const q3 = node({ id: 'q3', chatId: 'chat-1', parentId: 'a2', role: 'user', content: 'Direction 3' });
+      const a3 = node({ id: 'a3', chatId: 'chat-1', parentId: 'q3', role: 'assistant', content: ch3 });
+      const q4 = node({ id: 'q4', chatId: 'chat-1', parentId: 'a3', role: 'user', content: 'Direction 4' });
+      const a4 = node({ id: 'a4', chatId: 'chat-1', parentId: 'q4', role: 'assistant', content: ch4 });
+      const q5 = node({ id: 'q5', chatId: 'chat-1', parentId: 'a4', role: 'user', content: 'Direction 5' });
+      const a5 = node({ id: 'a5', chatId: 'chat-1', parentId: 'q5', role: 'assistant', content: ch5 });
+      const q6 = node({ id: 'q6', chatId: 'chat-1', parentId: 'a5', role: 'user', content: '' });
+      await openChat([q1, a1, q2, a2, q3, a3, q4, a4, q5, a5, q6]);
+      createFixture(q2);
+
+      prependConfirm('DIRECTOR');
+      await component.openPrependDialog();
+
+      expect(llm.askLlm).toHaveBeenCalledTimes(1);
+      const askMessages = llm.askLlm.mock.calls[0][3] as { role: string; content: unknown }[];
+      // Last message (the prompt) = DIRECTOR + the 3 nearest following chapters.
+      const prompt = String(askMessages[askMessages.length - 1].content);
+      expect(prompt).toContain('DIRECTOR');
+      expect(prompt).toContain(ch2);
+      expect(prompt).toContain(ch3);
+      expect(prompt).toContain(ch4);
+      // The farthest following whole chapter was dropped, never truncated.
+      expect(prompt).not.toContain(ch5);
+
+      // Prior context (like insert) is the path up to the parent (a1).
+      expect(askMessages.map(m => m.role)).toEqual(['user', 'assistant', 'user']);
+      expect(String(askMessages[1].content)).toBe(ch1);
+    });
+
+    it('a failed LLM call clears the prepend flag and inserts no nodes', async () => {
+      const q1 = node({ id: 'q1', content: 'A' });
+      const a1 = node({ id: 'a1', chatId: 'chat-1', parentId: 'q1', role: 'assistant', content: 'Chapter one.' });
+      const q3 = node({ id: 'q3', chatId: 'chat-1', parentId: 'a1', role: 'user', content: '' });
+      await openChat([q1, a1, q3]);
+      createFixture(q3);
+
+      llm.askLlm.mockRejectedValueOnce(new Error('boom'));
+      prependConfirm('DIRECTOR');
+      await component.openPrependDialog();
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      expect(component.prependEnabled()).toBe(false);
+      // No user director / assistant result node was inserted.
+      const nodes = chatService.nodes();
+      expect(nodes.some(n => n.role === 'user' && n.content === 'DIRECTOR')).toBe(false);
+      expect(nodes.some(n => n.role === 'assistant' && n.content === 'Generated structure')).toBe(false);
+      expect(nodes.find(n => n.id === 'q3')?.parentId).toBe('a1');
+    });
+
+    it('after prepend the inserted director node becomes part of later contexts (incl. illustration)', async () => {
+      const q1 = node({ id: 'q1', content: 'Root direction' });
+      const a1 = node({
+        id: 'a1', chatId: 'chat-1', parentId: 'q1', role: 'assistant',
+        content: 'Mara folds the letter and watches the conductor pass.',
+      });
+      const q2 = node({ id: 'q2', chatId: 'chat-1', parentId: 'a1', role: 'user', content: 'Night train, Mara at the window.' });
+      const a2 = node({
+        id: 'a2', chatId: 'chat-1', parentId: 'q2', role: 'assistant',
+        content: 'The train crosses a frozen bridge.',
+      });
+      await openChat([q1, a1, q2, a2]);
+
+      const generation = TestBed.inject(GenerationSettingsService);
+      generation.update('image-create', { providerId: 'prov-1', modelId: 'alpha/model' });
+      llm.generateImage.mockResolvedValueOnce({
+        content: '',
+        images: [{ url: 'data:image/png;base64,QQ==' }],
+      });
+
+      createFixture(q2, 'a2');
+      prependConfirm('DIRECTOR');
+      await component.openPrependDialog();
+      await component.illustrate();
+      fixture.detectChanges();
+
+      expect(llm.generateImage).toHaveBeenCalledTimes(1);
+      const imagesArgs = llm.generateImage.mock.calls[0][2] as { role: string; content: unknown }[];
+      // The director text is now a real USER node in the tree, so it appears
+      // in later contexts (like illustration) as part of the story path.
+      const serialized = JSON.stringify(imagesArgs);
+      expect(serialized).toContain('DIRECTOR');
     });
   });
 });

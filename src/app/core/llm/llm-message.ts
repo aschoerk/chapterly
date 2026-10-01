@@ -6,6 +6,7 @@ export type MessagePart =
   | { type: 'file'; file: { filename: string; file_data: string } };
 
 const TEXT_EMBED_LIMIT = 80_000;
+export const PREPEND_MAX_TOKENS = 5000;
 
 const EXT_MIME: Record<string, string> = {
   png: 'image/png',
@@ -93,6 +94,24 @@ export function resolvedMime(attachment: Pick<NodeAttachment, 'name' | 'mimeType
 
 export function isImageMime(mime: string): boolean {
   return mime.startsWith('image/');
+}
+
+/** Rough token estimate; the repo bundles no tokenizer, so ~4 chars/token. */
+export function estimateContentTokens(text: string): number {
+  if (!text) return 0;
+  return Math.max(1, Math.ceil(text.length / 4));
+}
+
+/** Text of a message (string content or the text parts of a parts array). */
+export function messageText(m: { role: string; content: unknown }): string {
+  if (typeof m.content === 'string') return m.content;
+  if (Array.isArray(m.content)) {
+    return m.content
+      .filter(p => p && typeof p === 'object' && 'text' in p && p.text)
+      .map(p => (p as { text: string }).text)
+      .join('\n');
+  }
+  return '';
 }
 
 export function isTextualMime(mime: string): boolean {

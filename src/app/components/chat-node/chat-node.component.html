@@ -287,6 +287,8 @@
                 {{ i18n.t('node.insert') }}
               }
             </button>
+
+
           }
         }
 
@@ -522,6 +524,16 @@
           <span>{{ i18n.t('node.copy') }}</span>
         }
       </button>
+      @if (node().role === 'user' && !isUnsentQuestion()) {
+        <button class="btn-icon"
+              type="button"
+              [class.active]="prependEnabled()"
+              [disabled]="isLoading()"
+              (click)="openPrependDialog()"
+              [title]="i18n.t('node.prependTitle')">
+          {{ i18n.t('node.prepend') }}
+        </button>
+      }
 
       @if (showClosedContinue()) {
         <button class="btn-icon" type="button"

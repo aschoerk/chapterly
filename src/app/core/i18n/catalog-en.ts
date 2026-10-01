@@ -319,6 +319,15 @@ export const EN = {
     clearSelection: 'Clear',
     clearSelectionTitle: 'Clear the selection',
     pasteAfterTitle: 'Paste the clipboard after this section',
+    prepend: 'Prepend',
+    prependTitle: 'Insert a director instruction before this direction: it invents events and situations that illustrate and lead up to the following chapters (≤ 5000 tokens) without contradicting them.',
+  },
+  prependDialog: {
+    title: 'Director instruction',
+    hint: 'This instruction makes the model invent and insert events and situations that illustrate and lead up to the information appended as a suffix — without precluding the events, facts or situations described there. Edit the proposed text as you like.',
+    hintEdit: 'Edit the director instruction that makes the model invent and insert illustrating events leading up to the appended suffix.',
+    placeholder: 'How the following events and actions occurred…',
+    confirm: 'Use this instruction',
   },
   illustrateDialog: {
     title: 'Illustrate',

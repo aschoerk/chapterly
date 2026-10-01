@@ -321,6 +321,15 @@ export const DE = {
     clearSelection: 'Auswahl aufheben',
     clearSelectionTitle: 'Auswahl aufheben',
     pasteAfterTitle: 'Zwischenablage nach diesem Abschnitt einfügen',
+    prepend: 'Voransetzen',
+    prependTitle: 'Regieanweisung vor dieser Richtung einfügen: Sie erfindet Ereignisse und Situationen, die die folgenden Kapitel veranschaulichen und hinleiten (≤ 5000 Token), ohne sie zu widersprechen.',
+  },
+  prependDialog: {
+    title: 'Regieanweisung',
+    hint: 'Diese Anweisung veranlasst das Modell, Ereignisse und Situationen zu erfinden und einzufügen, die die als Suffix angehängten Informationen veranschaulichen und zu ihnen hinführen – ohne die dort beschriebenen Ereignisse, Fakten oder Situationen auszuschließen. Passen Sie den vorgeschlagenen Text nach Belieben an.',
+    hintEdit: 'Bearbeiten Sie die Regieanweisung, die veranlasst, veranschaulichende Ereignisse einzufügen, die zu dem angehängten Suffix hinführen.',
+    placeholder: 'Wie die folgenden Ereignisse und Handlungen abgelaufen sind…',
+    confirm: 'Diese Anweisung verwenden',
   },
   illustrateDialog: {
     title: 'Illustrieren',

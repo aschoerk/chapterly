@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
+  PREPEND_MAX_TOKENS,
   decodeDataUrlToText,
+  estimateContentTokens,
   estimateDataUrlBytes,
   extractLlmImages,
   extractLlmRefusal,
@@ -8,6 +10,7 @@ import {
   inferMimeType,
   isGeneratedImageAttachment,
   isPromptRecordAttachment,
+  messageText,
   nodeToMessageContent,
   normalizeChatMessages,
   textPromptAttachment,
@@ -430,3 +433,35 @@ describe('textPromptAttachment', () => {
 function partsTypes(parts: MessagePart[]): string[] {
   return parts.map(p => p.type);
 }
+
+describe('prepend helpers (director narration)', () => {
+  it('caps the appended assistant sequence at 5000 tokens', () => {
+    expect(PREPEND_MAX_TOKENS).toBe(5000);
+  });
+
+  it('estimateContentTokens approximates ~4 chars per token', () => {
+    expect(estimateContentTokens('')).toBe(0);
+    expect(estimateContentTokens('hi')).toBe(1);
+    expect(estimateContentTokens('a'.repeat(4))).toBe(1);
+    expect(estimateContentTokens('a'.repeat(5))).toBe(2);
+    expect(estimateContentTokens('x'.repeat(4000))).toBe(1000);
+  });
+
+  it('messageText extracts the text of string and parts content', () => {
+    expect(messageText({ role: 'assistant', content: 'A chapter.' })).toBe('A chapter.');
+    expect(messageText({
+      role: 'user',
+      content: [
+        { type: 'text', text: 'First' },
+        { type: 'text', text: 'Second' },
+        { type: 'image_url', image_url: { url: 'data:image/png;base64,x' } },
+      ]
+    })).toBe('First\nSecond');
+    // Image-only / empty content yields empty text.
+    expect(messageText({
+      role: 'user',
+      content: [{ type: 'image_url', image_url: { url: 'data:image/png;base64,x' } }]
+    })).toBe('');
+    expect(messageText({ role: 'user', content: '' })).toBe('');
+  });
+});

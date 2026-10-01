@@ -23,6 +23,17 @@ describe('PromptDefaultsService', () => {
     expect(service.isCustom('structure.title')).toBe(false);
   });
 
+  it('catalogues the director prepend instructions', () => {
+    const withChars = service.effective('structure.prepend');
+    const basic = service.effective('structure.prepend-basic');
+    // Both direct the model to a first-person retelling of already-occurred events.
+    expect(withChars).toContain('first person');
+    expect(withChars).toContain('{{characters}}');
+    expect(basic).toContain('first person');
+    // Only the characters variant references the named characters.
+    expect(basic).not.toContain('{{characters}}');
+  });
+
   it('returns empty for an unknown id', () => {
     expect(service.effective('nope')).toBe('');
     expect(service.def('nope')).toBeUndefined();

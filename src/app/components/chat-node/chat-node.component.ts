@@ -21,6 +21,8 @@ import {
   imagePartToAttachment,
   textPromptAttachment,
   decodeDataUrlToText,
+  estimateContentTokens,
+  PREPEND_MAX_TOKENS,
   type MessagePart
 } from '../../core/llm/llm-message';
 import { GenerateImagesResult, GeneratedImageScene } from '../../core/llm/llm.service';
@@ -33,6 +35,7 @@ import { PromptDefaultsService } from '../../core/prompt-defaults.service';
 import { GenerationTaskKind } from '../../models/generation-task';
 import { ModelEntry, canInterpretImages, canGenerateImages } from '../../models/chat-config';
 import { IllustrateDialogService } from '../../core/illustrate-dialog.service';
+import { PrependDialogService } from '../../core/prepend-dialog.service';
 import { IllustrateOptions } from '../../models/illustrate-options';
 import { LightboxService } from '../../core/lightbox.service';
 
@@ -69,7 +72,7 @@ export class ChatNodeComponent {
   readonly contentDraft = signal('');
   readonly branchModelId = signal('');
   readonly isLoading = signal(false);
-  readonly pendingAction = signal<'version' | 'branch' | 'insert' | 'send' | 'continue' | 'structure' | 'image' | null>(null);
+  readonly pendingAction = signal<'version' | 'branch' | 'insert' | 'send' | 'continue' | 'structure' | 'prepend' | 'image' | null>(null);
   /** Check-my-English (direction) feature state. */
   readonly checkingEnglish = signal(false);
   readonly englishSuggestions = signal<string[] | null>(null);
@@ -80,6 +83,11 @@ export class ChatNodeComponent {
   private readonly editSession = inject(NodeEditSession);
   readonly showPriorVersions = signal(false);
   readonly thinkingClosed = signal(true);
+  private static readonly LS_PREPEND = 'chat.prependByNodeId';
+  readonly prependEnabled = signal(false);
+  /** The stored director text for the current node (custom prefix). */
+  readonly prependText = signal('');
+  private readonly prependDialog = inject(PrependDialogService);
 
   private readonly editArea = viewChild<ElementRef<HTMLTextAreaElement>>('editArea');
   private readonly streamEnd = viewChild<ElementRef<HTMLElement>>('streamEnd');
@@ -426,6 +434,9 @@ export class ChatNodeComponent {
       ? { ...question, content: extra.content ?? question.content, attachments: extra.attachments ?? question.attachments }
       : question;
 
+    // The full context path. When a prepend was generated, the director
+    // (structural) node is skipped and the inserted narration (assistant)
+    // chapter is part of the normal path — no extra injection needed here.
     const contextMessages = this.buildContextMessagesUpTo(contextParentId);
 
     // Automatic image interpretation: when a direction carries image
@@ -1797,6 +1808,7 @@ export class ChatNodeComponent {
     this.activate.emit(next.id);
   }
 
+
   private buildContextMessagesUpTo(parentId: string | null): ChatMessage[] {
     if (!parentId) return [];
 
@@ -1811,7 +1823,6 @@ export class ChatNodeComponent {
       }
       return messages;
     }
-
     return [];
   }
 
@@ -1821,6 +1832,11 @@ export class ChatNodeComponent {
     effect(() => {
       const content = this.node().content;
       this.updateRendered(content);
+    });
+    effect(() => {
+      const id = this.node().id;
+      this.prependEnabled.set(this.isPrependStored(id));
+      this.prependText.set(this.storedPrependText(id));
     });
 
     afterRenderEffect(() => {
@@ -1836,6 +1852,187 @@ export class ChatNodeComponent {
         this.followLive();
       }
     });
+  }
+
+  /**
+   * Stored director texts per node id (a `{ [nodeId]: string }` map).
+   * The value is the edited director instruction; presence ⇒ prepend enabled.
+   */
+  private readPrependMap(): Record<string, string> {
+    try {
+      const raw = localStorage.getItem(ChatNodeComponent.LS_PREPEND);
+      const parsed = raw ? JSON.parse(raw) : {};
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+      return parsed as Record<string, string>;
+    } catch {
+      return {};
+    }
+  }
+
+  private writePrependMap(map: Record<string, string>): void {
+    try {
+      localStorage.setItem(ChatNodeComponent.LS_PREPEND, JSON.stringify(map));
+    } catch { /* best-effort */ }
+  }
+
+  private isPrependStored(nodeId: string): boolean {
+    const map = this.readPrependMap();
+    return Object.prototype.hasOwnProperty.call(map, nodeId);
+  }
+
+  private storedPrependText(nodeId: string): string {
+    const map = this.readPrependMap();
+    return Object.prototype.hasOwnProperty.call(map, nodeId) ? (map[nodeId] ?? '') : '';
+  }
+
+  /**
+   * Open the "Prepend director" dialog, prefilled with the existing editor
+   * text or a newly-proposed instruction (from `prependInstruction`). On
+   * confirm, the edited text is stored AND the LLM is called with the
+   * director instruction + the following assistant chapters (≤5000 tokens);
+   * the result is inserted as TWO new nodes BEFORE the current
+   * direction/user/question node: the prompt-prefix (director) node and the
+   * LLM result node. An empty confirmed text clears the director.
+   */
+  async openPrependDialog(): Promise<void> {
+    const node = this.node();
+    if (node.role !== 'user') return;
+    const chatId = this.chatService.currentChatId();
+    if (!chatId) return;
+
+    const nodeId = node.id;
+    const existing = this.storedPrependText(nodeId);
+    const proposed = existing.trim() || this.prependInstruction();
+    const text = await this.prependDialog.open(proposed, this.isPrependStored(nodeId));
+    // Cancel resolves null — keep the current state.
+    if (text == null) return;
+    const cleaned = text.trim();
+    const map = this.readPrependMap();
+    if (cleaned) {
+      map[nodeId] = cleaned;
+    } else {
+      delete map[nodeId];
+    }
+    this.writePrependMap(map);
+    this.prependEnabled.set(this.isPrependStored(nodeId));
+    this.prependText.set(this.storedPrependText(nodeId));
+    if (!cleaned) return; // cleared — no generation
+
+    await this.generatePrependNodes(node, chatId, cleaned);
+  }
+
+  /**
+   * Call the LLM with the newest complete assistant chapters (capped at
+   * `PREPEND_MAX_TOKENS`) as context plus the edited director prompt as the
+   * final user message, then insert TWO nodes BEFORE the current direction
+   * node, mirroring the "insert" flow:
+   *
+   *   [parent] → director(user, prompt) → result(assistant, LLM) → node
+   *
+   * The prompt-prefix becomes a USER node (the "proposed standard text + user
+   * edits"); the generated narration becomes the assistant answer. On failure
+   * nothing is inserted and the error is surfaced.
+   */
+  private async generatePrependNodes(
+    node: ChatNode,
+    chatId: string,
+    directorText: string
+  ): Promise<void> {
+    const modelId = this.branchModelId() || this.resolvePreferredModelId(node);
+    const model = this.enabledModels().find(
+      m => m.modelId === modelId || m.id === modelId
+    );
+    if (!model) {
+      alert(this.i18n.t('node.modelMissing'));
+      return;
+    }
+    const provider = this.settings.providers().find(p => p.id === model.providerId);
+    if (!provider) {
+      alert(this.i18n.t('node.providerMissing'));
+      return;
+    }
+
+    // "Like insert": the message array is the normal prior context (the path
+    // up to the current node's parent), and the newly created DIRECTORY prompt
+    // is appended as the LAST user message. Unlike a real insert (where the
+    // downstream subtree is adopted and ignored), that prompt ends with the
+    // concatenated full content of the assistant nodes FOLLOWING the current
+    // node, capped to `PREPEND_MAX_TOKENS`.
+    const contextMessages = this.buildContextMessagesUpTo(node.parentId);
+    const following = this.followingAssistantContent(node.id);
+    const hasAssistant = contextMessages.some(m => m.role === 'assistant')
+      || following.trim().length > 0;
+    // Nothing to narrate — no assistant chapter anywhere in the thread.
+    if (!hasAssistant) return;
+
+    const prompt = [directorText, following].filter(Boolean).join('\n\n');
+    const messages = [
+      ...contextMessages,
+      { role: 'user' as const, content: prompt }
+    ];
+
+    this.isLoading.set(true);
+    this.pendingAction.set('prepend');
+    try {
+      const resolved = await this.llmService.resolveForCurrentChat(model);
+      const result = await this.llmService.askLlm(
+        provider.baseUrl,
+        provider.apiKey,
+        model.modelId,
+        messages,
+        false, // non-streaming — we need the full narration to store it
+        undefined,
+        undefined,
+        { ...this.llmService.toLlmExtras(resolved), stream: false },
+        model.providerId
+      );
+      const content = result.content.trim();
+      if (!content) throw new Error(this.i18n.t('node.structureEmpty'));
+
+      const chatParametersId = this.chatService.chats()
+        .find(c => c.id === chatId)?.chatParametersId
+        || model.chatParametersId
+        || undefined;
+
+      // 1. The prompt-prefix (director) node — a USER node inserted before the
+      //    current direction, holding the proposed + edited standard text.
+      const directorNode = await this.chatService.addNode(chatId, {
+        parentId: node.parentId,
+        role: 'user',
+        content: directorText,
+        modelId: model.modelId,
+        providerId: model.providerId,
+        chatParametersId
+      });
+      // 2. The LLM result node — an ASSISTANT node inserted before the current
+      //    direction, holding the generated narration.
+      const resultNode = await this.chatService.addNode(chatId, {
+        parentId: directorNode.id,
+        role: 'assistant',
+        content,
+        modelId: model.modelId,
+        providerId: model.providerId,
+        chatParametersId
+      });
+      // Re-parent the current direction under the new result node.
+      await this.chatService.reparentNodes(chatId, [node.id], resultNode.id);
+      this.chatService.setActiveChild(node.parentId, directorNode.id);
+      this.chatService.setActiveChild(directorNode.id, resultNode.id);
+      this.chatService.setActiveChild(resultNode.id, node.id);
+      this.activate.emit(resultNode.id);
+    } catch (err: any) {
+      console.error(err);
+      alert(this.i18n.t('node.structureFailed', { error: err?.message || err }));
+      // Roll back the stored flag so the UI reflects "not active" on failure.
+      const map = this.readPrependMap();
+      delete map[node.id];
+      this.writePrependMap(map);
+      this.prependEnabled.set(false);
+      this.prependText.set('');
+    } finally {
+      this.isLoading.set(false);
+      this.pendingAction.set(null);
+    }
   }
 
   private followLive(): void {
@@ -2002,5 +2199,59 @@ export class ChatNodeComponent {
       if (fromModel) return formatParametersSummary(fromModel);
     }
     return null;
+  }
+  private elaborateCharacters(): string {
+    try {
+      const chatId = this.chatService.currentChatId();
+      if (!chatId) return '';
+      const raw = localStorage.getItem('chat-client.elaborate.byChatId');
+      const map = raw ? JSON.parse(raw) : {};
+      const entry = map?.[chatId];
+      return typeof entry?.characters === 'string' ? entry.characters.trim() : '';
+    } catch {
+      return '';
+    }
+  }
+
+  private prependInstruction(): string {
+    // The stored (user-edited) director text wins when present.
+    const stored = this.prependText().trim();
+    if (stored) return stored;
+    const characters = this.elaborateCharacters();
+    return characters
+      ? this.promptDefaults.render('structure.prepend', { characters })
+      : this.promptDefaults.render('structure.prepend-basic', {});
+  }
+
+
+
+  /**
+   * The concatenated FULL text of the assistant nodes that FOLLOW the current
+   * node on the active path (the chapters after the direction being prepended).
+   * Whole chapters are kept (never split); walking from the current node
+   * forward, chapters are appended until the aggregate token estimate exceeds
+   * `PREPEND_MAX_TOKENS` — the remaining (newest) chapters are left out.
+   * Returns '' when there is nothing following.
+   */
+  private followingAssistantContent(nodeId: string): string {
+    const path: ChatNode[] = this.chatService.getActivePath();
+    const start = path.findIndex(n => n.id === nodeId);
+    if (start < 0) return '';
+
+    const parts: string[] = [];
+    let tokens = 0;
+    // Walk the active path AFTER the node; keep only complete assistant
+    // chapters, newest-first append until the cap is exceeded.
+    for (let i = start + 1; i < path.length; i++) {
+      const n = path[i];
+      if (n.role !== 'assistant') continue;
+      const text = (n.content || '').trim();
+      if (!text) continue;
+      const t = estimateContentTokens(text);
+      if (parts.length > 0 && tokens + t > PREPEND_MAX_TOKENS) break;
+      parts.push(text);
+      tokens += t;
+    }
+    return parts.join('\n\n');
   }
 }
