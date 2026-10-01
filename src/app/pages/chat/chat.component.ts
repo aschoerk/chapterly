@@ -17,6 +17,7 @@ import { I18nService } from '../../core/i18n/i18n.service';
 import { LlmService } from '../../core/llm/llm.service';
 import { nodeToMessageContent, isPromptRecordAttachment, isGeneratedImageAttachment } from '../../core/llm/llm-message';
 import { GenerationSettingsService } from '../../core/generation-settings.service';
+import { PromptDefaultsService } from '../../core/prompt-defaults.service';
 import { GenerationTaskKind } from '../../models/generation-task';
 import { ModelEntry, ProviderConfig } from '../../models/chat-config';
 import { ConfirmService } from '../../core/confirm.service';
@@ -40,6 +41,7 @@ export class ChatComponent implements OnInit {
   private readonly parameters = inject(ChatParametersService);
   private readonly llmService = inject(LlmService);
   private readonly generation = inject(GenerationSettingsService);
+  private readonly promptDefaults = inject(PromptDefaultsService);
   private readonly confirm = inject(ConfirmService);
 
   readonly chats = this.chatService.chats;
@@ -1006,11 +1008,11 @@ export class ChatComponent implements OnInit {
         // No names → one generic elaboration per chapter.
         // With names → one elaboration per name, in first person.
         const prompts = names.length > 0
-          ? names.map(name =>
-            `elaborate on chapter ${chapter} out of the view of ${name} in first person. Do never repeat text verbatim from previous views in the same chapter.`
-  
-        )
-          : [`elaborate on chapter ${chapter}`];
+          ? names.map(name => this.promptDefaults.render('structure.elaborate-view', {
+              chapter,
+              name
+            }))
+          : [this.promptDefaults.render('structure.elaborate', { chapter })];
 
         for (const prompt of prompts) {
           if (this.chatService.isOperationCancelled()) break;
@@ -1118,9 +1120,9 @@ export class ChatComponent implements OnInit {
   }
 
   private defaultStructurePrompt(task: GenerationTaskKind): string {
-    if (task === 'title') return 'Generate a concise title for this story.';
-    // 'overview' = the introduction node placed at the start of the story.
-    return 'Write an engaging introduction to this story.';
+    if (task === 'title') return this.promptDefaults.effective('structure.title');
+    if (task === 'overview') return this.promptDefaults.effective('structure.overview');
+    return this.promptDefaults.effective('structure.headings');
   }
 
   async saveChatParams() {

@@ -1,0 +1,55 @@
+.count-badge {
+  font-size: 0.8rem;
+  color: var(--text-muted, #888);
+  border: 1px solid var(--border, #ddd);
+  border-radius: 999px;
+  padding: 0.15rem 0.6rem;
+  background: var(--panel, #fafafa);
+}
+
+.prompt-card {
+  border-left: 3px solid transparent;
+}
+
+.prompt-card.custom {
+  border-left-color: var(--color-primary, #2563eb);
+}
+
+.prompt-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+
+.prompt-head strong {
+  font-size: 0.95rem;
+}
+
+.prompt-desc {
+  margin: 0.2rem 0 0;
+  font-size: 0.8rem;
+  color: var(--text-muted, #666);
+  max-width: 60rem;
+}
+
+.prompt-text {
+  width: 100%;
+  box-sizing: border-box;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  font-size: 0.8rem;
+  line-height: 1.5;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--color-input-border, #ccc);
+  border-radius: 6px;
+  background: var(--panel, #fff);
+  color: var(--text, #222);
+  resize: vertical;
+  min-height: 6rem;
+}
+
+.prompt-text:focus {
+  outline: none;
+  border-color: var(--color-primary, #2563eb);
+}

@@ -343,6 +343,56 @@ describe('LlmService.generateImage — one-shot storyboard (singleCall)', () => 
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  it('sends ONLY the prepared prompt to the image model, never the story history', async () => {
+    fetchMock.mockResolvedValueOnce(completionResponse(1));
+
+    const HISTORY = 'H-' + 'x'.repeat(200); // pretend a huge earlier chapter
+    await service.generateImage(
+      { baseUrl: 'https://openrouter.ai/api/v1', apiKey: 'sk-test' },
+      MODEL,
+      [user(HISTORY), user('Draw a castle')],
+      undefined,
+      { count: 1 }
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const renderBody = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(renderBody.messages).toHaveLength(1);
+    expect(renderBody.messages[0].content).toBe('Draw a castle');
+    // The prior chapter never reaches the image model.
+    expect(JSON.stringify(renderBody)).not.toContain(HISTORY);
+  });
+
+  it('falls back to the /images endpoint when an image model runs out of context', async () => {
+    // chat/completions is rejected because the request exceeds the model's
+    // context window; the same prepared prompt must be retried via /images
+    // instead of stopping the illustration.
+    fetchMock.mockResolvedValueOnce(errorResponse(
+      400,
+      '{"error":{"message":"This endpoint\'s maximum context length is 65536 tokens. However, you requested about 78089 tokens (78089 of text input). Please reduce the length of either one, or use the context-compression plugin to compress your prompt automatically.","code":400,"metadata":{"provider_name":null}}}'
+    ));
+    fetchMock.mockResolvedValueOnce(imagesResponse(1));
+
+    const result = await service.generateImage(
+      { baseUrl: 'https://openrouter.ai/api/v1', apiKey: 'sk-test' },
+      MODEL,
+      [user('Draw a castle at dusk')],
+      undefined,
+      { count: 1 }
+    );
+
+    // First = chat/completions (400 context overflow), second = /images.
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const firstUrl = fetchMock.mock.calls[0][0] as string;
+    const secondUrl = fetchMock.mock.calls[1][0] as string;
+    expect(firstUrl).toContain('/chat/completions');
+    expect(secondUrl).toContain('/images');
+    const imagesBody = JSON.parse(fetchMock.mock.calls[1][1].body);
+    expect(imagesBody.prompt).toBe('Draw a castle at dusk');
+    expect(result.images).toHaveLength(1);
+    expect(result.scenes[0].refused).toBe(false);
+  });
+
   it('drives a single picture from a derived scene description, not the raw assistant text', async () => {
     // Planning answers with ONE concrete description; the render returns one image.
     fetchMock.mockResolvedValueOnce(textResponse(
@@ -518,11 +568,10 @@ describe('LlmService.generateImage — one-shot storyboard (singleCall)', () => 
       .filter(line => line.includes('[llm:chat]'));
     expect(chatLogs.length).toBeGreaterThan(0);
     const line = chatLogs[0];
-    // Message count.
-    expect(line).toContain('messages=2');
-    // First message role + type + content preview.
-    expect(line).toContain('first={system/text → "You are a storyteller."}');
-    // Last message role + type + content preview.
+    // The image model only ever receives the prepared prompt — a single
+    // user message, never the surrounding story history.
+    expect(line).toContain('messages=1');
+    expect(line).toContain('first={user/text → "Draw a castle"}');
     expect(line).toContain('last={user/text → "Draw a castle"}');
     logSpy.mockRestore();
   });
@@ -642,16 +691,21 @@ describe('LlmService.generateImage — one-shot storyboard (singleCall)', () => 
 
   it('records an ERROR (status + text) on the log entry when a call fails', async () => {
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-    fetchMock.mockResolvedValueOnce(errorResponse(400, MODERATED_ERROR));
 
-    // A content-moderated 400 becomes a refused result (not a throw) — but the
-    // underlying call still recorded an error. Use an images-only model to hit
-    // the /images endpoint and fail with a 400, which propagates.
+    // An images-only model is served by the /images endpoint: chat/completions
+    // rejects with the "…use the /images endpoint instead" hint (which makes
+    // callOnce fall back to /images), and that endpoint then fails with a 400
+    // — the propagated error, with the underlying call still recorded.
     fetchMock.mockReset();
-    fetchMock.mockResolvedValueOnce(errorResponse(
-      400,
-      '{"error":{"message":"bad request","code":400}}'
-    ));
+    fetchMock
+      .mockResolvedValueOnce(errorResponse(
+        400,
+        'This model cannot be used with the chat/completions endpoint. Use the /api/v1/images endpoint instead.'
+      ))
+      .mockResolvedValueOnce(errorResponse(
+        400,
+        '{"error":{"message":"bad request","code":400}}'
+      ));
 
     await expect(
       service.generateImage(

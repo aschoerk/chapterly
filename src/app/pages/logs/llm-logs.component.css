@@ -4,6 +4,43 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* Total stored bytes vs the configured size limit. */
+.log-size-usage {
+  font-size: 0.8rem;
+  color: var(--text-muted, #666);
+  font-variant-numeric: tabular-nums;
+  padding: 0.05rem 0.4rem;
+  border-radius: 999px;
+  border: 1px solid var(--border, #e5e5e5);
+  background: var(--bg-hover, #f1f5f9);
+}
+
+/* Configurable byte-size cap (oldest entries are dropped past this). */
+.log-size-limit {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.78rem;
+  color: var(--text-muted, #666);
+}
+
+.log-size-limit input {
+  width: 5rem;
+  padding: 0.25rem 0.4rem;
+  font-size: 0.8rem;
+  border: 1px solid var(--border, #ccc);
+  border-radius: 4px;
+  background: var(--bg, #fff);
+  color: var(--text, #111);
+}
+
+.log-size-note {
+  margin: 0 0 0.75rem;
+  font-size: 0.78rem;
+  color: var(--text-muted, #888);
+  font-style: italic;
+}
+
 .badge.chat {
   background: #e0e7ff;
   color: #3730a3;
@@ -12,6 +49,16 @@
 .badge.image {
   background: #fce7f3;
   color: #9d174d;
+}
+
+/* The chat this LLM call/response belongs to. */
+.log-chat {
+  background: #e0f2fe;
+  color: #075985;
+  max-width: 16rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .badge.persisted {
@@ -61,10 +108,26 @@
 }
 
 .log-ts {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
   font-size: 0.8rem;
   color: var(--text-muted, #666);
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
+}
+
+/* Stored size of the entry (request + response bytes, human-readable). */
+.log-size {
+  display: inline-block;
+  padding: 0.05rem 0.4rem;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  background: var(--bg-hover, #f1f5f9);
+  color: var(--text-muted, #64748b);
+  border: 1px solid var(--border, #e5e5e5);
 }
 
 .log-summary code {
@@ -94,6 +157,20 @@
 
 .log-section-head .log-section-title {
   margin-bottom: 0;
+}
+
+/* Right-aligned actions (copy + show/hide) in a section head. */
+.log-section-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+/* Flash state of a copy button — confirms the text went to the clipboard. */
+.flash-copy {
+  color: var(--color-success, #166534) !important;
+  border-color: var(--color-success, #166534) !important;
+  background: #dcfce7 !important;
 }
 
 .log-section-title {

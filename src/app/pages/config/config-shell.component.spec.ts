@@ -29,13 +29,14 @@ describe('ConfigShellComponent', () => {
     expect(component).toBeTruthy();
   });
 
-  it('renders the three sidebar nav entries', () => {
+  it('renders the four sidebar nav entries', () => {
     const links = (fixture.nativeElement as HTMLElement).querySelectorAll('.config-nav-item');
-    expect(links.length).toBe(3);
+    expect(links.length).toBe(4);
     expect(component.tabs.map(t => t.path)).toEqual([
       '/config/appearance',
       '/config/providers',
-      '/config/tasks'
+      '/config/tasks',
+      '/config/prompts'
     ]);
   });
 
@@ -44,5 +45,6 @@ describe('ConfigShellComponent', () => {
     expect(text).toContain('Appearance');
     expect(text).toContain('Providers / Models');
     expect(text).toContain('Generation Tasks');
+    expect(text).toContain('Prompt defaults');
   });
 });

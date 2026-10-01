@@ -1,0 +1,60 @@
+<div>
+  <div class="page-header">
+    <div class="header-left">
+      <h2>Prompt defaults</h2>
+      <span class="count-badge">
+        {{ customizedCount() > 0 ? customizedCount() + ' customized' : 'all defaults' }}
+      </span>
+    </div>
+    <div class="actions">
+      <button type="button" class="btn danger" [disabled]="customizedCount() === 0" (click)="resetAll()">
+        Reset all
+      </button>
+    </div>
+  </div>
+
+  <p class="hint">
+    These are the prompts and prompt-parts the app builds automatically and sends to the language models:
+    story titles, introductions, headings, chapter elaboration, image generation and the language check.
+    Edit any template here to take full control over what is sent; the built-in default is restored per template
+    (or for all templates) with the Reset buttons. Placeholders such as <code>{{'{{total}}'}}</code>,
+    <code>{{'{{index}}'}}</code>, <code>{{'{{chapter}}'}}</code>, <code>{{'{{name}}'}}</code> and
+    <code>{{'{{descriptions}}'}}</code> are filled in automatically when the prompt is used.
+  </p>
+
+  @for (category of categories; track category) {
+    <section class="section">
+      <div class="section-header">
+        <h3>{{ categoryMeta(category).title }}</h3>
+      </div>
+      <p class="hint">{{ categoryMeta(category).hint }}</p>
+
+      @for (def of defsOf(category); track def.id) {
+        <div class="card prompt-card" [class.custom]="isCustom(def.id)">
+          <div class="prompt-head">
+            <div>
+              <strong>{{ def.label }}</strong>
+              @if (def.description) {
+                <p class="prompt-desc">{{ def.description }}</p>
+              }
+            </div>
+            <button
+              type="button"
+              class="btn small"
+              [disabled]="!isCustom(def.id)"
+              (click)="reset(def.id)">
+              {{ isCustom(def.id) ? 'Reset to default' : 'Default' }}
+            </button>
+          </div>
+          <textarea
+            class="prompt-text"
+            rows="6"
+            spellcheck="false"
+            [ngModel]="effective(def.id)"
+            (ngModelChange)="onInput(def.id, $event)"
+          ></textarea>
+        </div>
+      }
+    </section>
+  }
+</div>

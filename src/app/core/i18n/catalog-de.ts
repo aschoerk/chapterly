@@ -388,7 +388,7 @@ export const DE = {
   },
   logs: {
     title: 'LLM-Aufrufprotokoll',
-    hint: 'Jeder ausgehende LLM-Aufruf (Text und Bild) wird hier gespeichert – bis zu 1000 Einträge, älteste zuerst. Jeder Eintrag hält die Anfrage vollständig, exakt wie gesendet: alle Nachrichten ungekürzt und den restlichen JSON (Modell, Temperatur, Stream, Zusatzparameter …).',
+    hint: 'Jeder ausgehende LLM-Aufruf (Text und Bild) wird hier gespeichert – bis zu 1000 Einträge, älteste zuerst. Jeder Eintrag hält die Anfrage vollständig, exakt wie gesendet: alle Nachrichten ungekürzt und den restlichen JSON (Modell, Temperatur, Stream, Zusatzparameter …), versehen mit dem zugehörigen Chat sowie der vollständigen Antwort des Anbieters (bzw. dem Fehler).',
     empty: 'Noch keine LLM-Aufrufe protokolliert.',
     clear: 'Protokoll leeren',
     clearTitle: 'LLM-Protokoll leeren?',
@@ -397,6 +397,7 @@ export const DE = {
     inMemory: 'im Speicher (IndexedDB nicht verfügbar)',
     kindChat: 'Text',
     kindImage: 'Bild',
+    chatTitle: 'Chat: {{title}}',
     messages: '{{count}} Nachrichten',
     noMessages: '(leere Nachrichtenliste)',
     first: 'erste',
@@ -410,6 +411,13 @@ export const DE = {
     errorStatus: 'HTTP {{status}}',
     show: 'Anzeigen',
     hide: 'Ausblenden',
+    copy: 'Kopieren',
+    copied: 'Kopiert',
+    sizeTitle: 'Gespeicherte Eintragsgröße: {{bytes}} Bytes',
+    sizeLimitLabel: 'Max. Größe',
+    sizeLimitUnit: 'MB',
+    sizeLimitHint: 'Sobald das gespeicherte Protokoll das konfigurierte Größenlimit überschreitet (Standard 50 MB), werden die ältesten Einträge entfernt, bis es wieder hineinpasst. Als Sicherheitsnetz gilt zusätzlich ein hartes Limit für die Eintragsanzahl.',
+    sizeUsageTitle: 'Gespeichert: {{used}} von {{limit}}',
   },
   config: {
     nav: {

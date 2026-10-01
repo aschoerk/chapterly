@@ -1,12 +1,27 @@
 import { Injectable, signal } from '@angular/core';
 
 /**
- * Fixed maximum number of LLM call records kept in the log buffer. Oldest
- * entries are dropped first (FIFO) once the buffer is full. Content is stored
- * WITHOUT shortening (the console one-liner is shortened, the stored record
- * keeps the full messages / prompt).
+ * Hard upper bound on the NUMBER of LLM call records kept in the log buffer,
+ * regardless of their byte size (safety net on top of the byte-size limit).
+ * Content is stored WITHOUT shortening (the console one-liner is shortened,
+ * the stored record keeps the full messages / prompt).
  */
 export const LLM_LOG_LIMIT = 1000;
+
+/** Default maximum total byte size of the stored log (50 MB). */
+const DEFAULT_LOG_SIZE_LIMIT = 50 * 1024 * 1024;
+/** Smallest allowed size limit (1 MB) — avoids accidental wipe-out. */
+const MIN_LOG_SIZE_LIMIT = 1 * 1024 * 1024;
+/** Largest allowed size limit (1 GB). */
+const MAX_LOG_SIZE_LIMIT = 1024 * 1024 * 1024;
+/** localStorage key for the user-configured size limit (bytes). */
+const SIZE_LIMIT_STORAGE_KEY = 'chat.llmLog.sizeLimit';
+
+/** Clamp a requested byte limit into the allowed range (default when invalid). */
+export function clampLogSizeLimit(bytes: number): number {
+  if (!Number.isFinite(bytes) || bytes <= 0) return DEFAULT_LOG_SIZE_LIMIT;
+  return Math.min(MAX_LOG_SIZE_LIMIT, Math.max(MIN_LOG_SIZE_LIMIT, Math.round(bytes)));
+}
 
 /** One message as recorded in the log (full content, never shortened). */
 export interface LlmLogMessage {
@@ -19,6 +34,10 @@ export interface LlmLogInput {
   kind: 'chat' | 'image';
   modelId: string;
   provider: string;
+  /** Id of the chat this call was made for (the currently selected chat). */
+  chatId?: string;
+  /** Title of the chat this call was made for (for the log output). */
+  chatTitle?: string;
   endpoint?: string;
   /** Full message array for chat-completions requests. */
   messages?: LlmLogMessage[];
@@ -57,6 +76,12 @@ export interface LlmLogEntry extends LlmLogInput {
   error?: { status: number; text: string };
   /** True once a response OR error has been attached. */
   completed?: boolean;
+  /**
+   * UTF-8 byte size of the stored content: the request body / prompt /
+   * messages at record time, updated on complete() to also include the
+   * response (or error). Approximates the on-disk size of the entry.
+   */
+  size?: number;
 }
 
 const DB_NAME = 'chat-client-logs';
@@ -106,11 +131,52 @@ function contentPreviewText(text: string, max: number): string {
 }
 
 /**
+ * Single-line, console-safe label of a chat title (newlines collapsed,
+ * double-quotes escaped, empty -> ''). Used in the one-line summary.
+ */
+function chatTitleLabel(title: string | undefined): string {
+  if (!title || !title.trim()) return '';
+  const t = title.replace(/\s+/g, ' ').trim();
+  return ` chat="${t.replace(/"/g, '\\"')}"`;
+}
+
+/**
+ * UTF-8 byte size of the JSON-serialized value. Used to approximate the size
+ * a log entry occupies (request + response). Never throws — a value that
+ * cannot be serialized counts as 0 bytes.
+ */
+export function jsonByteSize(value: unknown): number {
+  try {
+    return new TextEncoder().encode(JSON.stringify(value ?? null)).length;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * Size of the payload-bearing parts of a log entry (request + response),
+ * i.e. everything except the bookkeeping fields (seq/ts/iso/summary).
+ */
+export function entryContentSize(entry: Pick<
+  LlmLogEntry,
+  'body' | 'messages' | 'prompt' | 'response' | 'error'
+>): number {
+  return jsonByteSize({
+    body: entry.body ?? null,
+    messages: entry.messages ?? null,
+    prompt: entry.prompt ?? null,
+    response: entry.response ?? null,
+    error: entry.error ?? null
+  });
+}
+
+/**
  * Builds the short one-line summary logged to console (and kept on the entry).
- * Works for both chat and image requests; content is previewed here only.
+ * Works for both chat and image requests; content is previewed here only. When
+ * the call was made in the context of a chat, its title is included too.
  */
 export function summarizeLlmRequest(input: LlmLogInput): string {
-  const head = `[llm:${input.kind}] model=${input.modelId} provider=${input.provider}`;
+  const head = `[llm:${input.kind}] model=${input.modelId} provider=${input.provider}${chatTitleLabel(input.chatTitle)}`;
   if (input.kind === 'image') {
     const text = input.prompt ?? '';
     return `${head} messages=1 first={text → "${contentPreview(text)}"} last={text → "${contentPreview(text)}"}`;
@@ -123,11 +189,14 @@ export function summarizeLlmRequest(input: LlmLogInput): string {
 }
 
 /**
- * Log-buffer for outgoing LLM requests, backed by IndexedDB (fixed FIFO of
- * `LLM_LOG_LIMIT` entries). Records the FULL request content (never shortened)
- * plus a timestamp. In environments without IndexedDB (e.g. some test runners)
- * it degrades gracefully to an in-memory buffer so logging never breaks an
- * LLM call.
+ * Log-buffer for outgoing LLM requests, backed by IndexedDB. Records the FULL
+ * request content (never shortened) plus a timestamp. Pruning is SIZE-BASED:
+ * as soon as the sum of all stored entries exceeds the configurable
+ * `sizeLimit` (default 50 MB), the OLDEST entries are deleted until the total
+ * is back under the limit — a hard `LLM_LOG_LIMIT` count cap still applies as
+ * a safety net. In environments without IndexedDB (e.g. some test runners) it
+ * degrades gracefully to an in-memory buffer so logging never breaks an LLM
+ * call.
  */
 @Injectable({ providedIn: 'root' })
 export class LlmLogService {
@@ -135,6 +204,8 @@ export class LlmLogService {
   readonly entries = signal<LlmLogEntry[]>([]);
   /** Whether IndexedDB is available (vs the in-memory fallback). */
   readonly persisted = signal(false);
+  /** Maximum total byte size of the stored log (configurable, default 50 MB). */
+  readonly sizeLimit = signal<number>(DEFAULT_LOG_SIZE_LIMIT);
 
   private dbPromise: Promise<IDBDatabase> | null = null;
   private memory: LlmLogEntry[] = [];
@@ -143,6 +214,7 @@ export class LlmLogService {
   private tail: Promise<void> = Promise.resolve();
 
   constructor() {
+    this.sizeLimit.set(this.readStoredSizeLimit());
     this.refresh().catch(() => { /* non-fatal */ });
   }
 
@@ -162,7 +234,12 @@ export class LlmLogService {
       seq: 0,
       ts: now,
       iso: new Date(now).toISOString(),
-      summary: summarizeLlmRequest(input)
+      summary: summarizeLlmRequest(input),
+      size: jsonByteSize({
+        body: input.body ?? null,
+        messages: input.messages ?? null,
+        prompt: input.prompt ?? null
+      })
     };
     try {
       console.log(entry.summary);
@@ -175,6 +252,36 @@ export class LlmLogService {
   /** Resolves once all currently-pending log writes have been persisted. */
   flush(): Promise<void> {
     return this.tail;
+  }
+
+  /**
+   * Change the total byte-size cap for the stored log (clamped to the allowed
+   * range, default 50 MB) and prune the log immediately if it now exceeds the
+   * new limit. The value is persisted per-browser via localStorage.
+   */
+  setSizeLimit(bytes: number): Promise<void> {
+    const clamped = clampLogSizeLimit(bytes);
+    this.sizeLimit.set(clamped);
+    try {
+      localStorage.setItem(SIZE_LIMIT_STORAGE_KEY, String(clamped));
+    } catch { /* non-fatal */ }
+    this.tail = this.tail
+      .then(() => this.prune())
+      .catch(() => { /* keep queue alive */ })
+      .finally(() => this.publish());
+    return this.tail;
+  }
+
+  /** The configured per-browser size limit in bytes (default 50 MB). */
+  private readStoredSizeLimit(): number {
+    try {
+      const raw = localStorage.getItem(SIZE_LIMIT_STORAGE_KEY);
+      if (raw) {
+        const n = Number(raw);
+        if (Number.isFinite(n) && n > 0) return clampLogSizeLimit(n);
+      }
+    } catch { /* non-fatal */ }
+    return DEFAULT_LOG_SIZE_LIMIT;
   }
 
   /**
@@ -194,11 +301,14 @@ export class LlmLogService {
       entry.error = undefined;
     }
     entry.completed = true;
+    // Recompute the entry size so it also covers the response/error payload.
+    entry.size = entryContentSize(entry);
 
     this.tail = this.tail
       .then(async () => {
         const db = await this.persistedStore();
         await this.updateStored(db, entry);
+        await this.prune();
       })
       .catch(() => { /* keep queue alive */ })
       .finally(() => this.publish());
@@ -251,16 +361,15 @@ export class LlmLogService {
       .then(db => this.insert(db, entry))
       .then(seq => {
         entry.seq = seq;
-        this.prune();
+        return this.prune();
       })
       .catch(() => {
-        // IDB unavailable or failed → in-memory FIFO fallback.
+        // IDB unavailable or failed → in-memory fallback (also pruned to the
+        // configured byte limit + count cap).
         this.memorySeq += 1;
         entry.seq = this.memorySeq;
         this.memory.push(entry);
-        if (this.memory.length > LLM_LOG_LIMIT) {
-          this.memory.splice(0, this.memory.length - LLM_LOG_LIMIT);
-        }
+        this.pruneMemory();
       })
       .finally(() => this.publish());
   }
@@ -318,23 +427,65 @@ export class LlmLogService {
     });
   }
 
-  /** Trim the store to the newest `LLM_LOG_LIMIT` entries (FIFO). */
-  private prune(): void {
-    if (!this.dbPromise) return;
-    Promise.resolve(this.dbPromise)
-      .then(database => {
+  /**
+   * Delete the OLDEST entries while the stored log exceeds the configured byte
+   * `sizeLimit` (default 50 MB) — or the hard `LLM_LOG_LIMIT` count cap as a
+   * safety net. Resolves once the pruning transaction has committed. In-memory
+   * fallback mode prunes the memory array instead.
+   */
+  private prune(): Promise<void> {
+    if (!this.persisted()) {
+      this.pruneMemory();
+      return Promise.resolve();
+    }
+    const dbPromise = this.dbPromise;
+    if (!dbPromise) return Promise.resolve();
+    return Promise.resolve(dbPromise)
+      .then(database => new Promise<void>((resolve) => {
         const tx = database.transaction(STORE, 'readwrite');
         const store = tx.objectStore(STORE);
-        const keys = store.getAllKeys();
-        keys.onsuccess = () => {
-          const all = keys.result as IDBValidKey[];
-          const excess = all.length - LLM_LOG_LIMIT;
-          if (excess > 0) {
-            for (const key of all.slice(0, excess)) store.delete(key);
+        const req = store.getAll();
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => resolve();
+        tx.onabort = () => resolve();
+        req.onsuccess = () => {
+          const list = (req.result as LlmLogEntry[]) ?? [];
+          // Oldest first (seq is the auto-increment insert order).
+          list.sort((a, b) => a.seq - b.seq);
+          let total = 0;
+          for (const e of list) total += this.entrySize(e);
+          let head = 0;
+          while (
+            head < list.length &&
+            (list.length - head > LLM_LOG_LIMIT || total > this.sizeLimit())
+          ) {
+            const oldest = list[head++];
+            total -= this.entrySize(oldest);
+            store.delete(oldest.seq);
           }
         };
-      })
+      }))
       .catch(() => { /* non-fatal */ });
+  }
+
+  /** Size of one entry, with a live fallback for legacy entries without `size`. */
+  private entrySize(e: LlmLogEntry): number {
+    return (typeof e.size === 'number' && e.size >= 0) ? e.size : entryContentSize(e);
+  }
+
+  /** Size-based + count-cap pruning of the in-memory fallback buffer. */
+  private pruneMemory(): void {
+    if (this.memory.length === 0) return;
+    this.memory.sort((a, b) => a.seq - b.seq);
+    let total = 0;
+    for (const e of this.memory) total += this.entrySize(e);
+    while (
+      this.memory.length > 0 &&
+      (this.memory.length > LLM_LOG_LIMIT || total > this.sizeLimit())
+    ) {
+      const oldest = this.memory.shift()!;
+      total -= this.entrySize(oldest);
+    }
   }
 
   /** Refresh `entries` from the store (newest first). */

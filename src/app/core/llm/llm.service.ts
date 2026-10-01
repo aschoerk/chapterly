@@ -8,12 +8,14 @@ import {
   extractLlmImages,
   extractLlmRefusal,
   normalizeChatMessages,
-  type LlmImagePart
+  type LlmImagePart,
+  type MessagePart
 } from './llm-message';
 import { extractLlmDelta, LlmChunk, readSseStream } from './llm-sse';
 import {ChatParameters, ResolvedChatParameters} from '../../models/chat-parameters';
 import { ProjectService } from '../project.service';
 import { LlmLogService } from './llm-log.service';
+import { PromptDefaultsService } from '../prompt-defaults.service';
 
 export type { LlmChunk };
 
@@ -55,6 +57,19 @@ export class LlmService {
   private readonly projectService = inject(ProjectService);
   private readonly parameters = inject(ChatParametersService);
   private readonly llmLog = inject(LlmLogService);
+  private readonly promptDefaults = inject(PromptDefaultsService);
+
+  /**
+   * Id + title of the currently selected chat, so every logged LLM call can be
+   * attributed to the chat it was made for (used in the log output). Empty
+   * when no chat is selected.
+   */
+  private currentChatContext(): { chatId?: string; chatTitle?: string } {
+    const id = this.chatService.currentChatId();
+    if (!id) return {};
+    const chat = this.chatService.chats().find(c => c.id === id);
+    return { chatId: id, chatTitle: chat?.title };
+  }
 
   async askLlm(
     providerBaseUrl: string,
@@ -89,6 +104,7 @@ export class LlmService {
       kind: 'chat',
       modelId,
       provider: providerBaseUrl,
+      ...this.currentChatContext(),
       endpoint: 'chat/completions',
       messages: payloadMessages.map(m => ({ role: m.role, content: m.content })),
       body: payload,
@@ -116,7 +132,9 @@ export class LlmService {
       throw new Error(`LLM request failed: ${response.status} ${errText}`);
     }
     if (!response.body) {
-      throw new Error('No response body');
+      const err = new Error('No response body');
+      this.llmLog.complete(logEntry, { error: { status: 0, text: err.message } });
+      throw err;
     }
 
     try {
@@ -164,6 +182,7 @@ export class LlmService {
       kind: 'chat',
       modelId,
       provider: providerBaseUrl,
+      ...this.currentChatContext(),
       endpoint: 'chat/completions',
       messages: payloadMessages.map(m => ({ role: m.role, content: m.content })),
       body: payload,
@@ -171,26 +190,38 @@ export class LlmService {
     });
 
     const body = JSON.stringify(payload);
-    const response = await fetch(`${config.proxyBase}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-        'x-target-base': providerBaseUrl,
-        'HTTP-Referer': 'https://chat-client.local',
-        'X-Title': 'Chapterly'
-      },
-      body,
-      signal
-    });
-    if (!response.ok) {
-      const errText = await response.text();
-      this.llmLog.complete(logEntry, { error: { status: response.status, text: errText } });
-      throw new Error(`LLM request failed: ${response.status} ${errText}`);
+    try {
+      const response = await fetch(`${config.proxyBase}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+          'x-target-base': providerBaseUrl,
+          'HTTP-Referer': 'https://chat-client.local',
+          'X-Title': 'Chapterly'
+        },
+        body,
+        signal
+      });
+      if (!response.ok) {
+        const errText = await response.text();
+        this.llmLog.complete(logEntry, { error: { status: response.status, text: errText } });
+        throw new Error(`LLM request failed: ${response.status} ${errText}`);
+      }
+      const json = await response.json();
+      this.llmLog.complete(logEntry, { response: json });
+      return json;
+    } catch (err: any) {
+      // Aborts (caller / timeout during illustration) and response-body parse
+      // failures must still leave a logged outcome — never a dangling entry
+      // that stays "in flight" without a response or error.
+      if (!logEntry.completed) {
+        this.llmLog.complete(logEntry, {
+          error: { status: 0, text: err?.name === 'AbortError' ? 'aborted' : String(err?.message ?? err) }
+        });
+      }
+      throw err;
     }
-    const json = await response.json();
-    this.llmLog.complete(logEntry, { response: json });
-    return json;
   }
 
   /**
@@ -228,6 +259,7 @@ export class LlmService {
       kind: 'image',
       modelId,
       provider: providerBaseUrl,
+      ...this.currentChatContext(),
       endpoint: 'images',
       prompt,
       body: payload,
@@ -251,15 +283,108 @@ export class LlmService {
       this.llmLog.complete(logEntry, { error: { status: response.status, text: errText } });
       throw new Error(`Image generation failed: ${response.status} ${errText}`);
     }
-    const json = await response.json();
-    this.llmLog.complete(logEntry, { response: json });
-    return json;
+    try {
+      const json = await response.json();
+      this.llmLog.complete(logEntry, { response: json });
+      return json;
+    } catch (err: any) {
+      // A body that cannot be parsed must still leave a logged outcome.
+      if (!logEntry.completed) {
+        this.llmLog.complete(logEntry, {
+          error: { status: 0, text: String(err?.message ?? err) }
+        });
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * Per-scene instruction appended in storyboard mode (count > 1). Tells the
+   * model to render a →new← scene from the story context each iteration.
+   * `extra` is the user's storyboard prompt (a standing constraint for all
+   * scenes), e.g. "no explicit images — hide behind bystanders, shadows…".
+   */
+  private storyboardInstruction(index: number, total: number, extra?: string): string {
+    const base = this.promptDefaults.render('image.storyboard', {
+      index: index + 1,
+      total
+    });
+    return extra?.trim() ? `${base}\n\nRules for every picture:\n${extra.trim()}` : base;
+  }
+
+  /**
+   * Prompt for pure picture mode: requests ALL `total` pictures EN-BLOCK from
+   * only the derived, temporal-free picture descriptions plus the consistency
+   * rules. The image model never sees the raw story prose (which can trigger
+   * moderation on sensitive story content) — only sanitized, isolated picture
+   * descriptions, and it is told to keep characters / setting / style identical
+   * across all pictures.
+   */
+  private purePicturesPrompt(
+    sceneInstruction: string,
+    descriptions: string[],
+    total: number,
+    extra?: string
+  ): string {
+    let text = sceneInstruction ? `${sceneInstruction}\n\n` : '';
+    const numbered = descriptions
+      .map((d, i) => `${i + 1}. ${d.trim()}`)
+      .join('\n') + (descriptions.length ? '\n' : '');
+    text += this.promptDefaults.render('image.pure', {
+      total,
+      descriptions: numbered
+    });
+    if (extra?.trim()) text += `\n\nAdditional rules for every picture:\n${extra.trim()}`;
+    return text;
+  }
+
+  /**
+   * Prompt for one-shot storyboard mode: asks for ALL `total` pictures in a
+   * SINGLE completion response, with explicit instructions to keep characters,
+   * faces, figures, the environment and the style identical across every image.
+   * When `scenePrompts` (from the picture-description planning pass) is present
+   * it lists those concrete scenes so each image renders exactly its scene.
+   */
+  private oneShotStoryboardPrompt(
+    basePrompt: string,
+    scenePrompts: (string | null)[],
+    total: number,
+    extra?: string
+  ): string {
+    let text = basePrompt ? `${basePrompt}\n\n` : '';
+    text += this.promptDefaults.render('image.one-shot', { total });
+    const planned = scenePrompts
+      .map(s => (s ?? '').trim())
+      .filter(s => s.length > 0);
+    if (planned.length > 0) {
+      text += `\n\nThe exact scenes to render (one image per scene, in this order):\n`;
+      planned.forEach((p, i) => { text += `${i + 1}. ${p}\n`; });
+    }
+    if (extra?.trim()) {
+      text += `\n\nAdditional storyboard rules for every picture:\n${extra.trim()}`;
+    }
+    return text;
+  }
+
+  /**
+   * Planning instruction used before generating a storyboard (when
+   * `planDescriptions` is on): instead of letting the render model pick "a
+   * scene" from prose, first expand the story into concrete, self-contained
+   * picture descriptions. `extra` is the user's storyboard rules (a standing
+   * constraint for every picture).
+   */
+  private picturePlanningInstruction(total: number, extra?: string): string {
+    const base = this.promptDefaults.render('image.planning', { total });
+    return extra?.trim() ? `${base}\n\nRules that apply to every picture:\n${extra.trim()}` : base;
   }
 
   /**
    * Generate one or more pictures with an image-output model (text → image).
-   * The request goes through the normal /chat/completions proxy so previous
-   * chat chapters can be sent as context.
+   * The request goes through the normal /chat/completions proxy but carries
+   * ONLY the caller-prepared prompt — plus, when the caller attached reference
+   * image parts, exactly those image parts. The story history is never sent:
+   * image models have strict context windows and the embedded prose is what
+   * overflows them.
    *
    * `count` > 1 switches to "storyboard" mode: the model is called per scene
    * (each call gets a distinct-scene instruction plus the shared style/context
@@ -434,6 +559,27 @@ export class LlmService {
             );
           }
         }
+        // A chat/completions call to an image model can be rejected because
+        // the whole request overflows the model's context window ("This
+        // endpoint's maximum context length is N tokens. However, you
+        // requested about M tokens…"). The /images endpoint only takes
+        // {model, prompt} — it never carries the message history — so retry
+        // the same prepared prompt there instead of stopping the illustration.
+        const contextOverflow = wantsModalities &&
+          /maximum context length|context length is|reduce the length|requested about \d+ tokens|too many tokens/i.test(msg);
+        if (contextOverflow) {
+          const prompt = lastUserPromptText(msgs);
+          if (prompt.trim()) {
+            return await this.askImages(
+              provider.baseUrl,
+              provider.apiKey,
+              model.modelId,
+              prompt,
+              undefined,
+              signal_
+            );
+          }
+        }
         throw err;
       }
     };
@@ -469,7 +615,7 @@ export class LlmService {
           : desc;
       }
       const instruction = total > 1
-        ? storyboardInstruction(i, total, opts?.storyboardPrompt)
+        ? this.storyboardInstruction(i, total, opts?.storyboardPrompt)
         : '';
       // In pure picture mode never fall back to the raw anchor (it can carry
       // moderation-triggering prose) — use the drawing instruction alone when
@@ -492,7 +638,7 @@ export class LlmService {
     // pure en-block path below replaces it (and never exposes raw prose).
     // ------------------------------------------------------------------
     if (!opts?.purePictures && opts?.singleCall && total > 1) {
-      const oneShotPrompt = oneShotStoryboardPrompt(
+      const oneShotPrompt = this.oneShotStoryboardPrompt(
         basePrompt, scenePrompts, total, opts?.storyboardPrompt
       );
       const controller = new AbortController();
@@ -504,7 +650,7 @@ export class LlmService {
       }
       try {
         const json = await callOnce(
-          [...messages, { role: 'user' as const, content: oneShotPrompt }],
+          this.renderMessages(oneShotPrompt, messages),
           controller.signal
         );
         const imgs = extractLlmImages(json);
@@ -577,7 +723,7 @@ export class LlmService {
       ? scenePrompts.map(s => (s ?? '').trim()).filter(s => s.length > 0)
       : []);
     if (opts?.purePictures && pureDescriptions.length > 0) {
-      const purePrompt = purePicturesPrompt(
+      const purePrompt = this.purePicturesPrompt(
         (opts?.sceneInstruction ?? '').trim() || basePrompt,
         pureDescriptions,
         total,
@@ -592,7 +738,7 @@ export class LlmService {
       }
       try {
         const json = await callOnce(
-          [...messages, { role: 'user' as const, content: purePrompt }],
+          this.renderMessages(purePrompt, messages),
           controller.signal
         );
         const imgs = extractLlmImages(json);
@@ -669,19 +815,10 @@ export class LlmService {
       const prompt = scenePrompt(i);
       let json: unknown;
       try {
-        const hasPlannedScene = (scenePrompts[i] ?? '').trim().length > 0;
-        let msgs: ChatMessage[];
-        if (total > 1) {
-          msgs = [...messages, { role: 'user' as const, content: prompt }];
-        } else if (hasPlannedScene) {
-          // count=1 with a derived scene description: the final cue becomes
-          // that description (the raw anchor text is already in `messages`
-          // as context and must not be re-sent verbatim).
-          msgs = [...messages, { role: 'user' as const, content: prompt }];
-        } else {
-          msgs = messages;
-        }
-        json = await callOnce(msgs, controller.signal);
+        // The image model receives ONLY the prepared scene prompt (plus any
+        // caller-attached reference-image parts) — never the story history,
+        // which would overflow the model's context window.
+        json = await callOnce(this.renderMessages(prompt, messages), controller.signal);
       } catch (err: any) {
         const moderation = contentModerationReason(err);
         if (moderation) {
@@ -766,6 +903,37 @@ export class LlmService {
   }
 
   /**
+   * Build the messages an image-generation chat-completions call actually
+   * sends: the caller-prepared render prompt as a SINGLE user message, plus —
+   * only when the caller attached reference-image parts to its last user
+   * message — exactly those image_url parts (prior illustrations, bounded to
+   * a few by the caller).
+   *
+   * The story-history embed (all previous chapters as prose) is deliberately
+   * NOT forwarded: image models have strict context windows and that prose is
+   * what overflows them (e.g. "maximum context length is 65536 tokens…"). The
+   * prepared prompt already says what to draw; the model does not need the
+   * prose that produced it.
+   */
+  private renderMessages(prompt: string, context: ChatMessage[]): ChatMessage[] {
+    const last = context[context.length - 1];
+    const refs: MessagePart[] = [];
+    if (last && Array.isArray(last.content)) {
+      for (const p of last.content) {
+        const url = p.type === 'image_url' ? p.image_url?.url : undefined;
+        if (url) {
+          refs.push({ type: 'image_url', image_url: { url } });
+        }
+      }
+    }
+    if (refs.length === 0) return [{ role: 'user', content: prompt }];
+    return [{
+      role: 'user',
+      content: [{ type: 'text', text: prompt }, ...refs]
+    }];
+  }
+
+  /**
    * Best-effort planning pass for storyboard mode. Asks the model (a TEXT
    * completion — no image requested) to expand the story so far into `total`
    * concrete, distinct picture descriptions. Returns an array of length
@@ -817,7 +985,7 @@ export class LlmService {
     }
     if (textOnly.length === 0) return empty();
 
-    const instruction = picturePlanningInstruction(total, storyboardPrompt);
+    const instruction = this.picturePlanningInstruction(total, storyboardPrompt);
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
@@ -1184,121 +1352,6 @@ export class LlmService {
     ]);
     return this.parameters.resolveForChat({ model, topic, project, chat });
   }
-}
-
-/**
- * Per-scene instruction appended in storyboard mode (count > 1). Tells the
- * model to render a →new← scene from the story context each iteration.
- * `extra` is the user's storyboard prompt (a standing constraint for all
- * scenes), e.g. "no explicit images — hide behind bystanders, shadows…".
- */
-function storyboardInstruction(index: number, total: number, extra?: string): string {
-  const base = `Storyboard: render picture ${index + 1} of ${total}. Choose a DISTINCT scene from the story above (do not repeat a scene you already rendered) and draw it. Keep characters, setting and style consistent across all ${total} pictures.`;
-  return extra?.trim() ? `${base}\n\nRules for every picture:\n${extra.trim()}` : base;
-}
-
-/**
- * Prompt for pure picture mode: requests ALL `total` pictures EN-BLOCK from
- * only the derived, temporal-free picture descriptions plus the consistency
- * rules. The image model never sees the raw story prose (which can trigger
- * moderation on sensitive story content) — only sanitized, isolated picture
- * descriptions, and it is told to keep characters / setting / style identical
- * across all pictures.
- */
-function purePicturesPrompt(
-  sceneInstruction: string,
-  descriptions: string[],
-  total: number,
-  extra?: string
-): string {
-  let text = sceneInstruction ? `${sceneInstruction}\n\n` : '';
-  text += `Below are EXACTLY ${total} pure picture descriptions — isolated moments of a scene, free of story or temporal context. Render ALL ${total} pictures in ONE single response.
-
-The exact pictures to render (one picture per description, in this order):
-`;
-  descriptions.forEach((d, i) => { text += `${i + 1}. ${d.trim()}\n`; });
-  text += `
-Rules for every picture:
-- Render each picture EXACTLY as described; do not add plot, dialogue or time progression.
-- Keep the SAME characters (identical face, build, costume), the SAME setting/environment and the SAME art style across ALL ${total} pictures — never change appearance or environment between images.
-- Use only what the description states; avoid any sensitive or explicit content.`;
-  if (extra?.trim()) text += `\n\nAdditional rules for every picture:\n${extra.trim()}`;
-  return text;
-}
-
-/**
- * Prompt for one-shot storyboard mode: asks for ALL `total` pictures in a
- * SINGLE completion response, with explicit instructions to keep characters,
- * faces, figures, the environment and the style identical across every image.
- * When `scenePrompts` (from the picture-description planning pass) is present
- * it lists those concrete scenes so each image renders exactly its scene.
- */
-function oneShotStoryboardPrompt(
-  basePrompt: string,
-  scenePrompts: (string | null)[],
-  total: number,
-  extra?: string
-): string {
-  let text = basePrompt ? `${basePrompt}\n\n` : '';
-  text += `Storyboard one-shot: create EXACTLY ${total} pictures in ONE single response — all ${total} images together in this same completion.
-
-Produce all ${total} images in the same response so that characters, faces, figures, costumes, the environment/setting, lighting and art style are perfectly consistent across every image.
-
-Rules:
-- One DIFFERENT scene per image, covering the key moments of the story beat above, in story order.
-- The SAME characters (identical face, build, costume), the SAME setting/environment and the SAME style in every image — never change appearance or environment between images.
-- Stay consistent with characters, setting and style established earlier.
-- Return all ${total} images now.`;
-  const planned = scenePrompts
-    .map(s => (s ?? '').trim())
-    .filter(s => s.length > 0);
-  if (planned.length > 0) {
-    text += `\n\nThe exact scenes to render (one image per scene, in this order):\n`;
-    planned.forEach((p, i) => { text += `${i + 1}. ${p}\n`; });
-  }
-  if (extra?.trim()) {
-    text += `\n\nAdditional storyboard rules for every picture:\n${extra.trim()}`;
-  }
-  return text;
-}
-
-/**
- * Planning instruction used before generating a storyboard (when
- * `planDescriptions` is on): instead of letting the render model pick "a
- * scene" from prose, first expand the story into concrete, self-contained
- * picture descriptions. `extra` is the user's storyboard rules (a standing
- * constraint for every picture).
- */
-function picturePlanningInstruction(total: number, extra?: string): string {
-  const base = `You are a storyboard artist who converts narrative prose into STATIC still images.
-
-Below is the story so far and the illustration request (the last text is the beat to depict; the earlier text is the established context).
-
-Produce EXACTLY ${total} distinct still images in story order.
-
-EACH image is ONE single frozen instant — a photograph, not a film clip. Show only what is visible at exactly ONE point in time. Do NOT narrate a sequence of actions and do NOT compress several moments into one image:
-- BAD: "Amanda walks into the office where Dr. Harvey waits; she sits down, crosses her legs, and he watches her."
-- GOOD: "Medium shot from the doorway: Amanda stands just inside Dr. Harvey's half-open door, one stiletto heel lifted, hand resting on the polished door edge; warm lamplight falls across the black leather skirt; the doctor sits at his desk looking up, pen mid-air."
-
-For EVERY image write ONE self-contained prose description of that single frozen frame, so a painter can draw it without reading the story:
-- shot size / camera angle (wide, medium, close-up, ...)
-- the EXACT pose and position of every character in the frame, frozen at that instant
-- costume and appearance
-- setting, lighting, time of day, weather
-- key objects and their exact placement
-- mood, dominant colors, composition
-- any visible text/sign, or explicitly "no text"
-
-RULES:
-- Static, descriptive language only — no motion sequences, no "then/next/after".
-- No dialogue, no inner monologue, no speech bubbles.
-- Keep characters, setting and style consistent across all ${total} images.
-- Never repeat an image.
-
-Return ONLY a JSON object with a single key "pictures": an array of exactly ${total} plain strings:
-{"pictures": ["<description 1>", "<description 2>", ...]}
-No markdown fences, no text before or after the JSON.`;
-  return extra?.trim() ? `${base}\n\nRules that apply to every picture:\n${extra.trim()}` : base;
 }
 
 /**

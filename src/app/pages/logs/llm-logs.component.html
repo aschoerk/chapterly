@@ -8,8 +8,20 @@
         <span class="badge memory">{{ i18n.t('logs.inMemory') }}</span>
       }
       <span class="count">{{ entries().length }} / {{ limit }}</span>
+      <span class="log-size-usage"
+            [title]="i18n.t('logs.sizeUsageTitle', { used: formatSize(totalBytes()), limit: formatSize(sizeLimit()) })">
+        {{ formatSize(totalBytes()) }} / {{ formatSize(sizeLimit()) }}
+      </span>
     </div>
     <div class="actions">
+      <label class="log-size-limit">
+        <span>{{ i18n.t('logs.sizeLimitLabel') }}</span>
+        <input type="number" min="1" max="1024" step="1"
+               [value]="sizeLimitMb()"
+               (change)="onSizeLimitInput($event)"
+               (keyup.enter)="onSizeLimitInput($event)" />
+        <span>{{ i18n.t('logs.sizeLimitUnit') }}</span>
+      </label>
       <button type="button" class="btn danger"
               [disabled]="entries().length === 0"
               (click)="clear()">
@@ -19,6 +31,7 @@
   </div>
 
   <p class="hint">{{ i18n.t('logs.hint') }}</p>
+  <p class="log-size-note">{{ i18n.t('logs.sizeLimitHint') }}</p>
 
   @if (entries().length === 0) {
     <p class="empty">{{ i18n.t('logs.empty') }}</p>
@@ -31,13 +44,26 @@
           <span class="badge" [class.chat]="entry.kind === 'chat'" [class.image]="entry.kind === 'image'">
             {{ entry.kind === 'chat' ? i18n.t('logs.kindChat') : i18n.t('logs.kindImage') }}
           </span>
+          @if (entry.chatTitle) {
+            <span class="badge log-chat" [title]="i18n.t('logs.chatTitle', { title: entry.chatTitle })">
+              {{ entry.chatTitle }}
+            </span>
+          }
           <span class="log-model" [title]="entry.modelId">{{ entry.modelId }}</span>
           <span class="log-provider" [title]="entry.provider">{{ entry.provider }}</span>
           @if (entry.endpoint) {
             <span class="log-endpoint">{{ entry.endpoint }}</span>
           }
         </div>
-        <div class="log-ts">{{ formatTimestamp(entry.iso) }}</div>
+        <div class="log-ts">
+          @if ((entry.size ?? 0) > 0) {
+            <span class="log-size"
+                  [title]="i18n.t('logs.sizeTitle', { bytes: (entry.size ?? 0) })">
+              {{ formatSize(entry.size) }}
+            </span>
+          }
+          {{ formatTimestamp(entry.iso) }}
+        </div>
       </div>
 
       <div class="card-body log-summary">
@@ -50,10 +76,19 @@
           <div class="log-section">
             <div class="log-section-head">
               <span class="log-section-title">{{ i18n.t('logs.fullRequest') }}</span>
-              <button type="button" class="btn small"
-                      (click)="toggleBodyJson(entry.seq); $event.stopPropagation()">
-                {{ isBodyJsonOpen(entry.seq) ? i18n.t('logs.hide') : i18n.t('logs.show') }}
-              </button>
+              <div class="log-section-actions">
+                @if (entry.body) {
+                  <button type="button" class="btn small"
+                          [class.flash-copy]="isCopied(entry.seq, 'body')"
+                          (click)="copyRequestBody(entry); $event.stopPropagation()">
+                    {{ isCopied(entry.seq, 'body') ? i18n.t('logs.copied') : i18n.t('logs.copy') }}
+                  </button>
+                }
+                <button type="button" class="btn small"
+                        (click)="toggleBodyJson(entry.seq); $event.stopPropagation()">
+                  {{ isBodyJsonOpen(entry.seq) ? i18n.t('logs.hide') : i18n.t('logs.show') }}
+                </button>
+              </div>
             </div>
             @if (isBodyJsonOpen(entry.seq)) {
               <pre>{{ formatBodyJson(entry.body) }}</pre>
@@ -69,10 +104,17 @@
                 <span class="log-section-title" [class.log-error-title]="!!entry.error">
                   {{ entry.error ? i18n.t('logs.error') : i18n.t('logs.response') }}
                 </span>
-                <button type="button" class="btn small"
-                        (click)="toggleResponse(entry.seq); $event.stopPropagation()">
-                  {{ isResponseOpen(entry.seq) ? i18n.t('logs.hide') : i18n.t('logs.show') }}
-                </button>
+                <div class="log-section-actions">
+                  <button type="button" class="btn small"
+                          [class.flash-copy]="isCopied(entry.seq, 'response')"
+                          (click)="copyResponse(entry); $event.stopPropagation()">
+                    {{ isCopied(entry.seq, 'response') ? i18n.t('logs.copied') : i18n.t('logs.copy') }}
+                  </button>
+                  <button type="button" class="btn small"
+                          (click)="toggleResponse(entry.seq); $event.stopPropagation()">
+                    {{ isResponseOpen(entry.seq) ? i18n.t('logs.hide') : i18n.t('logs.show') }}
+                  </button>
+                </div>
               </div>
               @if (entry.error) {
                 <p class="log-caption log-error">

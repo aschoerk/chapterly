@@ -386,7 +386,7 @@ export const EN = {
   },
   logs: {
     title: 'LLM call log',
-    hint: 'Every outgoing LLM request (text and image) is stored here — up to 1000 entries, oldest first. Each entry keeps the FULL request exactly as it was sent: every message in full (never shortened) and the rest of the JSON (model, temperature, stream, extras, …).',
+    hint: 'Every outgoing LLM request (text and image) is stored here — up to 1000 entries, oldest first. Each entry keeps the FULL request exactly as it was sent: every message in full (never shortened) and the rest of the JSON (model, temperature, stream, extras, …), tagged with the chat it was made for, plus the full response the provider returned (or the error).',
     empty: 'No LLM calls logged yet.',
     clear: 'Clear log',
     clearTitle: 'Clear LLM log?',
@@ -395,6 +395,7 @@ export const EN = {
     inMemory: 'in-memory (IndexedDB unavailable)',
     kindChat: 'text',
     kindImage: 'image',
+    chatTitle: 'Chat: {{title}}',
     messages: '{{count}} messages',
     noMessages: '(empty message list)',
     first: 'first',
@@ -408,6 +409,13 @@ export const EN = {
     errorStatus: 'HTTP {{status}}',
     show: 'Show',
     hide: 'Hide',
+    copy: 'Copy',
+    copied: 'Copied',
+    sizeTitle: 'Stored entry size: {{bytes}} bytes',
+    sizeLimitLabel: 'Max size',
+    sizeLimitUnit: 'MB',
+    sizeLimitHint: 'When the stored log exceeds the configured size (default 50 MB), the oldest entries are removed first until it fits again. A hard entry-count cap still applies as a safety net.',
+    sizeUsageTitle: 'Stored: {{used}} of {{limit}}',
   },
   config: {
     nav: {
@@ -415,6 +423,7 @@ export const EN = {
       appearance: 'Appearance',
       providers: 'Providers / Models',
       tasks: 'Generation Tasks',
+      prompts: 'Prompt defaults',
     },
     appearance: {
       title: 'Appearance',

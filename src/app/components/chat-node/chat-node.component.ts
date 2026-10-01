@@ -29,6 +29,7 @@ import {ProjectService} from '../../core/project.service';
 import { I18nService } from '../../core/i18n/i18n.service';
 import { newId } from '../../core/common/helpers';
 import { GenerationSettingsService } from '../../core/generation-settings.service';
+import { PromptDefaultsService } from '../../core/prompt-defaults.service';
 import { GenerationTaskKind } from '../../models/generation-task';
 import { ModelEntry, canInterpretImages, canGenerateImages } from '../../models/chat-config';
 import { IllustrateDialogService } from '../../core/illustrate-dialog.service';
@@ -50,6 +51,7 @@ export class ChatNodeComponent {
   readonly llmService = inject(LlmService);
   private readonly parameters = inject(ChatParametersService);
   private readonly generation = inject(GenerationSettingsService);
+  private readonly promptDefaults = inject(PromptDefaultsService);
   private readonly illustrateDialog = inject(IllustrateDialogService);
   private readonly lightbox = inject(LightboxService);
 
@@ -506,7 +508,7 @@ export class ChatNodeComponent {
     }
     if (!model || !provider) return null;
 
-    const prompt = ChatNodeComponent.IMAGE_INTERPRET_PROMPT;
+    const prompt = this.promptDefaults.effective('image.interpret');
     const imageParts = nodeToMessageContent({ content: prompt, attachments: images } as ChatNode);
     try {
       const resolved = await this.llmService.resolveForCurrentChat(model);
@@ -1181,15 +1183,7 @@ export class ChatNodeComponent {
   }
 
   private defaultImagePrompt(): string {
-    return `Illustrate this beat of the story as a single coherent picture.
-
-The earlier chapters are the established context; the cue below is the scene to depict.
-
-Rules:
-- Stay faithful to the characters, setting, objects, mood and style already established in the earlier chapters.
-- Keep character appearance, setting and style consistent with any previous illustrations.
-- Prefer a painterly, atmospheric composition. No text, captions or speech bubbles inside the image unless the cue explicitly asks for a sign.
-- Return the image only — no commentary.`;
+    return this.promptDefaults.effective('image.create');
   }
 
   /**
@@ -1405,9 +1399,9 @@ Rules:
   }
 
   private defaultStructurePrompt(task: GenerationTaskKind): string {
-    if (task === 'title') return 'Generate a concise title for this story.';
-    if (task === 'overview') return 'Write an engaging introduction to this story.';
-    return 'Generate a concise chapter or section heading for this point in the story.';
+    if (task === 'title') return this.promptDefaults.effective('structure.title');
+    if (task === 'overview') return this.promptDefaults.effective('structure.overview');
+    return this.promptDefaults.effective('structure.headings');
   }
 
   /**
@@ -1542,27 +1536,8 @@ Rules:
   }
 
   private defaultEnglishCheckPrompt(): string {
-    return `You are a careful copy-editor for writing directions that a user sends to a creative-writing model.
-
-The direction is NOT part of the final story — it is guidance for the model. Your ONLY goal is to make the model understand the user's intent correctly and unambiguously.
-
-Rules:
-- Do NOT beautify, embellish or restyle. Keep the author's voice and intent exactly.
-- Change only what can cause misunderstanding: grammar, spelling, punctuation, ambiguous wording, unclear referents.
-- Keep the direction as short as necessary. Never lengthen it for style.
-- Deliberate creative phrasing is fine as long as it is not ambiguous.
-
-Produce EXACTLY 3 variants of the corrected direction:
-1. "minimal": closest to the original wording — fix only clear errors (spelling, grammar, punctuation), change as little as possible.
-2. "clearer": same intent, reworded for unambiguity, still close to the original.
-3. "rewritten": fully restated so it cannot be misunderstood — explicit and clear, preserving the intent.
-
-Return ONLY a JSON array of exactly 3 strings in this order: [minimal, clearer, rewritten].
-No text before or after the JSON, no markdown fences.`;
+    return this.promptDefaults.effective('language.check');
   }
-
-  private static readonly IMAGE_INTERPRET_PROMPT =
-`Describe every attached image in detail so a writing model that cannot see images can continue the story correctly. For each image state: what is shown, the setting, characters (appearance, expression, pose), objects, text or signs, mood, colors and composition, and any detail that matters for the next paragraph. Be factual, do not invent plot. If several images are attached, describe them one by one.`;
 
   /**
    * Delete this assistant answer and its subtree, then resend the parent
