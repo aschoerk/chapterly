@@ -15,6 +15,20 @@
       <h3 id="illustrate-title">{{ i18n.t('illustrateDialog.title') }}</h3>
 
       <label class="ill-field">
+        <span>{{ i18n.t('illustrateDialog.modelLabel') }}</span>
+        <select
+          [ngModel]="modelId()"
+          (ngModelChange)="onModelChange($event)"
+          [title]="i18n.t('illustrateDialog.modelTitle')"
+        >
+          @for (model of imageModels(); track model.id) {
+            <option [value]="model.modelId">{{ model.displayName }}</option>
+          }
+        </select>
+        <small class="ill-hint">{{ i18n.t('illustrateDialog.modelHint') }}</small>
+      </label>
+
+      <label class="ill-field">
         <span>{{ i18n.t('illustrateDialog.countLabel') }}</span>
         <input
           type="number"

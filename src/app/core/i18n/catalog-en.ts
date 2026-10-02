@@ -331,6 +331,9 @@ export const EN = {
   },
   illustrateDialog: {
     title: 'Illustrate',
+    modelLabel: 'Model',
+    modelTitle: 'Image model used to render the picture(s)',
+    modelHint: 'Only models that can generate images are listed. The choice is remembered for the next illustration.',
     countLabel: 'Number of scenes',
     countHint:
       '1 renders the current scene. A number greater than 1 renders that many distinct scenes from the story so far (storyboard).',

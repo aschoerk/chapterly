@@ -33,7 +33,7 @@ import { newId } from '../../core/common/helpers';
 import { GenerationSettingsService } from '../../core/generation-settings.service';
 import { PromptDefaultsService } from '../../core/prompt-defaults.service';
 import { GenerationTaskKind } from '../../models/generation-task';
-import { ModelEntry, canInterpretImages, canGenerateImages } from '../../models/chat-config';
+import { ModelEntry, ProviderConfig, canInterpretImages, canGenerateImages } from '../../models/chat-config';
 import { IllustrateDialogService } from '../../core/illustrate-dialog.service';
 import { PrependDialogService } from '../../core/prepend-dialog.service';
 import { IllustrateOptions } from '../../models/illustrate-options';
@@ -976,25 +976,52 @@ export class ChatNodeComponent {
     }
 
     // 1. Prefer the configured image-create task model.
-    let model = this.generation.modelFor('image-create');
-    let provider = this.generation.providerFor('image-create');
+    let defaultModel = this.generation.modelFor('image-create');
+    let defaultProvider = this.generation.providerFor('image-create');
     // 2. Fall back to any enabled model that can generate images.
-    if (!model || !provider) {
+    if (!defaultModel || !defaultProvider) {
       const fallback = this.enabledModels().find(canGenerateImages);
       if (fallback) {
-        model = fallback;
-        provider = this.settings.providers().find(p => p.id === fallback.providerId) ?? null;
+        defaultModel = fallback;
+        defaultProvider = this.settings.providers().find(p => p.id === fallback.providerId) ?? null;
       }
     }
-    if (!model || !provider) {
+    if (!defaultModel || !defaultProvider) {
       alert(this.i18n.t('node.imageModelMissing'));
       return;
     }
 
-    // Ask the user how many scenes, in which style, and the storyboard prompt.
-    const options = await this.illustrateDialog.open();
+    // Ask the user how many scenes, in which style, the storyboard prompt,
+    // and which image model should render the picture(s). The dialog is
+    // seeded with the default rendering model, but its own last-used
+    // selection (persisted in localStorage) wins when still valid.
+    const options = await this.illustrateDialog.open({
+      modelId: defaultModel.modelId,
+      providerId: defaultModel.providerId
+    });
     if (!options) return; // cancelled
     const { count, style, storyboardPrompt, purePictures } = options;
+
+    // Resolve the model chosen in the dialog; fall back to the default task
+    // model when the selection is empty or no longer enabled.
+    let model: ModelEntry | null = null;
+    let provider: ProviderConfig | null = null;
+    if (options.modelId && options.providerId) {
+      model = this.enabledModels().find(
+        m => m.providerId === options.providerId && m.modelId === options.modelId
+      ) ?? null;
+    }
+    if (!model && options.modelId) {
+      model = this.enabledModels().find(m => m.modelId === options.modelId) ?? null;
+    }
+    model = model ?? defaultModel;
+    provider = model
+      ? this.settings.providers().find(p => p.id === model.providerId) ?? null
+      : defaultProvider;
+    if (!model || !provider) {
+      alert(this.i18n.t('node.imageModelMissing'));
+      return;
+    }
 
     this.isLoading.set(true);
     this.pendingAction.set('image');

@@ -22,7 +22,9 @@ function readLast(): IllustrateOptions {
       count: clampIllustrateCount(typeof parsed.count === 'number' ? parsed.count : 1),
       style: typeof parsed.style === 'string' ? parsed.style : '',
       storyboardPrompt: typeof parsed.storyboardPrompt === 'string' ? parsed.storyboardPrompt : '',
-      purePictures: typeof parsed.purePictures === 'boolean' ? parsed.purePictures : false
+      purePictures: typeof parsed.purePictures === 'boolean' ? parsed.purePictures : false,
+      modelId: typeof parsed.modelId === 'string' ? parsed.modelId : '',
+      providerId: typeof parsed.providerId === 'string' ? parsed.providerId : ''
     };
   } catch {
     return defaultIllustrateOptions();
@@ -49,8 +51,15 @@ export class IllustrateDialogService {
   /** Last confirmed options (seeded from localStorage). */
   readonly last = signal<IllustrateOptions>(readLast());
 
-  /** Open the dialog. Resolves with the chosen options, or null on cancel. */
-  open(): Promise<IllustrateOptions | null> {
+  /**
+   * Open the dialog. Resolves with the chosen options, or null on cancel.
+   *
+   * @param seed initial overrides for fields not (or no longer) remembered —
+   *   e.g. `{ modelId, providerId }` for the default rendering model that the
+   *   caller resolved. The dialog still starts from the last-used options for
+   *   everything else; a seeded model wins over a stale remembered one.
+   */
+  open(seed: Partial<IllustrateOptions> = {}): Promise<IllustrateOptions | null> {
     const last = this.last();
     return new Promise(resolve => {
       this.current.set({
@@ -58,6 +67,9 @@ export class IllustrateDialogService {
         style: last.style,
         storyboardPrompt: last.storyboardPrompt,
         purePictures: last.purePictures,
+        modelId: last.modelId,
+        providerId: last.providerId,
+        ...seed,
         resolve
       });
     });
@@ -69,7 +81,9 @@ export class IllustrateDialogService {
       count: clampIllustrateCount(options.count),
       style: (options.style || '').trim(),
       storyboardPrompt: (options.storyboardPrompt || '').trim(),
-      purePictures: !!options.purePictures
+      purePictures: !!options.purePictures,
+      modelId: (options.modelId || '').trim(),
+      providerId: (options.providerId || '').trim()
     };
     this.last.set(clamped);
     persist(clamped);

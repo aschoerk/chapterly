@@ -22,13 +22,21 @@ export interface IllustrateOptions {
    * style consistency across all pictures.
    */
   purePictures: boolean;
+  /**
+   * Image model chosen in the dialog that renders the picture(s)
+   * (`ModelEntry.modelId`, e.g. `openai/gpt-image-1`). Empty means "use the
+   * configured default image-create task model".
+   */
+  modelId: string;
+  /** Provider of the chosen model (`ModelEntry.providerId`). */
+  providerId: string;
 }
 
 export const ILLUSTRATE_COUNT_MIN = 1;
 export const ILLUSTRATE_COUNT_MAX = 64;
 
 export function defaultIllustrateOptions(): IllustrateOptions {
-  return { count: 1, style: '', storyboardPrompt: '', purePictures: false };
+  return { count: 1, style: '', storyboardPrompt: '', purePictures: false, modelId: '', providerId: '' };
 }
 
 export function clampIllustrateCount(count: number): number {

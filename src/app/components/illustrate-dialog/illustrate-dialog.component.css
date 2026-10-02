@@ -45,7 +45,8 @@
 }
 
 .ill-field input,
-.ill-field textarea {
+.ill-field textarea,
+.ill-field select {
   padding: 0.45rem 0.6rem;
   border: 1px solid var(--color-input-border, #ccc);
   border-radius: 8px;

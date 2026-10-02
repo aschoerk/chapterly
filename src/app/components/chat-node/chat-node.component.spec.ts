@@ -1841,6 +1841,76 @@ describe('ChatNodeComponent', () => {
       expect(optsArg.planDescriptions).toBe(true);
     });
 
+    it('seeds the illustrate dialog with the default rendering model', async () => {
+      const q1 = node({ id: 'q1', content: 'A direction.' });
+      const a1 = node({
+        id: 'a1', chatId: 'chat-1', parentId: 'q1', role: 'assistant', content: 'A chapter.',
+      });
+      await openChat([q1, a1]);
+
+      const generation = TestBed.inject(GenerationSettingsService);
+      generation.update('image-create', { providerId: 'prov-1', modelId: 'alpha/model' });
+      llm.generateImage.mockResolvedValueOnce({
+        content: '',
+        images: [{ url: 'data:image/png;base64,QQ==' }],
+      });
+
+      createFixture(q1, 'a1');
+      await component.illustrate();
+      fixture.detectChanges();
+
+      expect(illustrateDialog.open).toHaveBeenCalledWith({
+        modelId: 'alpha/model',
+        providerId: 'prov-1'
+      });
+    });
+
+    it('uses the image model selected in the dialog instead of the default', async () => {
+      // Enable a second, image-capable model to pick from.
+      api.models.push(makeModel({
+        id: 'm-img',
+        displayName: 'Image Cap',
+        modelId: 'beta/image',
+        providerId: 'prov-1',
+        architecture: { input_modalities: ['text'], output_modalities: ['image'] }
+      }));
+      await settings.loadAll();
+
+      const q1 = node({ id: 'q1', content: 'A lighthouse at dusk.' });
+      const a1 = node({
+        id: 'a1', chatId: 'chat-1', parentId: 'q1', role: 'assistant', content: 'The beam swings.',
+      });
+      await openChat([q1, a1]);
+
+      const generation = TestBed.inject(GenerationSettingsService);
+      generation.update('image-create', { providerId: 'prov-1', modelId: 'alpha/model' });
+
+      llm.generateImage.mockResolvedValueOnce({
+        content: '',
+        images: [{ url: 'data:image/png;base64,QQ==' }],
+      });
+
+      // The user picks a different image model in the dialog.
+      illustrateDialog.open.mockResolvedValue({
+        count: 1,
+        style: '',
+        storyboardPrompt: '',
+        purePictures: false,
+        modelId: 'beta/image',
+        providerId: 'prov-1'
+      });
+
+      createFixture(q1, 'a1');
+      await component.illustrate();
+      fixture.detectChanges();
+
+      expect(llm.generateImage).toHaveBeenCalledTimes(1);
+      const modelArg = llm.generateImage.mock.calls[0][1] as { modelId?: string };
+      expect(modelArg.modelId).toBe('beta/image');
+      const providerArg = llm.generateImage.mock.calls[0][0] as { baseUrl?: string };
+      expect(providerArg.baseUrl).toBeDefined();
+    });
+
     it('shows an alert and does not call the LLM when no image model is enabled', async () => {
       const q1 = node({ id: 'q1', content: 'A direction.' });
       const a1 = node({

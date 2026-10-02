@@ -1,6 +1,9 @@
 import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
+import { provideHttpClient } from '@angular/common/http';
 import { App } from './app';
+import { CHAT_API } from './api/chat-api.token';
+import { InMemoryChatApi } from '../../test-helpers/in-memory-chat-api';
 
 describe('App', () => {
   beforeEach(async () => {
@@ -16,7 +19,11 @@ describe('App', () => {
 
     await TestBed.configureTestingModule({
       imports: [App],
-      providers: [provideRouter([])],
+      providers: [
+        provideRouter([]),
+        provideHttpClient(),
+        { provide: CHAT_API, useValue: new InMemoryChatApi() }
+      ],
     })
       .compileComponents();
   });

@@ -29,7 +29,7 @@ describe('IllustrateDialogService', () => {
   });
 
   it('starts with single-scene defaults', () => {
-    expect(service.last()).toEqual({ count: 1, style: '', storyboardPrompt: '', purePictures: false });
+    expect(service.last()).toEqual({ count: 1, style: '', storyboardPrompt: '', purePictures: false, modelId: '', providerId: '' });
     expect(service.current()).toBeNull();
   });
 
@@ -38,7 +38,9 @@ describe('IllustrateDialogService', () => {
       count: 12,
       style: 'comic style',
       storyboardPrompt: 'no explicit images',
-      purePictures: true
+      purePictures: true,
+      modelId: 'alpha/image',
+      providerId: 'prov-1'
     });
 
     const promise = service.open();
@@ -52,21 +54,46 @@ describe('IllustrateDialogService', () => {
       count: 3,
       style: ' ink ',
       storyboardPrompt: '  hide behind shadows  ',
-      purePictures: false
+      purePictures: false,
+      modelId: 'beta/image',
+      providerId: 'prov-1'
     });
 
     await expect(promise).resolves.toEqual({
       count: 3,
       style: 'ink',
       storyboardPrompt: 'hide behind shadows',
-      purePictures: false
+      purePictures: false,
+      modelId: 'beta/image',
+      providerId: 'prov-1'
     });
     expect(service.current()).toBeNull();
-    expect(service.last()).toEqual({ count: 3, style: 'ink', storyboardPrompt: 'hide behind shadows', purePictures: false });
+    expect(service.last()).toEqual({ count: 3, style: 'ink', storyboardPrompt: 'hide behind shadows', purePictures: false, modelId: 'beta/image', providerId: 'prov-1' });
+  });
+
+  it('open() seed overrides the remembered model while keeping other fields', async () => {
+    service.submit({
+      count: 2,
+      style: 'ink',
+      storyboardPrompt: 'shadows',
+      purePictures: false,
+      modelId: 'old/image',
+      providerId: 'prov-9'
+    });
+
+    const promise = service.open({ modelId: 'new/image', providerId: 'prov-1' });
+    expect(service.current()?.modelId).toBe('new/image');
+    expect(service.current()?.providerId).toBe('prov-1');
+    // Non-model fields still come from the remembered options.
+    expect(service.current()?.count).toBe(2);
+    expect(service.current()?.style).toBe('ink');
+
+    service.cancel();
+    await promise;
   });
 
   it('cancel() resolves null and leaves last() untouched', async () => {
-    service.submit({ count: 5, style: 'x', storyboardPrompt: 'y', purePictures: true });
+    service.submit({ count: 5, style: 'x', storyboardPrompt: 'y', purePictures: true, modelId: '', providerId: '' });
     const promise = service.open();
     service.cancel();
 
@@ -78,27 +105,29 @@ describe('IllustrateDialogService', () => {
 
   it('clamps count into 1..64', async () => {
     const promise = service.open();
-    service.submit({ count: 999, style: '', storyboardPrompt: '', purePictures: false });
+    service.submit({ count: 999, style: '', storyboardPrompt: '', purePictures: false, modelId: '', providerId: '' });
     await expect(promise).resolves.toMatchObject({ count: 64 });
 
     const promise2 = service.open();
-    service.submit({ count: 0, style: '', storyboardPrompt: '', purePictures: false });
+    service.submit({ count: 0, style: '', storyboardPrompt: '', purePictures: false, modelId: '', providerId: '' });
     await expect(promise2).resolves.toMatchObject({ count: 1 });
   });
 
   it('normalizes purePictures to a boolean', async () => {
     const promise = service.open();
-    service.submit({ count: 2, style: '', storyboardPrompt: '', purePictures: 'yes' as any });
+    service.submit({ count: 2, style: '', storyboardPrompt: '', purePictures: 'yes' as any, modelId: '', providerId: '' });
     await expect(promise).resolves.toMatchObject({ purePictures: true });
   });
 
   it('persists last-used options to localStorage', () => {
-    service.submit({ count: 7, style: 'a', storyboardPrompt: 'b', purePictures: true });
+    service.submit({ count: 7, style: 'a', storyboardPrompt: 'b', purePictures: true, modelId: 'alpha/image', providerId: 'prov-1' });
     expect(JSON.parse(localStorage.getItem(LS_KEY) ?? '{}')).toEqual({
       count: 7,
       style: 'a',
       storyboardPrompt: 'b',
-      purePictures: true
+      purePictures: true,
+      modelId: 'alpha/image',
+      providerId: 'prov-1'
     });
   });
 
@@ -117,7 +146,7 @@ describe('IllustrateDialogService', () => {
       ]
     });
     const reloaded = TestBed.inject(IllustrateDialogService);
-    expect(reloaded.last()).toEqual({ count: 4, style: 'pastel', storyboardPrompt: 'none', purePictures: true });
+    expect(reloaded.last()).toEqual({ count: 4, style: 'pastel', storyboardPrompt: 'none', purePictures: true, modelId: '', providerId: '' });
     expect(reloaded.current()).toBeNull();
   });
 
@@ -132,6 +161,6 @@ describe('IllustrateDialogService', () => {
       ]
     });
     const reloaded = TestBed.inject(IllustrateDialogService);
-    expect(reloaded.last()).toEqual({ count: 2, style: 'x', storyboardPrompt: 'y', purePictures: false });
+    expect(reloaded.last()).toEqual({ count: 2, style: 'x', storyboardPrompt: 'y', purePictures: false, modelId: '', providerId: '' });
   });
 });

@@ -333,6 +333,9 @@ export const DE = {
   },
   illustrateDialog: {
     title: 'Illustrieren',
+    modelLabel: 'Modell',
+    modelTitle: 'Bildmodell, das die Bilder erzeugt',
+    modelHint: 'Nur Modelle, die Bilder erzeugen können, sind gelistet. Die Auswahl wird für die nächste Illustration gemerkt.',
     countLabel: 'Anzahl Szenen',
     countHint:
       '1 erzeugt die aktuelle Szene. Bei mehr als 1 werden so viele verschiedene Szenen aus der bisherigen Geschichte erzeugt (Storyboard).',
