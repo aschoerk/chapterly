@@ -1000,7 +1000,7 @@ export class ChatNodeComponent {
       providerId: defaultModel.providerId
     });
     if (!options) return; // cancelled
-    const { count, style, storyboardPrompt, purePictures } = options;
+    const { count, style, storyboardPrompt, purePictures, historyMode } = options;
 
     // Resolve the model chosen in the dialog; fall back to the default task
     // model when the selection is empty or no longer enabled.
@@ -1068,6 +1068,17 @@ export class ChatNodeComponent {
       // Pure picture mode forces the planning pass too: only the derived,
       // temporal-free descriptions reach the image model.
       const isAssistantChapter = node.role === 'assistant';
+      // Storyboards / assistant chapters / pure picture mode always involve the
+      // picture-description planning pass (or, in pure mode, the derived
+      // descriptions ARE the prompt). A single direction is already a scene
+      // cue, so planning never runs for it.
+      const planningWouldRun = count > 1 || isAssistantChapter || purePictures;
+      const planDescriptions = purePictures || (options.planDescriptions && planningWouldRun);
+      // Skipping planning (checkbox off) means the story text that would have
+      // been distilled by the planning text model now reaches the image
+      // generating model directly. HOW MUCH of that story is delivered is
+      // governed by the full-chat / current-text selection below — the radio
+      // ALWAYS takes effect (planning off never forces full chat on its own).
       const result = await this.llmService.generateImage(
         provider, model, messages, undefined,
         {
@@ -1077,13 +1088,22 @@ export class ChatNodeComponent {
           // story, then render each image from its description (instead of
           // letting the model pick scenes from the raw prose). Also used for
           // single pictures of an assistant chapter and in pure picture mode.
-          planDescriptions: count > 1 || isAssistantChapter || purePictures,
+          // Disabled by the "Plan picture descriptions first" checkbox.
+          planDescriptions,
           // Storyboard: render the whole storyboard in ONE completion so
           // characters/faces/environment stay consistent across all images
           // (falls back to per-scene automatically when the model returns
           // fewer than requested). Skipped internally in pure mode (the pure
-          // en-block path replaces it).
+          // en-block path replaces it). Note: the one-shot path is guarded to
+          // count > 1 inside generateImage — a single picture always takes
+          // ONE completion regardless.
           singleCall: count > 1,
+          // Single picture: the full-chat / current-text radio is
+          // authoritative. "Full chat up to this point" sends the complete
+          // chat text in normal form as messages; "Current text only" sends a
+          // single message with just this beat. Enforced inside generateImage
+          // (only for count 1, never in pure picture mode).
+          forwardFullHistory: historyMode === 'full',
           planner,
           sceneInstruction: styledInstruction,
           purePictures,

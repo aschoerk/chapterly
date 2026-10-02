@@ -334,6 +334,12 @@ export const EN = {
     modelLabel: 'Model',
     modelTitle: 'Image model used to render the picture(s)',
     modelHint: 'Only models that can generate images are listed. The choice is remembered for the next illustration.',
+    contextModeLabel: 'Context sent to the image model',
+    contextModeSingle: 'Current text only',
+    contextModeSingleHint: 'Send just this beat\'s text to the model as a single message.',
+    contextModeFull: 'Full chat up to this point',
+    contextModeFullHint: 'Send the complete text of the chat up to this beat as normal user/assistant messages (more context, more tokens).',
+    contextModeFullDisabled: 'Pure picture mode sends descriptions only — the raw chat text never reaches the model.',
     countLabel: 'Number of scenes',
     countHint:
       '1 renders the current scene. A number greater than 1 renders that many distinct scenes from the story so far (storyboard).',
@@ -345,6 +351,11 @@ export const EN = {
     purePicturesLabel: 'Pure picture mode (descriptions only)',
     purePicturesHint:
       'Only the derived, temporal-free picture descriptions plus the consistency rules reach the image model — never the raw story text. This lowers moderation rejects on sensitive story content; all pictures are requested together so the image model keeps characters, setting and style consistent.',
+    planningLabel: 'Plan picture descriptions first (text model)',
+    planningHint:
+      'A text model expands the story into concrete picture descriptions before the image model draws them. Uncheck to skip that pass: the story text is then sent to the image model directly. For a single picture, the context selection above decides how much of the chat is sent.',
+    planningForcedHint:
+      'Pure picture mode needs the derived descriptions — the raw story text never reaches the image model, so planning cannot be disabled here.',
     confirm: 'Generate',
   },
   lightbox: {
@@ -417,6 +428,11 @@ export const EN = {
     fullRequestHint: 'The exact JSON body that was sent to the provider (all messages in full plus the surrounding fields). Click “Show” to view it.',
     response: 'Response',
     responseHint: 'The full response the provider returned for this call. Click “Show” to view it.',
+    images: 'Images ({{count}})',
+    sentImages: 'Images sent in the request ({{count}})',
+    imagesHint: 'Click a thumbnail (or “View”) to open all pictures in the app lightbox.',
+    viewImages: 'View',
+    imagesOpenTitle: 'Picture {{n}} of {{total}} — click to view larger',
     error: 'Error',
     errorStatus: 'HTTP {{status}}',
     show: 'Show',

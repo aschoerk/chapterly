@@ -2,7 +2,8 @@ import { Injectable, signal } from '@angular/core';
 import {
   clampIllustrateCount,
   defaultIllustrateOptions,
-  IllustrateOptions
+  IllustrateOptions,
+  isIllustrateHistoryMode
 } from '../models/illustrate-options';
 
 const LS_KEY = 'chat.illustrateOptions.v1';
@@ -18,13 +19,18 @@ function readLast(): IllustrateOptions {
     if (!raw) return defaultIllustrateOptions();
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== 'object') return defaultIllustrateOptions();
+    const purePictures = typeof parsed.purePictures === 'boolean' ? parsed.purePictures : false;
     return {
       count: clampIllustrateCount(typeof parsed.count === 'number' ? parsed.count : 1),
       style: typeof parsed.style === 'string' ? parsed.style : '',
       storyboardPrompt: typeof parsed.storyboardPrompt === 'string' ? parsed.storyboardPrompt : '',
-      purePictures: typeof parsed.purePictures === 'boolean' ? parsed.purePictures : false,
+      purePictures,
       modelId: typeof parsed.modelId === 'string' ? parsed.modelId : '',
-      providerId: typeof parsed.providerId === 'string' ? parsed.providerId : ''
+      providerId: typeof parsed.providerId === 'string' ? parsed.providerId : '',
+      historyMode: isIllustrateHistoryMode(parsed.historyMode) ? parsed.historyMode : 'single',
+      // Pure picture mode requires the derived descriptions, so planning is
+      // always on there — even for legacy/corrupt stored entries.
+      planDescriptions: purePictures ? true : (typeof parsed.planDescriptions === 'boolean' ? parsed.planDescriptions : true)
     };
   } catch {
     return defaultIllustrateOptions();
@@ -69,6 +75,8 @@ export class IllustrateDialogService {
         purePictures: last.purePictures,
         modelId: last.modelId,
         providerId: last.providerId,
+        historyMode: last.historyMode,
+        planDescriptions: last.planDescriptions,
         ...seed,
         resolve
       });
@@ -83,7 +91,11 @@ export class IllustrateDialogService {
       storyboardPrompt: (options.storyboardPrompt || '').trim(),
       purePictures: !!options.purePictures,
       modelId: (options.modelId || '').trim(),
-      providerId: (options.providerId || '').trim()
+      providerId: (options.providerId || '').trim(),
+      historyMode: isIllustrateHistoryMode(options.historyMode) ? options.historyMode : 'single',
+      // Pure picture mode REQUIRES the derived descriptions (raw story prose
+      // must never reach the image model), so planning is forced back on.
+      planDescriptions: options.purePictures ? true : (options.planDescriptions !== false)
     };
     this.last.set(clamped);
     persist(clamped);

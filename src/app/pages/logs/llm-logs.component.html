@@ -71,8 +71,66 @@
       </div>
 
       @if (isExpanded(entry.seq)) {
+        @let received = receivedImages(entry);
+        @let sent = sentImages(entry);
+
         <div class="log-detail">
-          <!-- Full request JSON (the complete body actually sent, incl. all messages) -->
+        <!-- Generated pictures returned by the provider -->
+        @if (received.length > 0) {
+          <div class="log-section">
+            <div class="log-section-head">
+              <span class="log-section-title">{{ i18n.t('logs.images', { count: received.length }) }}</span>
+              <div class="log-section-actions">
+                <button type="button" class="btn small"
+                        (click)="openLogImages(received, 0); $event.stopPropagation()">
+                  {{ i18n.t('logs.viewImages') }}
+                </button>
+              </div>
+            </div>
+            <div class="log-thumbs">
+              @for (url of received; track $index; let i = $index) {
+                @if (i < 12) {
+                  <img class="log-thumb"
+                       [src]="url"
+                       [title]="i18n.t('logs.imagesOpenTitle', { n: i + 1, total: received.length })"
+                       alt=""
+                       (click)="openLogImages(received, i); $event.stopPropagation()"
+                       loading="lazy" />
+                }
+              }
+            </div>
+            <p class="log-caption">{{ i18n.t('logs.imagesHint') }}</p>
+          </div>
+        }
+
+        <!-- Reference / input images the client sent in the request -->
+        @if (sent.length > 0) {
+          <div class="log-section">
+            <div class="log-section-head">
+              <span class="log-section-title">{{ i18n.t('logs.sentImages', { count: sent.length }) }}</span>
+              <div class="log-section-actions">
+                <button type="button" class="btn small"
+                        (click)="openLogImages(sent, 0); $event.stopPropagation()">
+                  {{ i18n.t('logs.viewImages') }}
+                </button>
+              </div>
+            </div>
+            <div class="log-thumbs">
+              @for (url of sent; track $index; let i = $index) {
+                @if (i < 12) {
+                  <img class="log-thumb"
+                       [src]="url"
+                       [title]="i18n.t('logs.imagesOpenTitle', { n: i + 1, total: sent.length })"
+                       alt=""
+                       (click)="openLogImages(sent, i); $event.stopPropagation()"
+                       loading="lazy" />
+                }
+              }
+            </div>
+          </div>
+        }
+
+        <!-- Full request JSON (the complete body actually sent, incl. all messages) -->
           <div class="log-section">
             <div class="log-section-head">
               <span class="log-section-title">{{ i18n.t('logs.fullRequest') }}</span>

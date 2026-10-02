@@ -463,6 +463,16 @@ export class LlmService {
        * yields no usable descriptions it degrades to the anchor text.
        */
       purePictures?: boolean;
+      /**
+       * Single picture (count 1) only: send the ENTIRE text of the chat up to
+       * the current node to the image model in normal form as user/assistant
+       * messages. The caller already appended the scene/anchor as the final
+       * user message; it is kept as the last message, everything before it is
+       * forwarded verbatim. Ignored for storyboards (count > 1) and in pure
+       * picture mode (which sends descriptions only — raw prose never leaves
+       * the client).
+       */
+      forwardFullHistory?: boolean;
       onProgress?: (done: number, total: number) => void;
     }
   ): Promise<GenerateImagesResult> {
@@ -592,6 +602,11 @@ export class LlmService {
     // "Creating…" — each scene gets a hard timeout (combined with any caller
     // signal).
     const total = Math.max(1, Math.min(64, Math.floor(opts?.count ?? 1)));
+    // Single-picture "full context" selection from the Illustrate dialog: send
+    // the complete chat text as normal messages instead of a single prompt.
+    // Only meaningful for ONE picture, and never in pure picture mode (which
+    // by design sends derived descriptions only, never raw story prose).
+    const forwardFullHistory = !!opts?.forwardFullHistory && total === 1 && !opts?.purePictures;
     // The exact prompt for a scene = the base prompt the caller already put in
     // `messages` (the last user message, the anchor/direction) + the per-scene
     // storyboard instruction when count > 1. This is what we record next to
@@ -654,7 +669,7 @@ export class LlmService {
       }
       try {
         const json = await callOnce(
-          this.renderMessages(oneShotPrompt, messages),
+          this.renderMessages(oneShotPrompt, messages, forwardFullHistory),
           controller.signal
         );
         const imgs = extractLlmImages(json);
@@ -742,7 +757,7 @@ export class LlmService {
       }
       try {
         const json = await callOnce(
-          this.renderMessages(purePrompt, messages),
+          this.renderMessages(purePrompt, messages, forwardFullHistory),
           controller.signal
         );
         const imgs = extractLlmImages(json);
@@ -813,7 +828,7 @@ export class LlmService {
         // The image model receives ONLY the prepared scene prompt (plus any
         // caller-attached reference-image parts) — never the story history,
         // which would overflow the model's context window.
-        json = await callOnce(this.renderMessages(prompt, messages), controller.signal);
+        json = await callOnce(this.renderMessages(prompt, messages, forwardFullHistory), controller.signal);
       } catch (err: any) {
         // ANY failure during a scene is handled like a REFUSAL — never throw
         // and never discard pictures that were already generated. The failed
@@ -909,18 +924,28 @@ export class LlmService {
 
   /**
    * Build the messages an image-generation chat-completions call actually
-   * sends: the caller-prepared render prompt as a SINGLE user message, plus —
-   * only when the caller attached reference-image parts to its last user
-   * message — exactly those image_url parts (prior illustrations, bounded to
-   * a few by the caller).
+   * sends.
    *
-   * The story-history embed (all previous chapters as prose) is deliberately
-   * NOT forwarded: image models have strict context windows and that prose is
-   * what overflows them (e.g. "maximum context length is 65536 tokens…"). The
-   * prepared prompt already says what to draw; the model does not need the
-   * prose that produced it.
+   * Default ("single"): the caller-prepared render prompt as a SINGLE user
+   * message, plus — only when the caller attached reference-image parts to
+   * its last user message — exactly those image_url parts (prior
+   * illustrations, bounded to a few by the caller). The story-history embed
+   * (all previous chapters as prose) is deliberately NOT forwarded: image
+   * models have strict context windows and that prose is what overflows them
+   * (e.g. "maximum context length is 65536 tokens…"). The prepared prompt
+   * already says what to draw; the model does not need the prose that
+   * produced it.
+   *
+   * With `full = true` (the dialog's "Full chat up to this point", count 1
+   * only) the WHOLE caller-prepared context is forwarded in normal form: the
+   * complete chat text up to the current node as user/assistant messages,
+   * with the prepared scene prompt as the final user message (and any
+   * reference-image parts kept on it). This trades tokens/context for more
+   * story grounding — the user explicitly opted into it.
    */
-  private renderMessages(prompt: string, context: ChatMessage[]): ChatMessage[] {
+  private renderMessages(prompt: string, context: ChatMessage[], full = false): ChatMessage[] {
+    // Reference-image parts (prior illustrations) live on the caller's final
+    // user message of `context`.
     const last = context[context.length - 1];
     const refs: MessagePart[] = [];
     if (last && Array.isArray(last.content)) {
@@ -931,6 +956,17 @@ export class LlmService {
         }
       }
     }
+
+    if (full) {
+      // Full chat text as normal messages: everything up to (not including)
+      // the caller's final anchor, then the prepared scene prompt last.
+      const history = context.slice(0, -1);
+      const finalContent = refs.length === 0
+        ? prompt
+        : [{ type: 'text', text: prompt }, ...refs];
+      return [...history, { role: 'user', content: finalContent }];
+    }
+
     if (refs.length === 0) return [{ role: 'user', content: prompt }];
     return [{
       role: 'user',

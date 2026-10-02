@@ -336,6 +336,12 @@ export const DE = {
     modelLabel: 'Modell',
     modelTitle: 'Bildmodell, das die Bilder erzeugt',
     modelHint: 'Nur Modelle, die Bilder erzeugen können, sind gelistet. Die Auswahl wird für die nächste Illustration gemerkt.',
+    contextModeLabel: 'Kontext für das Bildmodell',
+    contextModeSingle: 'Nur den aktuellen Text',
+    contextModeSingleHint: 'Sende nur den Text dieses Abschnitts als einzelne Nachricht an das Modell.',
+    contextModeFull: 'Kompletter Chat bis hierher',
+    contextModeFullHint: 'Sende den vollständigen Text des Chats bis zu diesem Abschnitt als normale Benutzer-/Assistenten-Nachrichten (mehr Kontext, mehr Tokens).',
+    contextModeFullDisabled: 'Im reinen Bildmodus erreichen nur Beschreibungen das Modell – der rohe Chat-Text wird nie gesendet.',
     countLabel: 'Anzahl Szenen',
     countHint:
       '1 erzeugt die aktuelle Szene. Bei mehr als 1 werden so viele verschiedene Szenen aus der bisherigen Geschichte erzeugt (Storyboard).',
@@ -347,6 +353,11 @@ export const DE = {
     purePicturesLabel: 'Reine Bildbeschreibungen (nur Beschreibungen)',
     purePicturesHint:
       'Nur die abgeleiteten, zeitlosen Bildbeschreibungen plus Konsistenzregeln erreichen das Bildmodell – nie der rohe Geschichtstext. Reduziert Moderations-Ablehnungen bei sensiblen Inhalten; alle Bilder werden zusammen angefordert, damit das Bildmodell Figuren, Schauplatz und Stil konsistent hält.',
+    planningLabel: 'Bildbeschreibungen zuerst planen (Textmodell)',
+    planningHint:
+      'Ein Textmodell weitet die Geschichte zu konkreten Bildbeschreibungen aus, bevor das Bildmodell zeichnet. Deaktivieren überspringt diesen Schritt: Die Geschichte wird dann direkt ans Bildmodell gesendet. Bei einem einzelnen Bild entscheidet die Kontextauswahl oben, wie viel vom Chat gesendet wird.',
+    planningForcedHint:
+      'Der reine Bildmodus benötigt die abgeleiteten Beschreibungen – der rohe Geschichtstext erreicht das Bildmodell nie, daher kann die Planung hier nicht deaktiviert werden.',
     confirm: 'Erzeugen',
   },
   lightbox: {
@@ -419,6 +430,11 @@ export const DE = {
     fullRequestHint: 'Der exakte JSON-Body, der an den Anbieter gesendet wurde (alle Nachrichten in voller Länge plus die umgebenden Felder). „Anzeigen“ klicken, um ihn zu sehen.',
     response: 'Antwort',
     responseHint: 'Die vollständige Antwort, die der Anbieter für diesen Aufruf geliefert hat. „Anzeigen“ klicken, um sie zu sehen.',
+    images: 'Bilder ({{count}})',
+    sentImages: 'Im Request gesendete Bilder ({{count}})',
+    imagesHint: 'Klicke auf ein Vorschaubild (oder „Anzeigen“), um alle Bilder in der Lightbox zu öffnen.',
+    viewImages: 'Anzeigen',
+    imagesOpenTitle: 'Bild {{n}} von {{total}} — klicken zum Vergrößern',
     error: 'Fehler',
     errorStatus: 'HTTP {{status}}',
     show: 'Anzeigen',

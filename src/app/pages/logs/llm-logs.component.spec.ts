@@ -4,6 +4,7 @@ import { provideZonelessChangeDetection } from '@angular/core';
 import { provideHttpClient } from '@angular/common/http';
 import { I18nService } from '../../core/i18n/i18n.service';
 import { ConfirmService } from '../../core/confirm.service';
+import { LightboxService } from '../../core/lightbox.service';
 import { LlmLogService } from '../../core/llm/llm-log.service';
 import { LlmLogsComponent } from './llm-logs.component';
 
@@ -305,5 +306,116 @@ describe('LlmLogsComponent', () => {
     input.dispatchEvent(new Event('change'));
     await fixture.whenStable();
     expect(logs.sizeLimit()).toBe(50 * 1024 * 1024);
+  });
+
+  // ------------------------------------------------------------------
+  // Pictures in the log (url: fields) — viewable in the in-app lightbox
+  // ------------------------------------------------------------------
+
+  it('extracts images from a response with choices[].message.images[] url parts', async () => {
+    const img1 = 'data:image/jpeg;base64,/9j/4AAQSkZJRg==';
+    const img2 = 'data:image/png;base64,iVBORw0KGgo=';
+    const entry = logs.record({
+      kind: 'chat',
+      modelId: 'bytedance-seed/seedream-5-0-lite',
+      provider: 'https://p',
+      messages: [{ role: 'user', content: 'A softer scene' }],
+      body: {
+        model: 'bytedance-seed/seedream-5-0-lite',
+        messages: [{ role: 'user', content: 'A softer scene' }],
+        stream: false,
+      },
+    });
+    logs.complete(entry, {
+      response: {
+        choices: [{
+          message: {
+            role: 'assistant',
+            content: null,
+            images: [
+              { type: 'image_url', image_url: { url: img1 } },
+              { type: 'image_url', image_url: { url: img2 } },
+            ],
+          },
+        }],
+      },
+    });
+    await logs.flush();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(component.receivedImages(entry)).toEqual([img1, img2]);
+
+    // Expanding the entry renders one thumbnail per returned image.
+    component.toggle(entry.seq);
+    await fixture.whenStable();
+    fixture.detectChanges();
+    const thumbs = fixture.nativeElement.querySelectorAll('.log-thumb') as NodeListOf<HTMLImageElement>;
+    expect(thumbs.length).toBe(2);
+    expect(thumbs[0].getAttribute('src')).toBe(img1);
+    expect(thumbs[1].getAttribute('src')).toBe(img2);
+  });
+
+  it('also finds images in OpenAI-Images responses (data[].b64_json)', async () => {
+    const b64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+    const entry = logs.record({
+      kind: 'image', modelId: 'qwen/qwen-image-3', provider: 'https://p', prompt: 'A castle',
+    });
+    logs.complete(entry, { response: { data: [{ b64_json: b64 }] } });
+    await logs.flush();
+    await fixture.whenStable();
+
+    expect(component.receivedImages(entry)).toEqual([`data:image/png;base64,${b64}`]);
+  });
+
+  it('opens the lightbox when a log thumbnail is clicked', async () => {
+    const img = 'data:image/png;base64,iVBORw0KGgo=';
+    const entry = logs.record({
+      kind: 'chat', modelId: 'm/1', provider: 'https://p',
+      messages: [{ role: 'user', content: 'Draw' }],
+    });
+    logs.complete(entry, {
+      response: { choices: [{ message: { images: [{ type: 'image_url', image_url: { url: img } }] } }] },
+    });
+    await logs.flush();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const lightbox = TestBed.inject(LightboxService);
+    expect(lightbox.current()).toBeNull();
+
+    component.toggle(entry.seq);
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const thumb = fixture.nativeElement.querySelector('.log-thumb') as HTMLImageElement;
+    expect(thumb).not.toBeNull();
+    thumb.click();
+    await fixture.whenStable();
+
+    expect(lightbox.current()).not.toBeNull();
+    expect(lightbox.current()?.urls).toEqual([img]);
+    lightbox.close();
+  });
+
+  it('detects images sent in the request (reference image_url parts)', async () => {
+    const ref = 'data:image/jpeg;base64,REF==';
+    const entry = logs.record({
+      kind: 'chat', modelId: 'm/1', provider: 'https://p',
+      messages: [
+        { role: 'user', content: [{ type: 'image_url', image_url: { url: ref } }] },
+      ],
+      body: {
+        model: 'm/1',
+        messages: [{ role: 'user', content: [{ type: 'image_url', image_url: { url: ref } }] }],
+        stream: false,
+      },
+    });
+    await logs.flush();
+    await fixture.whenStable();
+
+    expect(component.sentImages(entry)).toEqual([ref]);
+    // No generated (response) image exists yet → received stays empty.
+    expect(component.receivedImages(entry)).toEqual([]);
   });
 });

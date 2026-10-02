@@ -370,6 +370,59 @@ describe('LlmService.generateImage — one-shot storyboard (singleCall)', () => 
     expect(JSON.stringify(renderBody)).not.toContain(HISTORY);
   });
 
+  it('forwardFullHistory sends the whole chat as normal messages with the scene prompt last', async () => {
+    fetchMock.mockResolvedValueOnce(completionResponse(1));
+
+    const DIRECTION = 'Mara boards the night train.';
+    const CHAPTER = 'The carriage sways through the fog.';
+    const BEAT = 'Mara watches the conductor pass.';
+    // The caller already appended the current beat/anchor as the final user
+    // message, mirroring chat-node's illustrate() pipeline.
+    const history: ChatMessage[] = [
+      user(DIRECTION),
+      { role: 'assistant', content: CHAPTER },
+      user(BEAT)
+    ];
+
+    await service.generateImage(
+      { baseUrl: 'https://openrouter.ai/api/v1', apiKey: 'sk-test' },
+      MODEL,
+      history,
+      undefined,
+      { count: 1, forwardFullHistory: true }
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const renderBody = JSON.parse(fetchMock.mock.calls[0][1].body);
+    // Full chat forwarded in normal form: the complete history as messages,
+    // with the prepared scene prompt as the final user message.
+    expect(renderBody.messages).toHaveLength(3);
+    expect(renderBody.messages[0].role).toBe('user');
+    expect(renderBody.messages[0].content).toBe(DIRECTION);
+    expect(renderBody.messages[1].role).toBe('assistant');
+    expect(renderBody.messages[1].content).toBe(CHAPTER);
+    expect(renderBody.messages[2].role).toBe('user');
+    expect(renderBody.messages[2].content).toBe(BEAT);
+  });
+
+  it('does NOT forward full history for a storyboard even when requested', async () => {
+    fetchMock.mockResolvedValueOnce(completionResponse(1));
+    fetchMock.mockResolvedValueOnce(completionResponse(1));
+
+    await service.generateImage(
+      { baseUrl: 'https://openrouter.ai/api/v1', apiKey: 'sk-test' },
+      MODEL,
+      [user('Mara boards the night train.'), user('Mara watches the conductor pass.')],
+      undefined,
+      { count: 2, forwardFullHistory: true }
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(2); // per-scene loop
+    const renderBody = JSON.parse(fetchMock.mock.calls[0][1].body);
+    // Storyboards never get the whole history — each scene is one prompt.
+    expect(renderBody.messages).toHaveLength(1);
+  });
+
   it('falls back to the /images endpoint when an image model runs out of context', async () => {
     // chat/completions is rejected because the request exceeds the model's
     // context window; the same prepared prompt must be retried via /images
@@ -434,6 +487,51 @@ describe('LlmService.generateImage — one-shot storyboard (singleCall)', () => 
     expect(lastUser).toContain('A knight on horseback at dawn in a misty field.');
     expect(lastUser).not.toContain('The castle loomed over the valley');
     expect(result.images).toHaveLength(1);
+  });
+
+  it('skips the planning pass when planDescriptions is off (no extra network call)', async () => {
+    fetchMock.mockResolvedValueOnce(completionResponse(1));
+
+    const result = await service.generateImage(
+      { baseUrl: 'https://openrouter.ai/api/v1', apiKey: 'sk-test' },
+      MODEL,
+      [user('The chapter prose that the planner would normally read.'), user('Draw a castle')],
+      undefined,
+      { count: 1, planDescriptions: false }
+    );
+
+    // Only the render call happens — NO picture-description planning call.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    // The image model receives the caller's anchor directly (no derived
+    // description), i.e. the data that would have gone to the planner now
+    // reaches the image generator.
+    const renderBody = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(renderBody.messages).toHaveLength(1);
+    expect(String(renderBody.messages[0].content)).toBe('Draw a castle');
+    expect(result.images).toHaveLength(1);
+  });
+
+  it('sends the full history to the image model in one completion when planning is skipped for a single picture', async () => {
+    fetchMock.mockResolvedValueOnce(completionResponse(1));
+
+    const q1 = 'Mara boards the night train.';
+    const a1 = 'The carriage sways through the fog.';
+    // Final message = the scene/anchor, as chat-node builds it.
+    await service.generateImage(
+      { baseUrl: 'https://openrouter.ai/api/v1', apiKey: 'sk-test' },
+      MODEL,
+      [user(q1), { role: 'assistant', content: a1 }, user('Mara watches the conductor pass.')],
+      undefined,
+      { count: 1, planDescriptions: false, forwardFullHistory: true }
+    );
+
+    // ONE completion carrying the whole chat (one-shot even though one image).
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const renderBody = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(renderBody.messages).toHaveLength(3);
+    expect(renderBody.messages[0].content).toBe(q1);
+    expect(renderBody.messages[1].content).toBe(a1);
+    expect(renderBody.messages[2].content).toBe('Mara watches the conductor pass.');
   });
 
   it('still renders single pictures from the anchor when no scene is derived', async () => {

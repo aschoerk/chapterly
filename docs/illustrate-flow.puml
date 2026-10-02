@@ -1,0 +1,198 @@
+@startuml illustrate-flow
+!theme plain
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+skinparam maxMessageSize 200
+skinparam wrapWidth 180
+title Illustrate: every path from the user pressing "Illustrate"\nto the pictures (or refusals) landing on the chapter node
+
+actor User
+participant "ChatNodeComponent\nillustrate()" as UI
+participant "IllustrateDialog\n(dialog service + component)" as DLG
+participant "Generation config\n(image-create task / settings)" as CFG
+participant "ChatService\n(editAssistant)" as SVC
+participant "LlmService\ngenerateImage()" as GEN
+participant "LlmService\nplanning pass" as PLAN
+participant "Provider\n(proxy → /chat/completions + /images)" as NET
+
+== 1. Entry: what the user pressed ==
+User -> UI : Illustrate button
+note over UI
+  Guards first:
+  - isGenerating(node) / isLoading → ignore (button disabled)
+  - a chapter node can be illustrated directly;
+    a direction node needs a current chapter child.
+end note
+alt on a direction (user node) without a current chapter
+  UI -> UI : … no assistant child found
+  UI -> User : alert "No chapter to attach to" (imageNoChapter)
+  return (nothing happens)
+else on a chapter (assistant node) or direction WITH a chapter
+  UI -> UI : chapter = target assistant node;\nanchorText = node content (or composer draft);\ncontextParentId = parent branch
+end
+
+== 2. Resolve the default rendering model ==
+UI -> CFG : modelFor('image-create') + providerFor('image-create')
+alt task model configured and enabled
+  CFG --> UI : that model + provider
+else fallback
+  UI -> CFG : first enabled model with canGenerateImages()
+  CFG --> UI : model + provider (or null)
+end
+alt none found
+  UI -> User : alert "No image model is enabled" (imageModelMissing)
+  return (nothing happens)
+end
+
+== 3. Illustrate dialog (seeded + remembered) ==
+UI -> DLG : open({ modelId, providerId } = default model)
+DLG -> DLG : seed from last-used options;\ndefault model wins over a stale remembered one
+alt user clicks Cancel
+  DLG --> UI : null
+  UI -> UI : return (nothing happens)
+else user confirms (count / style / storyboard rules /\nmode: pure picture, model)
+  DLG --> UI : {count, style, storyboardPrompt,\npurePictures, modelId, providerId}
+end
+
+== 4. Resolve the model chosen in the dialog ==
+UI -> CFG : enabled model matching selected modelId + providerId
+alt dialog model is valid
+  CFG --> UI : chosen model + provider
+else empty / stale selection
+  UI -> UI : fall back to the default task model
+end
+alt still no model/provider
+  UI -> User : alert "No image model is enabled"
+  return
+end
+UI -> UI : isLoading = true; pendingAction = 'image'
+
+== 5. Build the picture context + anchor ==
+UI -> UI : contextMessages = buildContextMessagesUpTo(contextParentId)\nmessages = textOnlyMessages(contextMessages)
+UI -> UI : instruction = image-create prompt (or default)\nstyled = instruction + "\\n\\nStyle: …" if a style was chosen
+UI -> UI : anchor = styled instruction + "… to illustrate:\\n" + scene text
+alt chosen model canInterpretImages AND prior illustrations exist
+  UI -> UI : append prior images as image_url parts (max 4)
+else
+  UI -> UI : plain text anchor only
+end
+
+== 6. Resolve the picture-description planner ==
+UI -> UI : resolvePlanner() — the model that WRITES\nthe story prefers for pure-text planning
+alt node's own writing model resolvable and ≠ image model
+  UI -> UI : planner = node model
+else image-interpret / language-check task configured
+  UI -> UI : planner = that task model
+else
+  UI -> UI : planner = the image model itself (poor but works)
+end
+
+UI -> GEN : generateImage(provider, model, messages, {count,\nstoryboardPrompt, planDescriptions, singleCall,\nplanner, sceneInstruction, purePictures, onProgress})
+
+== 7. generateImage: optional planning pass ==
+alt planDescriptions on (storyboard >1, chapter node,\n or pure-picture mode)
+  GEN -> PLAN : planStoryboardDescriptions(text model,\n"expand the story into N picture descriptions")
+  alt planning call succeeds
+    PLAN --> GEN : array of N concrete descriptions
+  else planning fails / times out / nothing usable
+    PLAN --> GEN : nulls (caller falls back to generic scene instruction)
+  end
+end
+
+== 8. generateImage: one-shot storyboard (non-pure) ==
+alt !purePictures && singleCall && count > 1
+  GEN -> GEN : oneShotStoryboardPrompt(base + descriptions,\nstoryboard rules)
+  GEN -> NET : ONE completion for all N images (+modalities)
+  alt all N images returned
+    NET --> GEN : images ≥ count
+    GEN --> UI : single scene with all images → done
+  else fewer images returned
+    NET --> GEN : warn → fall through to per-scene loop
+  else call failed
+    alt timed out / caller abort
+      GEN -> UI : throw (surface immediately, no fallback)
+    else content moderation reject
+      GEN --> UI : every scene refused (prompts kept,\nuser can adapt)
+    else other error
+      GEN -> UI : warn → fall through to per-scene loop
+    end
+  end
+end
+
+== 9. generateImage: pure-picture en-block ==
+alt purePictures && pure descriptions derived
+  GEN -> GEN : purePicturesPrompt(descriptions + consistency rules)\n— never the raw story prose
+  GEN -> NET : ONE completion for all N pure descriptions
+  alt all N images returned
+    NET --> GEN : images ≥ count
+    GEN --> UI : single scene with all images → done
+  else fewer images returned
+    GEN -> UI : warn → per-scene loop re-renders each description
+  else call refused / moderated / failed
+    GEN -> UI : warn → render each description per-scene\n(one reject can no longer cost the whole set)
+  end
+end
+
+== 10. generateImage: per-scene loop ==
+loop for each scene i while collected < total
+  GEN -> GEN : scenePrompt(i) — planned description if any,\nelse storyboard instruction / anchor
+  GEN -> NET : callOnce(renderMessages(prompt)) — prompt only,\nplus any reference-image parts; never the story history
+  note over GEN, NET
+    callOnce() network fallbacks, in order:
+    1. modalities field rejected → retry WITHOUT it
+    2. OpenRouter "No endpoints found … modality" → retry image-only
+    3. model serves only /images endpoint → retry via /images
+    4. context overflow → retry via /images (prompt only)
+  end note
+  alt call throws
+    alt timed out / caller abort
+      GEN -> GEN : mark ALL remaining scenes refused + stop
+      GEN --> UI : partial result (anything collected kept)
+    else refused / moderated / failed scene
+      GEN -> GEN : record scene as refused (prompt + reason kept)
+      GEN -> UI : continue with the NEXT scene (independent request)
+    end
+  else success
+    GEN -> GEN : extract images
+    alt no image parsed (unexpected shape / refusal)
+      GEN -> GEN : record scene refused
+    else images returned
+      GEN -> GEN : collect; onProgress(done, total)
+    end
+  end
+end
+GEN --> UI : {content, images, scenes} — every scene has its\nEXACT prompt + refused flag; partials never discard images
+
+== 11. Persist the result on the chapter node ==
+UI -> UI : buildIllustrationAttachments(result, anchor)\n→ illustration-N.* + prompt-N.txt per image,\nrefused-prompt-N.txt per failed scene
+alt zero attachments produced
+  UI -> User : throw → alert "No image was created" + model reply
+else
+  UI -> SVC : editAssistant(chat, chapter, content, merged attachments)
+  SVC --> UI : saved chapter → activate (scroll to it)
+  alt imageCount == 0 (all refused)
+    UI -> User : alert "No image was created" + reply
+  else count > 1 && imageCount < count (partial storyboard)
+    UI -> User : alert "Only got got/want of the scenes"
+  end
+end
+UI -> UI : finally isLoading=false; pendingAction=null
+note over UI
+  Catch-all: any exception on the code path above
+  → console.error + alert "Image generation failed".
+end
+
+== 12. Follow-up: adapt & re-render a refused prompt ==
+note over UI
+  A refused-prompt-N.txt stays attached, so the user can\nre-render one refused picture without re-running the dialog.
+end note
+User -> UI : "Adapt prompt & re-render" on a refused record
+UI -> CFG : image-create model (or fallback image model)
+UI -> GEN : generateImage(…, count:1, planDescriptions:false,\nscene = adapted prompt)
+alt new image arrives
+  UI -> SVC : replace refused record + old illustration\nfor that scene → editAssistant
+else refused again
+  UI -> User : alert with the model's reply (prompt kept for next try)
+end
+
+@enduml

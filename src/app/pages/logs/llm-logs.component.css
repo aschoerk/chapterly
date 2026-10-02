@@ -182,6 +182,30 @@
   margin-bottom: 0.25rem;
 }
 
+/* Thumbnails of images found in a log entry (response + request). */
+.log-thumbs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.25rem;
+}
+
+.log-thumb {
+  width: 5.5rem;
+  height: 5.5rem;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid var(--border, #e5e5e5);
+  background: var(--bg-hover, #f8fafc);
+  cursor: zoom-in;
+  transition: border-color 0.12s ease, transform 0.12s ease;
+}
+
+.log-thumb:hover {
+  border-color: var(--accent, #2563eb);
+  transform: scale(1.03);
+}
+
 .log-caption {
   margin: 0;
   font-size: 0.78rem;

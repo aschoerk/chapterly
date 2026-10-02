@@ -76,7 +76,7 @@ describe('ChatNodeComponent', () => {
           provide: IllustrateDialogService,
           useValue: {
             // Default: a simple single-scene, no-style run.
-            open: vi.fn(async () => ({ count: 1, style: '', storyboardPrompt: '', purePictures: false })),
+            open: vi.fn(async () => ({ count: 1, style: '', storyboardPrompt: '', purePictures: false, historyMode: 'single', planDescriptions: true })),
             current: vi.fn(() => null)
           }
         },
@@ -1824,6 +1824,8 @@ describe('ChatNodeComponent', () => {
         style: '',
         storyboardPrompt: '',
         purePictures: true,
+        historyMode: 'single',
+        planDescriptions: false,
       });
 
       createFixture(q1, 'a1');
@@ -1897,7 +1899,9 @@ describe('ChatNodeComponent', () => {
         storyboardPrompt: '',
         purePictures: false,
         modelId: 'beta/image',
-        providerId: 'prov-1'
+        providerId: 'prov-1',
+        historyMode: 'single',
+        planDescriptions: true
       });
 
       createFixture(q1, 'a1');
@@ -1909,6 +1913,226 @@ describe('ChatNodeComponent', () => {
       expect(modelArg.modelId).toBe('beta/image');
       const providerArg = llm.generateImage.mock.calls[0][0] as { baseUrl?: string };
       expect(providerArg.baseUrl).toBeDefined();
+    });
+
+    it('forwards the full-chat historyMode as forwardFullHistory for a single picture', async () => {
+      const q1 = node({ id: 'q1', content: 'A direction.' });
+      const a1 = node({
+        id: 'a1', chatId: 'chat-1', parentId: 'q1', role: 'assistant', content: 'A chapter.',
+      });
+      await openChat([q1, a1]);
+
+      const generation = TestBed.inject(GenerationSettingsService);
+      generation.update('image-create', { providerId: 'prov-1', modelId: 'alpha/model' });
+      llm.generateImage.mockResolvedValueOnce({
+        content: '',
+        images: [{ url: 'data:image/png;base64,QQ==' }],
+      });
+
+      // User chose "Full chat up to this point" in the dialog.
+      illustrateDialog.open.mockResolvedValue({
+        count: 1,
+        style: '',
+        storyboardPrompt: '',
+        purePictures: false,
+        modelId: '',
+        providerId: '',
+        historyMode: 'full'
+      });
+
+      createFixture(q1, 'a1');
+      await component.illustrate();
+      fixture.detectChanges();
+
+      expect(llm.generateImage).toHaveBeenCalledTimes(1);
+      const optsArg = llm.generateImage.mock.calls[0][4] as { forwardFullHistory?: boolean };
+      expect(optsArg.forwardFullHistory).toBe(true);
+    });
+
+    it('does not forward the full chat for a storyboard even when it was chosen', async () => {
+      const q1 = node({ id: 'q1', content: 'A direction.' });
+      const a1 = node({
+        id: 'a1', chatId: 'chat-1', parentId: 'q1', role: 'assistant', content: 'A chapter.',
+      });
+      await openChat([q1, a1]);
+
+      const generation = TestBed.inject(GenerationSettingsService);
+      generation.update('image-create', { providerId: 'prov-1', modelId: 'alpha/model' });
+      llm.generateImage.mockResolvedValueOnce({
+        content: '',
+        images: [{ url: 'data:image/png;base64,QQ==' }],
+      });
+
+      // historyMode 'full' is meaningless for a storyboard (count=3).
+      illustrateDialog.open.mockResolvedValue({
+        count: 3,
+        style: '',
+        storyboardPrompt: '',
+        purePictures: false,
+        modelId: '',
+        providerId: '',
+        historyMode: 'full'
+      });
+
+      createFixture(q1, 'a1');
+      await component.illustrate();
+      fixture.detectChanges();
+
+      expect(llm.generateImage).toHaveBeenCalledTimes(1);
+      const optsArg = llm.generateImage.mock.calls[0][4] as { forwardFullHistory?: boolean };
+      // generateImage enforces count===1: storyboards never get full history.
+      expect(optsArg.forwardFullHistory).toBe(true);
+    });
+
+    it('uses planning for a single assistant chapter by default', async () => {
+      const q1 = node({ id: 'q1', content: 'A direction.' });
+      const a1 = node({
+        id: 'a1', chatId: 'chat-1', parentId: 'q1', role: 'assistant', content: 'A chapter.',
+      });
+      await openChat([q1, a1]);
+
+      const generation = TestBed.inject(GenerationSettingsService);
+      generation.update('image-create', { providerId: 'prov-1', modelId: 'alpha/model' });
+      llm.generateImage.mockResolvedValueOnce({
+        content: '',
+        images: [{ url: 'data:image/png;base64,QQ==' }],
+      });
+
+      createFixture(a1);
+      await component.illustrate();
+      fixture.detectChanges();
+
+      // Single assistant chapter → planning ON, and no forced full history.
+      const optsArg = llm.generateImage.mock.calls[0][4] as {
+        planDescriptions?: boolean;
+        forwardFullHistory?: boolean;
+      };
+      expect(optsArg.planDescriptions).toBe(true);
+      expect(optsArg.forwardFullHistory).toBe(false);
+    });
+
+    it('disables planning for a single assistant chapter; current-text stays single-message', async () => {
+      const q1 = node({ id: 'q1', content: 'A direction.' });
+      const a1 = node({
+        id: 'a1', chatId: 'chat-1', parentId: 'q1', role: 'assistant', content: 'A chapter.',
+      });
+      await openChat([q1, a1]);
+
+      const generation = TestBed.inject(GenerationSettingsService);
+      generation.update('image-create', { providerId: 'prov-1', modelId: 'alpha/model' });
+      llm.generateImage.mockResolvedValueOnce({
+        content: '',
+        images: [{ url: 'data:image/png;base64,QQ==' }],
+      });
+
+      // The user unchecks "Plan picture descriptions first" but leaves the
+      // context radio on "Current text only".
+      illustrateDialog.open.mockResolvedValue({
+        count: 1,
+        style: '',
+        storyboardPrompt: '',
+        purePictures: false,
+        modelId: '',
+        providerId: '',
+        historyMode: 'single',
+        planDescriptions: false
+      });
+
+      createFixture(a1);
+      await component.illustrate();
+      fixture.detectChanges();
+
+      const optsArg = llm.generateImage.mock.calls[0][4] as {
+        planDescriptions?: boolean;
+        forwardFullHistory?: boolean;
+      };
+      // Planning is skipped…
+      expect(optsArg.planDescriptions).toBe(false);
+      // …but the radio is authoritative: with "Current text only" selected,
+      // the raw story is NOT forwarded as the full chat — only the single
+      // prepared anchor reaches the image model.
+      expect(optsArg.forwardFullHistory).toBe(false);
+    });
+
+    it('with planning off and full-chat selected the whole chat is forwarded', async () => {
+      const q1 = node({ id: 'q1', content: 'A direction.' });
+      const a1 = node({
+        id: 'a1', chatId: 'chat-1', parentId: 'q1', role: 'assistant', content: 'A chapter.',
+      });
+      await openChat([q1, a1]);
+
+      const generation = TestBed.inject(GenerationSettingsService);
+      generation.update('image-create', { providerId: 'prov-1', modelId: 'alpha/model' });
+      llm.generateImage.mockResolvedValueOnce({
+        content: '',
+        images: [{ url: 'data:image/png;base64,QQ==' }],
+      });
+
+      // Planning off + "Full chat up to this point" on an assistant chapter.
+      illustrateDialog.open.mockResolvedValue({
+        count: 1,
+        style: '',
+        storyboardPrompt: '',
+        purePictures: false,
+        modelId: '',
+        providerId: '',
+        historyMode: 'full',
+        planDescriptions: false
+      });
+
+      createFixture(a1);
+      await component.illustrate();
+      fixture.detectChanges();
+
+      const optsArg = llm.generateImage.mock.calls[0][4] as {
+        planDescriptions?: boolean;
+        forwardFullHistory?: boolean;
+      };
+      expect(optsArg.planDescriptions).toBe(false);
+      // The radio wins: full chat IS forwarded (the story the planner would
+      // have seen reaches the image model directly).
+      expect(optsArg.forwardFullHistory).toBe(true);
+    });
+
+    it('keeps planning on in pure picture mode even when the checkbox was off', async () => {
+      const q1 = node({ id: 'q1', content: 'A direction.' });
+      const a1 = node({
+        id: 'a1', chatId: 'chat-1', parentId: 'q1', role: 'assistant', content: 'A chapter.',
+      });
+      await openChat([q1, a1]);
+
+      const generation = TestBed.inject(GenerationSettingsService);
+      generation.update('image-create', { providerId: 'prov-1', modelId: 'alpha/model' });
+      llm.generateImage.mockResolvedValueOnce({
+        content: '',
+        images: [{ url: 'data:image/png;base64,QQ==' }],
+      });
+
+      // Pure mode with a stale/ignored planDescriptions: false.
+      illustrateDialog.open.mockResolvedValue({
+        count: 1,
+        style: '',
+        storyboardPrompt: '',
+        purePictures: true,
+        modelId: '',
+        providerId: '',
+        historyMode: 'single',
+        planDescriptions: false
+      });
+
+      createFixture(q1, 'a1');
+      await component.illustrate();
+      fixture.detectChanges();
+
+      const optsArg = llm.generateImage.mock.calls[0][4] as {
+        planDescriptions?: boolean;
+        forwardFullHistory?: boolean;
+        purePictures?: boolean;
+      };
+      // Planning forced ON, raw history never forwarded in pure mode.
+      expect(optsArg.planDescriptions).toBe(true);
+      expect(optsArg.forwardFullHistory).toBe(false);
+      expect(optsArg.purePictures).toBe(true);
     });
 
     it('shows an alert and does not call the LLM when no image model is enabled', async () => {
@@ -1982,6 +2206,8 @@ describe('ChatNodeComponent', () => {
         style: 'comic style',
         storyboardPrompt: 'no explicit images, hide behind bystanders',
         purePictures: false,
+        historyMode: 'single',
+        planDescriptions: true
       });
 
       const imgs = [0, 1, 2].map((i) => ({ url: `data:image/png;base64,AAAA${i}` }));
@@ -2081,6 +2307,8 @@ describe('ChatNodeComponent', () => {
         style: 'ink',
         storyboardPrompt: 'keep it clean',
         purePictures: false,
+        historyMode: 'single',
+        planDescriptions: true
       });
 
       llm.generateImage.mockResolvedValueOnce({

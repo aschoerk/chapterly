@@ -50,6 +50,43 @@
         />
       </label>
 
+      @if (showContextMode()) {
+        <fieldset class="ill-radio-group">
+          <legend>{{ i18n.t('illustrateDialog.contextModeLabel') }}</legend>
+          <label class="ill-radio">
+            <input
+              type="radio"
+              name="historyMode"
+              [checked]="historyMode() === 'single'"
+              (change)="onHistoryMode('single')"
+            />
+            <span>
+              {{ i18n.t('illustrateDialog.contextModeSingle') }}
+              <small class="ill-hint">{{ i18n.t('illustrateDialog.contextModeSingleHint') }}</small>
+            </span>
+          </label>
+          <label class="ill-radio">
+            <input
+              type="radio"
+              name="historyMode"
+              [checked]="historyMode() === 'full' && !fullContextDisabled()"
+              [disabled]="fullContextDisabled()"
+              (change)="onHistoryMode('full')"
+            />
+            <span>
+              {{ i18n.t('illustrateDialog.contextModeFull') }}
+              <small class="ill-hint">
+                @if (fullContextDisabled()) {
+                  {{ i18n.t('illustrateDialog.contextModeFullDisabled') }}
+                } @else {
+                  {{ i18n.t('illustrateDialog.contextModeFullHint') }}
+                }
+              </small>
+            </span>
+          </label>
+        </fieldset>
+      }
+
       @if (showStoryboard()) {
         <label class="ill-field">
           <span>{{ i18n.t('illustrateDialog.storyPromptLabel') }}</span>
@@ -65,12 +102,29 @@
       <label class="ill-check">
         <input
           type="checkbox"
-          [ngModel]="purePictures()"
-          (ngModelChange)="purePictures.set($event)"
+          [checked]="purePictures()"
+          (change)="onPureChange($any($event.target).checked)"
         />
         <span>{{ i18n.t('illustrateDialog.purePicturesLabel') }}</span>
       </label>
       <small class="ill-hint">{{ i18n.t('illustrateDialog.purePicturesHint') }}</small>
+
+      <label class="ill-check">
+        <input
+          type="checkbox"
+          [checked]="planDescriptions() || planningDisabled()"
+          (change)="onPlanChange($any($event.target).checked)"
+          [disabled]="planningDisabled()"
+        />
+        <span>{{ i18n.t('illustrateDialog.planningLabel') }}</span>
+      </label>
+      <small class="ill-hint">
+        @if (planningDisabled()) {
+          {{ i18n.t('illustrateDialog.planningForcedHint') }}
+        } @else {
+          {{ i18n.t('illustrateDialog.planningHint') }}
+        }
+      </small>
 
       <div class="illustrate-actions">
         <button class="btn" type="button" (click)="dialog.cancel()">

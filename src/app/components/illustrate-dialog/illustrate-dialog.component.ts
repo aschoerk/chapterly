@@ -5,7 +5,10 @@ import { IllustrateDialogService } from '../../core/illustrate-dialog.service';
 import { SettingsService } from '../../core/settings.service';
 import { GenerationSettingsService } from '../../core/generation-settings.service';
 import { canGenerateImages, ModelEntry } from '../../models/chat-config';
-import { ILLUSTRATE_COUNT_MIN } from '../../models/illustrate-options';
+import {
+  ILLUSTRATE_COUNT_MIN,
+  IllustrateHistoryMode
+} from '../../models/illustrate-options';
 
 @Component({
   selector: 'app-illustrate-dialog',
@@ -26,7 +29,22 @@ export class IllustrateDialogComponent {
   readonly purePictures = signal(false);
   readonly modelId = signal('');
   readonly providerId = signal('');
+  readonly historyMode = signal<IllustrateHistoryMode>('single');
+  readonly planDescriptions = signal(true);
   readonly showStoryboard = computed(() => this.count() > 1);
+  /**
+   * Full-chat context is only meaningful for a SINGLE picture (count 1) and
+   * never in pure picture mode (which by design sends descriptions only, not
+   * the raw story text). The "Full chat" radio is disabled then.
+   */
+  readonly showContextMode = computed(() => !this.showStoryboard());
+  readonly fullContextDisabled = computed(() => this.purePictures());
+  /**
+   * Picture-description planning can be turned off — except in pure picture
+   * mode, where the derived descriptions ARE what reaches the image model
+   * (raw story prose is never sent).
+   */
+  readonly planningDisabled = computed(() => this.purePictures());
 
   /**
    * Models the user can render with: every enabled image-capable model, plus
@@ -53,6 +71,8 @@ export class IllustrateDialogComponent {
       this.purePictures.set(s.purePictures);
       this.modelId.set(s.modelId);
       this.providerId.set(s.providerId);
+      this.historyMode.set(s.historyMode);
+      this.planDescriptions.set(s.planDescriptions);
     });
   }
 
@@ -72,6 +92,24 @@ export class IllustrateDialogComponent {
     this.providerId.set(match?.providerId ?? '');
   }
 
+  /** Only 'single' is a valid full-context choice in pure picture mode. */
+  onHistoryMode(value: string): void {
+    this.historyMode.set(value === 'full' && !this.purePictures() ? 'full' : 'single');
+  }
+
+  onPureChange(checked: boolean): void {
+    this.purePictures.set(!!checked);
+  }
+
+  /**
+   * Planning stays on in pure picture mode (forced — see submit). Unchecking
+   * it for a single picture means the raw story text is sent to the image
+   * model directly instead of being distilled by a text model first.
+   */
+  onPlanChange(value: boolean): void {
+    this.planDescriptions.set(this.purePictures() ? true : value);
+  }
+
   submit(): void {
     this.dialog.submit({
       count: this.count(),
@@ -79,7 +117,13 @@ export class IllustrateDialogComponent {
       storyboardPrompt: this.storyboardPrompt(),
       purePictures: this.purePictures(),
       modelId: this.modelId(),
-      providerId: this.providerId()
+      providerId: this.providerId(),
+      // Pure picture mode never forwards the raw chat, so a remembered 'full'
+      // selection is clamped back to 'single'.
+      historyMode: this.purePictures() ? 'single' : this.historyMode(),
+      // Pure picture mode REQUIRES the derived descriptions — raw story prose
+      // must never reach the image model — so planning is forced back on.
+      planDescriptions: this.purePictures() ? true : this.planDescriptions()
     });
   }
 

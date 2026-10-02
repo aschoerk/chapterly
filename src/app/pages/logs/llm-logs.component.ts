@@ -2,6 +2,8 @@ import { Component, inject, signal, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { I18nService } from '../../core/i18n/i18n.service';
 import { ConfirmService } from '../../core/confirm.service';
+import { LightboxService } from '../../core/lightbox.service';
+import { extractLlmImages } from '../../core/llm/llm-message';
 import { LlmLogService, LlmLogEntry, LlmLogMessage, LLM_LOG_LIMIT } from '../../core/llm/llm-log.service';
 
 @Component({
@@ -14,6 +16,7 @@ import { LlmLogService, LlmLogEntry, LlmLogMessage, LLM_LOG_LIMIT } from '../../
 export class LlmLogsComponent implements OnDestroy {
   private readonly logs = inject(LlmLogService);
   private readonly confirm = inject(ConfirmService);
+  private readonly lightbox = inject(LightboxService);
   readonly i18n = inject(I18nService);
 
   readonly entries = this.logs.entries;
@@ -164,6 +167,79 @@ export class LlmLogsComponent implements OnDestroy {
   /** Copy the response/error text into the clipboard (with "Copied" feedback). */
   copyResponse(e: LlmLogEntry): void {
     this.copyToClipboard(this.responseText(e), e.seq, 'response');
+  }
+
+  /**
+   * Generated pictures returned by the provider for this call, as renderable
+   * URLs. Images can live in several response shapes — OpenAI-style
+   * `choices[].message.images[]` / `content[]` parts, the images endpoint's
+   * `data[]` (`url` / `b64_json`), or plain markdown/URLs in a text reply.
+   * `extractLlmImages` understands all of them; we keep only renderable
+   * `data:` / `http(s)` URLs. Empty when there is no completed response.
+   */
+  receivedImages(e: LlmLogEntry): string[] {
+    if (!e.completed || e.response == null || !!e.error) return [];
+    return extractLlmImages(e.response).map(p => p.url);
+  }
+
+  /**
+   * Images the client SENT in the request (reference/context images attached
+   * as `image_url` parts — prior illustrations forwarded to the model). These
+   * hide inside `body.messages[].content` (and the recorded `messages`), so we
+   * scan those part arrays explicitly.
+   */
+  sentImages(e: LlmLogEntry): string[] {
+    const out = new Set<string>();
+    const scan = (content: unknown): void => {
+      if (!Array.isArray(content)) return;
+      for (const part of content) {
+        if (!part || typeof part !== 'object') continue;
+        const p = part as Record<string, unknown>;
+        let u: unknown;
+        const iu = p['image_url'];
+        if (iu && typeof iu === 'object') {
+          u = (iu as Record<string, unknown>)['url'];
+        } else if (typeof iu === 'string') {
+          u = iu;
+        } else if (typeof p['url'] === 'string') {
+          u = p['url'];
+        }
+        if (typeof u === 'string' && this.isRenderableImageUrl(u)) out.add(u);
+      }
+    };
+    // The exact request payload (`body.messages`) always carries the parts the
+    // client actually sent (reference images included).
+    const body = e.body as Record<string, unknown> | undefined;
+    if (body && Array.isArray(body['messages'])) {
+      for (const m of body['messages'] as unknown[]) {
+        if (!m || typeof m !== 'object') continue;
+        const mm = m as Record<string, unknown>;
+        scan(mm['content']);
+        scan(mm['images']);
+      }
+    }
+    // The recorded message list mirrors the same content (fallback when `body`
+    // is absent — e.g. old entries).
+    if (Array.isArray(e.messages)) {
+      for (const m of e.messages) {
+        scan(m.content);
+      }
+    }
+    return [...out];
+  }
+
+  private isRenderableImageUrl(u: string): boolean {
+    return /^(?:data:image\/|https?:\/\/)/i.test(u);
+  }
+
+  /**
+   * Open the in-app lightbox for a list of log images. Always used instead of
+   * `window.open(…, '_blank')` — Chromium (Chrome + Electron) blocks opening
+   * `data:` image URLs in a new window.
+   */
+  openLogImages(urls: string[], index = 0): void {
+    if (urls.length === 0) return;
+    this.lightbox.open(urls, Math.min(Math.max(index, 0), urls.length - 1));
   }
 
   /** True while the "Copied" flash is active for the given button. */
