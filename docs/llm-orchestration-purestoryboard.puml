@@ -1,0 +1,101 @@
+@startuml llm-orchestration-purestoryboard
+!theme plain
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+skinparam maxMessageSize 200
+skinparam wrapWidth 180
+title Most complicated use case — "storyboard" (pure picture mode, planning,\nen-block + per-scene fallback) — TARGET structure\n(equivalent to today's generateImage + buildIllustrationAttachments)
+
+actor User
+participant "ChatNodeComponent\nillustrate()" as UI
+participant "IllustrateDialog" as DLG
+participant "RequestBuilder" as BUILDER
+participant "LlmOrchestrator\nrun(root)" as ORCH
+participant "UseCasePolicy\nstoryboard" as POLICY
+participant "LlmTransport\naskLlmJson / askImages" as XPORT
+participant "LlmLogService" as LOG
+participant "ResponseEvaluator\n(completion / images / error)" as EVAL
+participant "Postprocessor\n(place)" as POST
+participant "ChatService" as SVC
+participant "Provider\n(proxy)" as NET
+
+== 1. Request builder: root intent from dialog variables ==
+User -> UI : Illustrate (a direction / chapter)
+UI -> DLG : open({ count, style, purePictures,\nplanDescriptions, historyMode, model })
+DLG --> UI : IllustrateOptions
+UI -> BUILDER : build({ chat, node, usecase:'storyboard',\nvars:{ count, style, purePictures,\nplanDescriptions, storyboardPrompt } })
+BUILDER --> ORCH : RequestIntent { usecase:'storyboard',\nusecaseVars }  (root — NOT a single HTTP call)
+ORCH -> POLICY : expand(root)
+
+== 2. Policy emits the plan: 1 planning intent → 1 en-block render ==
+POLICY --> ORCH : [ plan-descriptions ]\n(sceneInstruction = styled task prompt,\nplanner model = the writing node model)
+ORCH -> XPORT : send(plan-descriptions)
+XPORT -> LOG : record({ kind:'chat', prompt:messages })
+XPORT -> NET : POST /chat/completions (text — no image requested)
+XPORT -> LOG : complete(entry, { response })
+XPORT --> ORCH : raw json
+
+== 3. Evaluator fills the FIRST named slot ==
+ORCH -> EVAL : evaluate({ raw: json, error: undefined })
+note over EVAL
+  Pure generic evaluator. Never throws.
+  Parses the planning answer into:
+    descriptions = Slot<PictureDescription[]>(status:'ok')
+  On error / refusal / empty yields
+    descriptions = Slot(status:'error'|'refused', reason)
+  Same ORCH path as the success case.
+end note
+EVAL --> ORCH : EvalSlots { descriptions }
+ORCH -> POLICY : nextIntents(slots)
+
+== 4. Policy decides the render strategy (pure picture mode shown) ==
+POLICY --> ORCH : [ render-enblock ]\n(ALL pictures in ONE completion,\npure descriptions + consistency rules)
+ORCH -> XPORT : send(render-enblock)
+XPORT -> LOG : record({ kind:'chat', body: full payload })
+XPORT -> NET : POST /chat/completions (modalities, stream:false)
+note over XPORT, NET
+  Transport keeps its graceful fallbacks here:\n1. modalities rejected → retry without\n2. OpenRouter modality routing → image-only\n3. model serves only /images → retry there\n4. context overflow → retry via /images
+end note
+XPORT -> LOG : complete(entry, { response })
+XPORT --> ORCH : raw json
+ORCH -> EVAL : evaluate({ raw: json })
+EVAL --> ORCH : EvalSlots\n  images = Slot<LlmImagePart[]>(status:'ok' | 'partial'\n    | 'refused', reason: moderation?, count)
+ORCH -> POLICY : nextIntents(slots)
+
+== 5a. En-block OK: single slot, done ==
+alt images ≥ count (status 'ok')
+  POLICY --> ORCH : []
+  ORCH -> POLICY : place(slots)
+  POLICY -> POST : place({ usecase:'storyboard', slots })
+  POST -> SVC : buildIllustrationAttachments →\nillustration-1..N + prompt-1.txt,\neditAssistant(chapter)
+  POST --> UI : activate(chapter.id)
+else en-block refused / few (status 'partial'|'refused')\nand NOT aborted
+  POLICY --> ORCH : N × render-scene[i]  (bounded concurrency,\neach driven by its derived description)
+  loop each render-scene[i]
+    ORCH -> XPORT : send(render-scene[i])
+    XPORT -> LOG : record + complete
+    XPORT --> ORCH : raw json (or thrown error)
+    ORCH -> EVAL : evaluate({ raw } or { error, aborted })
+    note over EVAL
+      Evaluates EVERY response and EVERY error to\na slot, whether success, refusal, moderation or\ntimeout. No throwing — status + reason travel\nwith the slot.
+    end note
+    EVAL --> ORCH : EvalSlots\n  storyboard[i] = Slot<images>(status ok|refused,\nreason, prompt)  (+ collected images merged)
+  end
+  note over POLICY, EVAL
+    One moderated/failed scene NEVER discards\npreviously collected images — per-scene slots\nare independent; partial results survive.\n(Invariant lives in the policy, not in the loop.)
+  end note
+  ORCH -> POLICY : place(slots)
+  POLICY -> POST : place({ usecase:'storyboard', slots })\n(include partial + every per-scene refusal)
+  POST -> SVC : prompt-N.txt + refused-prompt-N.txt kept\nfindable next to each image;\neditAssistant(chapter) with ALL attachments
+  POST --> UI : activate(chapter.id) —\nalert if everything refused / partial
+end
+
+== 5b. Abort / timeout: no continuation ==
+alt any child signal aborted
+  EVAL --> ORCH : slot status 'error' (aborted, reason:\ntimeout or caller abort)
+  ORCH -> POLICY : nextIntents(slots)
+  POLICY --> ORCH : [] — stop the whole tree\n(no per-scene fallback that would double the wait)
+  ORCH -> POLICY : place(slots) — partial kept so far
+end
+
+@enduml

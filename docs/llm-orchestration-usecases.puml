@@ -1,0 +1,90 @@
+@startuml llm-orchestration-usecases
+!theme plain
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+skinparam maxMessageSize 200
+skinparam wrapWidth 180
+title Use cases are small controllers; the orchestrator is a shared primitives class\nTARGET — storyboard decomposed into 5 independent use cases (dispatch via an if-chain)
+
+actor User
+participant "ChatNodeComponent\nillustrate()" as UI
+participant "UsecaseDispatch\npickUsecase()" as DISP
+participant "LlmOrchestrator\n(primitives: completion / images)" as ORCH
+participant "LlmTransport\n(completion+images, retries)" as XPORT
+participant "Evaluators\n(stream fold / completion / images)" as EVAL
+participant "LlmLogService" as LOG
+participant "Postprocessor\n(place)" as POST
+participant "ChatService" as SVC
+participant "Provider\n(proxy)" as NET
+
+== 0. Dispatch: the dialog CHOOSES the use case ==
+User -> UI : Illustrate (options: count, planDescriptions,\nsingleCall, historyMode, purePictures)
+UI -> DISP : pickUsecase(dialog)
+alt count > 1 && !planDescriptions
+  DISP --> UI : usecase1_storyboardDirect      (raw chat as-is)
+else count > 1 && planDescriptions && singleCall
+  DISP --> UI : usecase2_plannedEnblock        (plan → one en-block render)
+else count > 1 && planDescriptions
+  DISP --> UI : usecase3_plannedScenes         (plan → per-scene loop)
+else count == 1 && historyMode == 'full'
+  DISP --> UI : usecase4_renderFull            (current node + full chat ctx)
+else
+  DISP --> UI : usecase5_renderNode            (current node only)
+end
+UI -> DISP : run(usecase)
+note over DISP
+  A plain if-chain. "pure picture mode" = \nselects 2 (or 3) + sanitized prompts,\nnot a mode flag reinterpreted downstream.
+end note
+
+== A) Use case 2 — planned → ONE en-block block ==
+DISP -> ORCH : completion(planInstruction, expect:'descriptions')
+ORCH -> XPORT : send(completion, text model)
+XPORT -> LOG : record/complete
+XPORT -> NET : POST /chat/completions
+XPORT --> ORCH : json
+ORCH -> EVAL : evaluate(completion json)
+EVAL --> ORCH : descriptions-slot (ok | refused, reason)
+ORCH --> DISP : descriptions slot
+DISP -> ORCH : completion(renderEnblock(descriptions), expect:'images')\nOR images(prompt, n) for /images-only models
+note over DISP, ORCH
+  Endpoint choice is a helper on the use case\n("per completion or per image dependent on the model")\n— not a branch in the orchestrator.
+end note
+ORCH -> XPORT : send
+XPORT -> NET : POST /chat/completions (or /images, n)
+XPORT --> ORCH : json
+ORCH -> EVAL : evaluate
+EVAL --> ORCH : images-slot (ok | partial | refused, reason)
+ORCH --> DISP : images slot
+DISP -> ORCH : finish(place)
+ORCH -> POST : place({ usecase2, slots:{ descriptions, images } })
+POST -> SVC : editAssistant(chapter,\nillustration-1..N + prompt-1.txt)\n(kept partial if any scene refused)
+POST --> UI : activate(chapter.id)
+
+== B) Use case 3 — planned → per-scene LOOP (same plan step) ==
+DISP -> ORCH : completion(planInstruction, expect:'descriptions')
+ORCH -> EVAL : evaluate(completion json)
+EVAL --> ORCH : descriptions-slot (ok | refused, reason)
+ORCH --> DISP : descriptions-slot
+DISP -> ORCH : loop scenes: completion(renderScene(descriptions[i], i), expect:'image')
+note over DISP, ORCH
+  The plan step is IDENTICAL to use case 2 —\nreuse, no duplication, no shared mutable state.\nEach scene gets its OWN slot so one refused\nscene never discards the collected ones.\nAbort in a child → use case returns partial.\n(Variant of 2 vs 3 = ONE loop, that's all.)
+end note
+loop i in 0..count-1
+  ORCH -> XPORT : send(completion, renderScene[i])
+  XPORT -> LOG : record/complete
+  XPORT --> ORCH : json (or thrown error → evaluated error slot)
+  ORCH -> EVAL : evaluate(success | {error, aborted})
+  EVAL --> ORCH : scene[i]-slot (ok | refused | error, reason)
+  ORCH --> DISP : scene[i]
+end
+DISP -> POST : place({ usecase3, slots:{ scene0..N } })
+POST -> SVC : per-scene prompt-N.txt + refused-prompt-N.txt\nkept next to each illustration,\neditAssistant(chapter)
+POST --> UI : activate(chapter.id) — alert if refused/partial
+
+== C) Use cases 1, 4, 5 — one clean call each ==
+note over DISP, ORCH
+  usecase1 = completion(fullChatAsIs, expect:'storyboard', count:N)\nusecase4 = completion(fullHistoryMessages, expect:'image')\nusecase5 = completion(currentNodeOnly, expect:'image')
+  Each is a SINGLE call on the shared primitives —\nno planning, no loop, no fallback branches.\nResponses (streaming for 4/5 text) fill the node DURING SSE.
+end note
+
+@enduml

@@ -64,3 +64,4 @@ Thumbs.db
 /electron/renderer/browser/styles-*.css
 /electron/renderer/browser/index.html
 .env.chapterly-sqlite
+x.jpg

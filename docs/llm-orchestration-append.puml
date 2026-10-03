@@ -1,0 +1,81 @@
+@startuml llm-orchestration-append
+!theme plain
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+skinparam maxMessageSize 200
+skinparam wrapWidth 180
+title Simplest use case — "append" (send a question, stream the answer)\nTARGET structure: request builder → orchestrator → transport → evaluator → policy → postprocessor
+
+actor User
+participant "ChatNodeComponent\nsend()" as UI
+participant "RequestBuilder" as BUILDER
+participant "LlmOrchestrator\nrun(intent)" as ORCH
+participant "LlmTransport\naskLlm()" as XPORT
+participant "LlmLogService" as LOG
+participant "ResponseEvaluator\n(completion)" as EVAL
+participant "UsecasePolicy\n(append)" as POLICY
+participant "Postprocessor\n(place)" as POST
+participant "ChatService" as SVC
+participant "Provider\n(proxy → /chat/completions SSE)" as NET
+
+== 1. Request builder: intent from (chat, node, usecase, template vars) ==
+User -> UI : Send (direction text)
+UI -> UI : resolveSendTarget() — model + provider for the node/chat
+UI -> BUILDER : build({ chat, node, usecase:'append',\nvars:{ sourceText, stream:true } })
+note over BUILDER
+  Fully generic: it only knows how to turn
+  a use-case descriptor + template variables
+  into request INTENTS. No UX, no placement.
+end note
+BUILDER --> UI : RequestIntent { usecase:'append', model,\nprovider, endpoint:'completion',\nmessages: contextPath + current node, stream:true }
+
+== 2. Orchestrator: one generic loop ==
+UI -> ORCH : run(intent, { onText: live chunks })
+ORCH -> XPORT : send(intent)
+XPORT -> LOG : record({ kind:'chat', body: full payload })
+XPORT -> NET : POST /chat/completions (stream: true)
+
+== 3. Transport streams + log attribution ==
+loop each SSE chunk
+  NET --> XPORT : chunk { content, thinking }
+  XPORT --> ORCH : onText(chunk) — raw, unpaced
+  ORCH --> POLICY : pipe chunk to target (chat-node bubble)\n(via onText callback)
+  note over XPORT, LOG
+    LlmLogService already completes the entry\nwith the response/error at the end of the call.
+  end note
+end
+NET --> XPORT : final response
+XPORT -> LOG : complete(entry, { response })
+
+== 4. Evaluator: pure, never throws, fills slots ==
+XPORT --> ORCH : { content, thinking }
+ORCH -> EVAL : evaluate({ raw: final, error: undefined, aborted:false })
+note over EVAL
+  Generic completion evaluator.
+  Fills ONE named slot:
+    text  = Slot<{ content, thinking }>(status:'ok')
+  On error/abort it would fill
+    text = Slot(status:'error'|'refused', reason)
+  — the same ORCH code path, no branching here.
+end note
+EVAL --> ORCH : EvalSlots { text }
+
+== 5. Policy: read slots → no continuation → place ==
+ORCH -> POLICY : nextIntents(slots)
+POLICY --> ORCH : []  (append is a terminal use case)
+ORCH -> POLICY : place(slots, intent)
+POLICY -> POST : place({ usecase:'append', slots:{ text } })
+
+== 6. Postprocessor: consistent chat handling ==
+POST -> SVC : persistQuestion(chat, node, text)  (user node saved)
+POST -> SVC : addNode(role:assistant, content:'') — placeholder bubble
+POST -> SVC : updateNodes(content …) — live streaming reveal
+POST -> SVC : editAssistant(final content + thinking)
+POST -> SVC : setActiveChild(question → answer)
+SVC --> POST : saved assistant node
+POST --> UI : activate(answer.id) → scroll into view
+note over POST, SVC
+  Postprocessor is the ONLY consumer-facing\nplace that writes chat state.
+end note
+
+@enduml
