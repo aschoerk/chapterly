@@ -101,10 +101,15 @@
 }
 
 .log-provider,
-.log-endpoint {
+.log-endpoint,
+.log-usecase {
   font-size: 0.78rem;
   color: var(--text-muted, #666);
   font-family: monospace;
+}
+
+.log-usecase {
+  color: var(--accent, #4f9dee);
 }
 
 .log-ts {

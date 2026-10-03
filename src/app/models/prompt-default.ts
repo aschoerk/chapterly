@@ -125,7 +125,9 @@ Rules:
     category: 'image',
     label: 'Image interpretation',
     description: 'Sent to the image-interpret model to describe attached images before the writing model sees the direction.',
-    default: `Describe every attached image in detail so a writing model that cannot see images can continue the story correctly. For each image state: what is shown, the setting, characters (appearance, expression, pose), objects, text or signs, mood, colors and composition, and any detail that matters for the next paragraph. Be factual, do not invent plot. If several images are attached, describe them one by one.`
+    default: `Describe every attached image in detail so a writing model that cannot see images can continue the story correctly. For each image state: what is shown, the setting, characters (appearance, expression, pose), objects, text or signs, mood, colors and composition, and any detail that matters for the next paragraph. Be factual, do not invent plot.
+Use at least 1000 tokens for description of characters if there are some in the image.
+If several images are attached, describe them one by one.`
   },
   {
     id: 'image.storyboard',
@@ -170,7 +172,7 @@ Rules for every picture:
     label: 'Picture-description planning',
     description: 'Turns the story into concrete still-image descriptions before rendering. `{{total}}` is filled in.',
     default: `You are a storyboard artist who converts narrative prose into STATIC still images.
-
+    
 Below is the story so far and the illustration request (the last text is the beat to depict; the earlier text is the established context).
 
 Produce EXACTLY {{total}} distinct still images in story order.
@@ -193,6 +195,39 @@ RULES:
 - No dialogue, no inner monologue, no speech bubbles.
 - Keep characters, setting and style consistent across all {{total}} images.
 - Never repeat an image.
+
+Return ONLY a JSON object with a single key "pictures": an array of exactly {{total}} plain strings:
+{"pictures": ["<description 1>", "<description 2>", ...]}
+No markdown fences, no text before or after the JSON.`
+  },
+  {
+    id: 'image.planning-scenes',
+    category: 'image',
+    label: 'Picture-description planning — scenes (per-scene render)',
+    description: 'Used by the per-scene storyboard path (planned-scenes). Like image.planning but scene-oriented: fewer static still photographs, more alive, action-bearing scenes. `{{total}}` is filled in.',
+    default: `You are a storyboard artist who breaks narrative prose into CONCRETE SCENES.
+
+Below is the story so far and the illustration request (the last text is the beat to depict; the earlier text is the established context).
+
+Produce EXACTLY {{total}} distinct scenes in story order.
+
+Each SCENE is ONE coherent, depictable moment — one clear action or gesture that moves the story forward. Prefer pictures that feel ALIVE (a character acting, a visible change, purpose-driven motion) rather than a frozen, static photograph. Every scene must still be drawable as a SINGLE picture.
+
+For EVERY scene write ONE self-contained prose description of that single moment, so a painter can draw it without reading the story:
+- the concrete ACTION in the frame (one verb/gesture, no montage)
+- shot size / camera angle (wide, medium, close-up, ...)
+- the EXACT pose and position of every character in the frame at that instant
+- costume and appearance
+- setting, lighting, time of day, weather
+- key objects and their exact placement
+- mood, dominant colors, composition
+- any visible text/sign, or explicitly "no text"
+
+RULES:
+- Each scene is a SINGLE decidable moment — describe one action or gesture with concrete, depictable language; do not compress a sequence of several moments into one frame.
+- No dialogue, no inner monologue, no speech bubbles.
+- Keep characters, setting and style consistent across all {{total}} scenes.
+- Never repeat a scene.
 
 Return ONLY a JSON object with a single key "pictures": an array of exactly {{total}} plain strings:
 {"pictures": ["<description 1>", "<description 2>", ...]}

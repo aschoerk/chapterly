@@ -1,12 +1,8 @@
 import {
-  ChatMessage,
-  ChatNode,
-  NodeAttachment,
   Persona,
   Project,
   Topic
 } from '../../models/chat';
-import { nodeToMessageContent } from './llm-message';
 
 export interface SeedNodeDraft {
   role: 'system' | 'user' | 'assistant';
@@ -79,80 +75,5 @@ export function buildSeedNodeDrafts(input: SeedEnvironmentInput): SeedNodeDraft[
   return drafts;
 }
 
-/** Root → nodeId following parentId links. Includes retired versions if they sit on the chain. */
-export function pathToNode(nodes: ChatNode[], nodeId: string | null | undefined): ChatNode[] {
-  if (!nodeId) return [];
-  const map = new Map(nodes.map(n => [n.id, n]));
-  const path: ChatNode[] = [];
-  let cur: ChatNode | undefined = map.get(nodeId);
-  const seen = new Set<string>();
-  while (cur && !seen.has(cur.id)) {
-    seen.add(cur.id);
-    path.unshift(cur);
-    cur = cur.parentId ? map.get(cur.parentId) : undefined;
-  }
-  return path;
-}
 
-export interface BuildLlmMessagesInput {
-  nodes: ChatNode[];
-  /** Last ancestor included in history (the question's parent, or an answer when branching from it). */
-  contextParentId: string | null;
-  question: Pick<ChatNode, 'content' | 'attachments' | 'role'>;
-  extra?: { content?: string; attachments?: NodeAttachment[] };
-}
 
-/**
- * Messages handed to the LLM for Send / Branch / Regenerate / Continue.
- * History is the parent chain up to `contextParentId`. Descendants below
- * that point — including a regenerated answer — are omitted. The question
- * is always appended as a user message (attachments via nodeToMessageContent).
- */
-export function buildLlmMessages(input: BuildLlmMessagesInput): ChatMessage[] {
-  const history = pathToNode(input.nodes, input.contextParentId)
-    .filter((n): n is ChatNode & { role: ChatMessage['role'] } => n.role !== 'structural')
-    .map(n => ({
-      role: n.role,
-      content: nodeToMessageContent(n)
-    }));
-
-  const question: Pick<ChatNode, 'content' | 'attachments'> = input.extra
-    ? {
-        content: input.extra.content ?? input.question.content,
-        attachments: input.extra.attachments ?? input.question.attachments
-      }
-    : input.question;
-
-  history.push({
-    role: 'user',
-    content: nodeToMessageContent(question)
-  });
-  return history;
-}
-
-/** Simulate regenerate: drop the answer and its descendants, then rebuild. */
-export function nodesAfterDeletingSubtree(nodes: ChatNode[], rootId: string): ChatNode[] {
-  const drop = new Set<string>();
-  const walk = (id: string) => {
-    drop.add(id);
-    for (const child of nodes.filter(n => n.parentId === id)) walk(child.id);
-  };
-  walk(rootId);
-  return nodes.filter(n => !drop.has(n.id));
-}
-
-/** Simulate edit+adopt: retire oldId, insert saved, reparent direct children. */
-export function nodesAfterEditAdopt(
-  nodes: ChatNode[],
-  oldId: string,
-  saved: ChatNode
-): ChatNode[] {
-  return nodes
-    .map(n => {
-      if (n.id === oldId && saved.id !== oldId) return { ...n, isCurrent: false };
-      if (n.parentId === oldId) return { ...n, parentId: saved.id };
-      return n;
-    })
-    .filter(n => n.id !== saved.id)
-    .concat(saved);
-}

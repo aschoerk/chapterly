@@ -102,6 +102,29 @@ describe('LlmLogService', () => {
     expect(line).toContain('chat="A \\"Great\\" Tale"');
   });
 
+  it('keeps the orchestration use case on the entry and includes it in the summary', async () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const entry = service.record({
+      kind: 'chat',
+      modelId: 'model/x',
+      provider: 'https://provider',
+      chatId: 'chat-1',
+      usecase: 'structure-title',
+      messages: [{ role: 'user', content: 'hi' }],
+    });
+
+    await service.flush();
+
+    const stored = service.entries().find(e => e.seq === entry.seq) ?? entry;
+    expect(stored.usecase).toBe('structure-title');
+    // The one-line output carries the use case too.
+    expect(entry.summary).toContain('usecase=structure-title');
+    expect(entry.summary).toContain('[llm:chat]');
+    const logged = String(logSpy.mock.calls.find(c => String(c[0]).includes('[llm:chat]'))?.[0]);
+    expect(logged).toContain('usecase=structure-title');
+    logSpy.mockRestore();
+  });
+
   it('keeps a fixed FIFO buffer of at most 1000 entries (oldest dropped)', async () => {
     const total = LLM_LOG_LIMIT + 25;
     for (let i = 0; i < total; i++) {

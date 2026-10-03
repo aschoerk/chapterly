@@ -38,6 +38,9 @@ export interface LlmLogInput {
   chatId?: string;
   /** Title of the chat this call was made for (for the log output). */
   chatTitle?: string;
+  /** The orchestration use case this call belongs to (e.g. render-node,
+   *  structure-title, append, …). Absent for legacy (non-orchestration) calls. */
+  usecase?: string;
   endpoint?: string;
   /** Full message array for chat-completions requests. */
   messages?: LlmLogMessage[];
@@ -140,6 +143,13 @@ function chatTitleLabel(title: string | undefined): string {
   return ` chat="${t.replace(/"/g, '\\"')}"`;
 }
 
+/** ` usecase=<…>` label for the one-line summary (empty -> ''). */
+function usecaseLabel(usecase: string | undefined): string {
+  if (!usecase || !usecase.trim()) return '';
+  const u = usecase.replace(/\s+/g, ' ').trim();
+  return ` usecase=${u.replace(/"/g, '\\"')}`;
+}
+
 /**
  * UTF-8 byte size of the JSON-serialized value. Used to approximate the size
  * a log entry occupies (request + response). Never throws — a value that
@@ -176,7 +186,7 @@ export function entryContentSize(entry: Pick<
  * the call was made in the context of a chat, its title is included too.
  */
 export function summarizeLlmRequest(input: LlmLogInput): string {
-  const head = `[llm:${input.kind}] model=${input.modelId} provider=${input.provider}${chatTitleLabel(input.chatTitle)}`;
+  const head = `[llm:${input.kind}] model=${input.modelId} provider=${input.provider}${usecaseLabel(input.usecase)}${chatTitleLabel(input.chatTitle)}`;
   if (input.kind === 'image') {
     const text = input.prompt ?? '';
     return `${head} messages=1 first={text → "${contentPreview(text)}"} last={text → "${contentPreview(text)}"}`;

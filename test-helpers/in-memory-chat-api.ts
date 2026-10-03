@@ -239,25 +239,30 @@ class InMemoryChatApi implements Pick<
     chatId: string, nodeId: string, content: string,
     attachments?: NodeAttachment[], thinking?: string
   ) {
-    const parentId = this.must(this.nodes, nodeId, 'Node').parentId;
+    const old = this.must(this.nodes, nodeId, 'Node');
     return this.createNode(chatId, {
-      parentId,
+      parentId: old.parentId,
       role: 'assistant',
       content,
       thinking,
-      attachments
+      attachments,
+      // Mirror the real servers: a versioned answer keeps its model binding.
+      modelId: old.modelId ?? undefined,
+      providerId: old.providerId ?? undefined
     });
   }
   async editUser(
     chatId: string, nodeId: string, content: string,
     attachments?: NodeAttachment[]
   ) {
-    const parentId = this.must(this.nodes, nodeId, 'Node').parentId;
+    const old = this.must(this.nodes, nodeId, 'Node');
     return this.createNode(chatId, {
-      parentId,
+      parentId: old.parentId,
       role: 'user',
       content,
-      attachments
+      attachments,
+      modelId: old.modelId ?? undefined,
+      providerId: old.providerId ?? undefined
     });
   }
   async branchUser(chatId: string, nodeId: string, data: {

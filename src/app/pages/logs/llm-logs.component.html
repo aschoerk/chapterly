@@ -51,6 +51,9 @@
           }
           <span class="log-model" [title]="entry.modelId">{{ entry.modelId }}</span>
           <span class="log-provider" [title]="entry.provider">{{ entry.provider }}</span>
+          @if (entry.usecase) {
+            <span class="log-usecase" [title]="entry.usecase">{{ entry.usecase }}</span>
+          }
           @if (entry.endpoint) {
             <span class="log-endpoint">{{ entry.endpoint }}</span>
           }

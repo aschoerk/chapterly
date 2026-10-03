@@ -9,8 +9,58 @@ import { ProjectService } from '../../project.service';
 import { PromptDefaultsService } from '../../prompt-defaults.service';
 import { SettingsService } from '../../settings.service';
 import { canInterpretImages, canGenerateImages } from '../../../models/chat-config';
-import { messageText, nodeToMessageContent, isImageMime, resolvedMime } from '../llm-message';
+import { messageText, nodeToMessageContent, isImageMime, resolvedMime, decodeDataUrlToText } from '../llm-message';
 import type { UsecaseContext, UsecaseVars } from './types';
+
+/**
+ * Name of the stored image-description record attachment. When a user node
+ * carries this record (and its image signature matches the node's current
+ * data: image attachments), the image descriptions are ALREADY part of the
+ * node's text — interpretation must NOT run again.
+ */
+export const IMAGE_DESCRIPTION_RECORD = 'image-description.txt';
+const IMAGE_DESCRIPTION_RECORD_RE = /^image-description\.txt$/i;
+
+/** True when an attachment is the stored image-description record. */
+export function isImageDescriptionRecord(a: Pick<NodeAttachmentLike, 'name'>): boolean {
+  return IMAGE_DESCRIPTION_RECORD_RE.test(a?.name ?? '');
+}
+
+/** Stable signature of an image set (used to detect already-interpreted). */
+function imageSetSignature(images: NodeAttachmentLike[]): string[] {
+  return [...images]
+    .map(img => {
+      const data = img?.dataUrl ?? '';
+      const comma = data.indexOf(',');
+      const payload = comma >= 0 ? data.slice(comma + 1) : data;
+      // Small, stable fingerprint per image: mime | length | tail-24.
+      return `${img?.mimeType ?? 'image'}|${payload.length}|${payload.slice(-24)}`;
+    })
+    .sort();
+}
+
+/** The stored image-description record (parsed), or null. */
+export interface StoredImageDescription {
+  images: string[];
+  description: string;
+}
+
+function parseStoredImageDescription(attachments: NodeAttachmentLike[] | undefined | null): StoredImageDescription | null {
+  const rec = (attachments ?? []).find(isImageDescriptionRecord);
+  if (!rec) return null;
+  try {
+    const text = decodeDataUrlToText(rec.dataUrl);
+    if (!text) return null;
+    const parsed = JSON.parse(text);
+    if (!parsed || typeof parsed !== 'object') return null;
+    return {
+      images: Array.isArray(parsed.images) ? parsed.images.map(String) : [],
+      description: typeof parsed.description === 'string' ? parsed.description : ''
+    };
+  } catch {
+    return null;
+  }
+}
 
 /**
  * One resolved model + provider pair (rendering or planning role).
@@ -60,10 +110,41 @@ export class UsecaseContextFactory {
   }
 
   /**
-   * Resolve the WRITING model for a plain text send (`append`): the current
-   * node's own model when resolvable, else the first enabled model.
+   * Resolve the RENDERING (image) model: prefers an explicit dialog choice
+   * (`modelId`/`providerId`, e.g. from the Illustrate dialog), falling back
+   * to the configured image-create task / first enabled image-capable model.
    */
-  resolveWriteModel(node: ChatNode | null): ModelRef | null {
+  resolveImageModel(modelId?: string | null, providerId?: string | null): ModelRef | null {
+    if (modelId) {
+      const m = this.settings.enabledModels().find(
+        mm => mm.modelId === modelId || mm.id === modelId
+      );
+      if (m) {
+        const p = providerId
+          ? this.settings.providers().find(pp => pp.id === providerId)
+          : this.providerFor(m);
+        if (p) return { model: m, provider: p };
+      }
+    }
+    return this.resolveRenderModel();
+  }
+
+  /**
+   * Resolve the WRITING model for a plain text send (`append`, structural
+   * flows): an explicit override (e.g. a model chosen in a dialog) wins;
+   * otherwise the current node's own model when resolvable, else the first
+   * enabled model.
+   */
+  resolveWriteModel(node: ChatNode | null, modelId?: string | null, providerId?: string | null): ModelRef | null {
+    if (modelId) {
+      const explicit = this.settings.enabledModels().find(m => m.modelId === modelId || m.id === modelId);
+      if (explicit) {
+        const provider = providerId
+          ? this.settings.providers().find(p => p.id === providerId)
+          : this.providerFor(explicit);
+        if (provider) return { model: explicit, provider };
+      }
+    }
     const nodeModelId = node?.modelId;
     let model = nodeModelId
       ? this.settings.enabledModels().find(m => m.modelId === nodeModelId || m.id === nodeModelId)
@@ -192,6 +273,72 @@ export class UsecaseContextFactory {
     return [{ role: 'user', content }];
   }
 
+  /**
+   * THE image-interpretation rule: images are interpreted ONLY when their
+   * descriptions have NOT been stored in the node yet. A node "has stored
+   * them" when it carries an `image-description.txt` record whose image
+   * signature matches its current data: attachments AND its content already
+   * ends with the stored description (the description was merged into the
+   * text on a previous send). This prevents re-interpreting + re-merging on
+   * every re-send (regenerate / rewrite / branch of an already-interpreted
+   * direction).
+   *
+   * @param node the user node being sent
+   * @param draftImages the attachments of the current draft (when editing),
+   *   else the node's own attachments.
+   */
+  needsImageInterpretation(
+    node: Pick<ChatNode, 'content' | 'attachments'>,
+    draftImages?: NodeAttachmentLike[] | null
+  ): boolean {
+    const images = this.imageAttachments(draftImages ?? node.attachments);
+    if (images.length === 0) return false;
+    const stored = parseStoredImageDescription(node.attachments);
+    if (!stored || !stored.description.trim()) return true;
+    const sig = imageSetSignature(images);
+    if (JSON.stringify(sig) !== JSON.stringify([...(stored.images ?? [])].sort())) return true;
+    // The description must actually be part of the stored text.
+    const content = (node.content ?? '').trim();
+    return !content.includes(stored.description.trim());
+  }
+
+  /**
+   * Build the stored image-description record attachment. It is a text
+   * record (like prompt-N.txt) that is EXCLUDED from LLM context, so it never
+   * travels to a model — it only marks "these images were interpreted and
+   * their description is part of this node's text".
+   */
+  buildImageDescriptionRecord(
+    images: NodeAttachmentLike[],
+    description: string
+  ): NodeAttachmentLike {
+    const rec: StoredImageDescription = { images: imageSetSignature(images), description };
+    return {
+      id: newIdOrEmpty(),
+      name: IMAGE_DESCRIPTION_RECORD,
+      mimeType: 'text/plain',
+      size: rec.description.length + rec.images.length * 32,
+      dataUrl: `data:text/plain;charset=utf-8,${encodeURIComponent(JSON.stringify(rec))}`
+    };
+  }
+
+  /**
+   * Merge a fresh image description into the direction text (no UI prefix) —
+   * the exact text that is sent to the writing model and persisted on the
+   * node so it lives in the history.
+   */
+  mergeDirectionWithDescription(directionText: string, description: string): string {
+    const dir = (directionText ?? '').trim();
+    const desc = (description ?? '').trim();
+    if (!desc) return dir;
+    return dir ? `${dir}\n\n${desc}` : desc;
+  }
+
+  /** Drop a stored image-description record from an attachment list. */
+  withoutImageDescriptionRecord(attachments: NodeAttachmentLike[] | undefined | null): NodeAttachmentLike[] {
+    return (attachments ?? []).filter(a => !isImageDescriptionRecord(a));
+  }
+
   private async resolveForChat(model: ModelEntry, chat: Chat | null): Promise<ResolvedChatParameters> {
     const project = chat?.projectId ? this.projectService.getProject(chat.projectId) ?? null : null;
     const topic = this.projectService.topicForProject(project?.id, this.projectService.topics()) ?? null;
@@ -242,6 +389,25 @@ export class UsecaseContextFactory {
       : base;
   }
 
+  /**
+   * Instruction for a structure-generation task (`structure.title` /
+   * `structure.overview` / `structure.headings`): the per-task prompt override
+   * when configured, else the editable prompt default.
+   */
+  structureInstruction(task: 'title' | 'overview' | 'headings'): string {
+    const prompt = this.generation.get(task).prompt.trim();
+    if (prompt) return prompt;
+    if (task === 'title') return this.promptDefaults.effective('structure.title');
+    if (task === 'overview') return this.promptDefaults.effective('structure.overview');
+    return this.promptDefaults.effective('structure.headings');
+  }
+
+  /** The language-check instruction (config override or built-in default). */
+  englishCheckInstruction(): string {
+    const prompt = this.generation.get('language-check').prompt.trim();
+    return prompt || this.promptDefaults.effective('language.check');
+  }
+
   /** Topic system prompt for a chat (reuses legacy helper conceptually). */
   topicSystemPrompt(chat: Chat | null): string | null {
     const projectId = chat?.projectId;
@@ -276,27 +442,19 @@ export class UsecaseContextFactory {
     });
   }
 
-  /**
-   * Prior illustrations along the path (used as visual reference when the
-   * render model can read images). Keeps only data:/https image URLs.
-   */
-  priorIllustrations(chatId: string, contextParentId: string | null): NodeAttachmentLike[] {
-    if (!contextParentId) return [];
-    const path = this.chatService.getPathToNode(contextParentId);
-    const out: NodeAttachmentLike[] = [];
-    for (const n of path) {
-      if (n.chatId !== chatId || n.role !== 'assistant') continue;
-      for (const a of n.attachments ?? []) {
-        const url = a.dataUrl || '';
-        if (isImageMime(resolvedMime(a)) && /^(data:|https?:\/\/)/i.test(url)) out.push(a);
-      }
-    }
-    return out.slice(-4);
-  }
-
   /** The planner instruction (from the image.planning template). */
   picturePlanningInstruction(total: number, extra?: string): string {
     const base = this.promptDefaults.render('image.planning', { total });
+    return extra?.trim() ? `${base}\n\nRules that apply to every picture:\n${extra.trim()}` : base;
+  }
+
+  /**
+   * The SCENE-oriented planner instruction (from the image.planning-scenes
+   * template). Used by the per-scene render path (`planned-scenes`): it
+   * derives fewer static stills and more alive, action-bearing scenes.
+   */
+  pictureScenePlanningInstruction(total: number, extra?: string): string {
+    const base = this.promptDefaults.render('image.planning-scenes', { total });
     return extra?.trim() ? `${base}\n\nRules that apply to every picture:\n${extra.trim()}` : base;
   }
 
@@ -410,5 +568,10 @@ export type NodeAttachmentLike = {
   size: number;
   dataUrl: string;
 };
+
+/** Short local id for synthesized attachments (record files). */
+function newIdOrEmpty(): string {
+  return `att-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
 
 export type { ChatNode }; // re-export for convenience

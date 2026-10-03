@@ -1,0 +1,50 @@
+@startuml usecase-09-send-insert
+!theme plain
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+skinparam maxMessageSize 200
+skinparam wrapWidth 170
+title Use case 9 — send-insert\n"new sibling question + answer that ADOPTS the old siblings"
+
+actor User
+participant "ChatNodeComponent\nsaveAsInsertAndSend()" as UI
+participant "LlmFlowRunner\n(env)" as RUN
+participant "sendInsert\n(controller)" as UC
+participant "prepareTextSend\n(shared rule)" as PREP
+participant "streamAnswerNode\n(shared)" as STRM
+participant "LlmOrchestratorService" as ORCH
+participant "LlmTransportService" as XPORT
+participant "LlmLogService" as LOG
+participant "ChatService" as SVC
+participant "Provider\n(proxy SSE)" as NET
+
+== 1. Button → flow runner ==
+User -> UI : Insert (draft text)
+UI -> RUN : runFlow('send-insert', { content, attachments })
+
+== 2. Create sibling + collect adopt siblings ==
+UC -> SVC : branchQuestion(chat, node.id, content, …)\n(parentId = node.parentId)
+UC -> SVC : adoptNodeIds = all siblings of node under parentId\n(excluding the newQuestion)
+SVC --> UC : newQuestion + adoptNodeIds
+
+== 3. Prepare (interpret-if-needed) ==
+UC -> PREP : prepareTextSend(env, chat, newQuestion, { content, attachments })
+PREP --> UC : messages (+ merged/record persisted)
+
+== 4. Stream answer that adopts the old siblings ==
+UC -> STRM : streamAnswerNode(env, chat, newQuestion.id, messages,\n{ adoptNodeIds })
+STRM -> SVC : addNode(assistant placeholder) + startGeneration
+STRM -> ORCH : completion(stream) — SSE, live paint
+ORCH -> XPORT : complete()
+XPORT -> LOG : record/complete
+XPORT -> NET : POST SSE
+XPORT --> ORCH : final
+ORCH --> STRM : answerNodeId (versioned) + slots
+STRM --> UC : answerNodeId (versioned) + slots
+STRM -> SVC : reparent(adoptNodeIds → answerNodeId)\nsetActiveChild(question → answer)
+
+== 5. Active chain ==
+UC -> SVC : setActiveChild(parent, newQuestion)\nsetActiveChild(newQuestion, answer)\nsetActiveChild(answer, firstAdopt)
+UC -> UI : flow slot { branchNodeId, answerNodeId, activateId }\nactivate(newQuestion)
+
+@enduml

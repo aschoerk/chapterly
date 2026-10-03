@@ -1,10 +1,10 @@
 import { Injectable, inject } from '@angular/core';
 import type { ChatMessage } from '../../../models/chat';
-import { canInterpretImages } from '../../../models/chat-config';
 import type { EvalSlots, ImageScene, LlmImagePart, UsecaseContext, UsecaseKind, UsecaseVars } from './types';
 import { UsecaseContextFactory, type BuildContext, type ModelRef } from './context';
 import { LlmOrchestratorService, type PrimitiveOptions } from './orchestrator';
 import { makeSlot, okSlot } from './slots';
+import { isFlowUsecase, LlmFlowRunner, prepareTextSend } from './flows';
 
 /**
  * Runtime environment handed to every use-case controller: the static
@@ -39,34 +39,14 @@ export interface UsecaseEnv {
 /** Shared primitives a controller is allowed to call. */
 export type UsecaseController = (env: UsecaseEnv) => Promise<EvalSlots>;
 
-/** Attach reference images to the final user message when the model can read them. */
-function withReferenceImages(context: ChatMessage[], model: ModelRef['model']): ChatMessage[] {
-  if (!canInterpretImages(model) || context.length === 0) return context;
-  const last = context[context.length - 1];
-  if (!Array.isArray(last.content)) return context;
-  const refs = (last.content as Array<{ type?: string; image_url?: { url?: string } }>)
-    .filter(p => p?.type === 'image_url' && p.image_url?.url)
-    .map(p => ({ type: 'image_url' as const, image_url: { url: p.image_url!.url as string } }));
-  if (refs.length === 0) return context;
-  return [...context.slice(0, -1), { ...last }];
-}
-
-/** Build a completion message list for an image render: prompt (+ refs). */
+/**
+ * Build the single user message for an image render call: JUST the prompt
+ * text. NO attachments are ever sent to the image model — prior illustrations
+ * / hand-attached images are deliberately NOT forwarded as reference `image_url`
+ * parts (binaries must never reach the image generation model).
+ */
 function renderMessages(env: UsecaseEnv, prompt: string): ChatMessage[] {
-  const refs: Array<{ type: 'image_url'; image_url: { url: string } }> = [];
-  if (canInterpretImages(env.render.model)) {
-    const prior = env.factory.priorIllustrations(env.cx.chat.id, env.cx.node.parentId);
-    for (const img of prior) {
-      refs.push({ type: 'image_url', image_url: { url: img.dataUrl } });
-    }
-  }
-  if (refs.length === 0) {
-    return [{ role: 'user', content: prompt }];
-  }
-  return [{
-    role: 'user',
-    content: [{ type: 'text', text: prompt }, ...refs]
-  }];
+  return [{ role: 'user', content: prompt }];
 }
 
 /** Wrap a single/en-block image result as a one-scene storyboard slot. */
@@ -100,15 +80,19 @@ function wrapImagesAsStoryboard(
 }
 
 // ---------------------------------------------------------------------------
-// 1. storyboard-direct — the chat AS-IS, one render request
+// 1. storyboard-direct — the chat AS-IS (TEXT only), one render request
 // ---------------------------------------------------------------------------
 async function storyboardDirect(env: UsecaseEnv): Promise<EvalSlots> {
   const count = env.cx.vars.count ?? 1;
-  // One-shot storyboard prompt heads the call; the FULL chat is sent as-is.
+  // One-shot storyboard prompt heads the call; the chat's TEXT is sent as
+  // context. The image model only ever receives the prompt + story text — NO
+  // attachments: prior illustrations / hand-attached images are never
+  // forwarded as reference here (the image model must not see binaries).
   const prompt = env.factory.oneShotStoryboardPrompt(
     env.anchor, [], count, env.cx.vars.storyboardPrompt
   );
-  const messages = [...env.contextMessages, ...renderMessages(env, prompt)];
+  const contextText = env.factory.textOnlyMessages(env.contextMessages);
+  const messages = [...contextText, ...renderMessages(env, prompt)];
   const slots = await env.orch.completeImage(env.cx, {
     model: env.render.model,
     provider: env.render.provider,
@@ -198,12 +182,15 @@ async function plannedScenes(env: UsecaseEnv): Promise<EvalSlots> {
 }
 
 // ---------------------------------------------------------------------------
-// 4. render-full — no storyboard, current node + FULL chat context
+// 4. render-full — no storyboard, current node + FULL chat context (text only)
 // ---------------------------------------------------------------------------
 async function renderFull(env: UsecaseEnv): Promise<EvalSlots> {
   // contextMessages = full chat up to (not including) the current node;
-  // the anchor (current node text) is appended as the scene to render.
-  const messages = [...env.contextMessages, ...renderMessages(env, env.anchor)];
+  // the anchor (current node text) is appended as the scene to render. The
+  // image model only ever receives TEXT: the context is stripped to text and
+  // no reference/attachment images are forwarded.
+  const contextText = env.factory.textOnlyMessages(env.contextMessages);
+  const messages = [...contextText, ...renderMessages(env, env.anchor)];
   const slots = await env.orch.completeImage(env.cx, {
     model: env.render.model,
     provider: env.render.provider,
@@ -214,9 +201,25 @@ async function renderFull(env: UsecaseEnv): Promise<EvalSlots> {
 }
 
 // ---------------------------------------------------------------------------
-// 5. render-node — no storyboard, CURRENT NODE ONLY
+// 5. render-node — no storyboard, CURRENT NODE ONLY (text only)
 // ---------------------------------------------------------------------------
 async function renderNode(env: UsecaseEnv): Promise<EvalSlots> {
+  const slots = await env.orch.completeImage(env.cx, {
+    model: env.render.model,
+    provider: env.render.provider,
+    messages: renderMessages(env, env.anchor),
+    extras: env.imageExtras
+  }, { expect: 'images', prompt: env.anchor, signal: env.signal });
+  return wrapImagesAsStoryboard(slots, env.anchor, 1);
+}
+
+// ---------------------------------------------------------------------------
+// 6. image-generation — ONE explicit picture from `vars.promptText` (no
+// storyboard). Used by the "adapt prompt & re-render" flow: the adapted
+// prompt IS the concrete scene, so there is no planning pass. The image
+// model receives ONLY the prompt text — no reference/attachment images.
+// ---------------------------------------------------------------------------
+async function imageGeneration(env: UsecaseEnv): Promise<EvalSlots> {
   const slots = await env.orch.completeImage(env.cx, {
     model: env.render.model,
     provider: env.render.provider,
@@ -232,7 +235,12 @@ async function renderNode(env: UsecaseEnv): Promise<EvalSlots> {
 async function runPlanning(env: UsecaseEnv): Promise<EvalSlots> {
   const count = env.cx.vars.count ?? 1;
   const textOnly = env.factory.textOnlyMessages(env.contextMessages);
-  const planPrompt = env.factory.picturePlanningInstruction(count, env.cx.vars.storyboardPrompt);
+  // planned-scenes renders each derived description as its OWN picture, so it
+  // uses the SCENE-oriented template (fewer static stills, more alive scenes);
+  // planned-enblock (all pictures in one response) keeps the static stills.
+  const planPrompt = env.cx.usecase === 'planned-scenes'
+    ? env.factory.pictureScenePlanningInstruction(count, env.cx.vars.storyboardPrompt)
+    : env.factory.picturePlanningInstruction(count, env.cx.vars.storyboardPrompt);
   return env.orch.completion(env.cx, {
     model: env.plan.model,
     provider: env.plan.provider,
@@ -266,64 +274,37 @@ async function append(env: UsecaseEnv): Promise<EvalSlots> {
 // attachments. The images are FIRST described by the image-interpret model;
 // the description is then merged into the direction text of the final user
 // message (so the writing model sees the images' content, never the binary
-// payload). Falls back to a plain append when no image-interpret model is
-// available or the interpretation yields nothing.
+// payload). Interpretation runs ONLY when the descriptions are NOT already
+// stored in the node's text (see `prepareTextSend` + the image-description
+// record). Falls back to a plain append otherwise.
 // ---------------------------------------------------------------------------
 async function appendWithImages(env: UsecaseEnv): Promise<EvalSlots> {
   const write = env.write;
   if (!write) {
     return { error: makeSlot('error', 'http', 'No writing model is enabled.', {}) };
   }
-  const interpret = env.factory.resolveInterpretModel();
-  const images = env.factory.imageAttachments(
-    env.cx.vars.attachments ?? env.cx.node.attachments
-  );
 
-  // No way to describe the images → plain append (drop the binaries).
-  if (!interpret || images.length === 0) {
-    return append(env);
-  }
-
-  // 1. Describe the images with the image-interpret model (text reply).
-  const interpretSlots = await env.orch.completion(env.cx, {
-    model: interpret.model,
-    provider: interpret.provider,
-    messages: env.factory.buildInterpretMessage(images),
-    extras: await env.factory.resolveTextExtras(interpret.model, env.cx.chat),
-    stream: false
-  }, { expect: 'text', signal: env.signal });
-  const description = interpretSlots.text?.value?.trim() ?? '';
-  if (!description) {
-    // Interpretation failed → plain append.
-    return append(env);
-  }
-
-  // 2. Merge the description into the direction text (a single final user
-  //    message). No UI prefix — the description text itself is appended.
-  const directionText = (env.cx.vars.content ?? env.cx.node.content ?? '').trim();
-  const merged = directionText
-    ? `${directionText}\n\n${description}`
-    : description;
-
-  const messages = env.factory.buildSendMessagesEx({
-    chatId: env.cx.chat.id,
-    nodeId: env.cx.node.id,
-    contentOverride: merged
+  const prep = await prepareTextSend(env, env.cx.chat.id, env.cx.node, {
+    content: env.cx.vars.content,
+    attachments: env.cx.vars.attachments
   });
 
-  // 3. Stream the answer exactly like append.
   const slots = await env.orch.completion(env.cx, {
     model: write.model,
     provider: write.provider,
-    messages,
+    messages: prep.messages,
     extras: env.textExtras,
     stream: true
   }, { expect: 'text', onChunk: env.onChunk, signal: env.signal });
 
-  // 4. Expose the MERGED user-node content so the caller can persist it for
-  //    real — the description then lives in the story history (and the
-  //    images themselves are never re-sent; history is text-only).
-  return { ...slots, direction: okSlot(merged, {}) };
+  const out: EvalSlots = { ...slots };
+  if (prep.mergedContent && prep.record) {
+    // Expose the MERGED content (persist for real) + the record (marks the
+    // description as stored, so it is never interpreted again).
+    out.direction = okSlot(prep.mergedContent, {});
+    out.interpretation = okSlot({ content: prep.mergedContent, record: prep.record }, {});
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -338,18 +319,21 @@ export function pickUsecase(vars: UsecaseVars): UsecaseKind {
   return 'render-node';
 }
 
-const CONTROLLERS: Record<UsecaseKind, UsecaseController> = {
+const CONTROLLERS: Partial<Record<UsecaseKind, UsecaseController>> = {
   'storyboard-direct': storyboardDirect,
   'planned-enblock': plannedEnblock,
   'planned-scenes': plannedScenes,
   'render-full': renderFull,
   'render-node': renderNode,
+  'image-generation': imageGeneration,
   'append': append,
   'append-with-images': appendWithImages
 };
 
 export function controllerFor(usecase: UsecaseKind): UsecaseController {
-  return CONTROLLERS[usecase];
+  const c = CONTROLLERS[usecase];
+  if (!c) throw new Error(`No controller for ${usecase}`);
+  return c;
 }
 
 /** Top-level entry: builds the env and runs the selected use case. */
@@ -357,10 +341,18 @@ export function controllerFor(usecase: UsecaseKind): UsecaseController {
 export class LlmUseCaseRunner {
   private readonly factory = inject(UsecaseContextFactory);
   private readonly orch = inject(LlmOrchestratorService);
+  private readonly flowRunner = inject(LlmFlowRunner);
 
   async run(build: BuildContext, opts: { signal?: AbortSignal; onChunk?: PrimitiveOptions['onChunk'] } = {}): Promise<EvalSlots> {
     const usecase = build.usecase;
     const cx = this.factory.buildContext(build);
+
+    // Structural flows (branch/insert/regenerate/rewrite/prepend): delegate
+    // to the flow runner, which handles its own env (write model + ChatService
+    // for the chat mutation around the text send).
+    if (isFlowUsecase(usecase)) {
+      return this.flowRunner.run(build, opts);
+    }
 
     // append / append-with-images: a text send — no image model needed.
     if (usecase === 'append' || usecase === 'append-with-images') {
@@ -395,19 +387,23 @@ export class LlmUseCaseRunner {
       return controllerFor(usecase)(env);
     }
 
-    const render = this.factory.resolveRenderModel();
+    const render = this.factory.resolveImageModel(build.vars.modelId, build.vars.providerId);
     if (!render || !this.factory.providerFor(render.model)) {
       return { error: makeSlot('error', 'http', 'No image model is enabled.', {}) };
     }
     const plan = this.factory.resolvePlanModel(render, cx.node);
     const instruction = this.factory.styledDrawingInstruction(build.vars.style);
     // Full chat CONTEXT up to (not including) the current node; the anchor is
-    // the current node's text, appended by the use-case render step.
+    // the scene text, appended by the use-case render step. The scene text is
+    // `vars.promptText` when given (explicit picture prompt — the
+    // `image-generation` "adapt prompt & re-render" flow), else `vars.content`
+    // (illustrate-from-draft / storyboard override), else the node's content.
     const cParentId = cx.node.parentId;
     const contextMessages = cParentId
       ? this.factory.buildContextMessagesUpTo(cx.chat.id, cParentId)
       : [];
-    const nodeText = (cx.node.content ?? '').trim() || '(no text)';
+    const sceneText = build.vars.promptText ?? build.vars.content ?? cx.node.content ?? '';
+    const nodeText = sceneText.trim() || '(no text)';
     const anchor = `${instruction}\n\n${nodeText}`;
     const imageExtras = await this.factory.resolveExtras(render.model, cx.chat);
 

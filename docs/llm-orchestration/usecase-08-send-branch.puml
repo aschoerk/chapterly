@@ -1,0 +1,56 @@
+@startuml usecase-08-send-branch
+!theme plain
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+skinparam maxMessageSize 200
+skinparam wrapWidth 170
+title Use case 8 — send-branch\n"new sibling question + stream the answer under it"
+
+actor User
+participant "ChatNodeComponent\nsaveAsBranchAndSend()" as UI
+participant "LlmFlowRunner\n(env)" as RUN
+participant "sendBranch\n(controller)" as UC
+participant "prepareTextSend\n(shared rule)" as PREP
+participant "streamAnswerNode\n(shared)" as STRM
+participant "LlmOrchestratorService" as ORCH
+participant "LlmTransportService" as XPORT
+participant "Evaluators" as EVAL
+participant "ChatService" as SVC
+participant "Provider\n(proxy SSE)" as NET
+
+== 1. Button → flow runner ==
+User -> UI : Branch (draft text)
+UI -> RUN : runFlow('send-branch', { content, attachments })\nisLoading=true
+RUN -> RUN : resolveWriteModel(node) + textExtras
+RUN --> UC : sendBranch(env)
+
+== 2. Create the new sibling/child question ==
+UC -> SVC : branchQuestion(chat, node.id, content, model,\nprovider, carriedAttachments)\n(or addNode child when node.role === 'assistant')
+UC -> SVC : setActiveChild(newQuestion.parentId, newQuestion.id)
+SVC --> UC : newQuestion
+
+== 3. Prepare (interpret-if-needed) ==
+UC -> PREP : prepareTextSend(env, chat, newQuestion, { content, attachments })
+PREP -[#green]-> UC : messages (+ mergedContent/record when freshly\ninterpreted — persisted on newQuestion by\npersistInterpretation)
+
+== 4. Stream into a NEW answer under the question ==
+UC -> STRM : streamAnswerNode(env, chat, newQuestion.id, messages)
+STRM -> SVC : addNode(assistant placeholder) + startGeneration
+STRM -> ORCH : completion({write}, expect:'text', stream:true, onChunk)
+ORCH -> XPORT : complete()
+XPORT -> NET : POST SSE
+loop chunks
+  NET --> ORCH : chunk
+  ORCH -> EVAL : foldStreamChunk → text partial
+  ORCH --> STRM : onChunk → SVC.updateNodes (live paint)
+end
+XPORT --> ORCH : final
+ORCH -> EVAL : finalizeStream → text ok
+ORCH --> STRM : answerNodeId + slots
+STRM --> UC : answerNodeId + slots
+
+== 5. Result ==
+UC -> UI : flow slot { questionNodeId: newQuestion, answerNodeId, activateId }\nactivate(newQuestion)
+UI -> UI : isLoading=false
+
+@enduml

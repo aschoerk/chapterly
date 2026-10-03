@@ -4,7 +4,7 @@ import { provideZonelessChangeDetection } from '@angular/core';
 import { provideHttpClient } from '@angular/common/http';
 import { CHAT_API } from '../../../api/chat-api.token';
 import { InMemoryChatApi } from '../../../../../test-helpers/in-memory-chat-api';
-import { seedApi, makeNode, makeModel, makeProvider } from '../../../../../test-helpers/factories';
+import { seedApi, makeNode, makeModel, makeProvider, makeAttachment } from '../../../../../test-helpers/factories';
 import { SettingsService } from '../../settings.service';
 import { GenerationSettingsService } from '../../generation-settings.service';
 import { ChatService } from '../../chat.service';
@@ -71,6 +71,58 @@ describe('LLM orchestration — evaluators (pure, never throw)', () => {
     expect(slots.descriptions?.status).toBe('ok');
     expect(slots.descriptions?.value).toHaveLength(2);
     expect(slots.descriptions?.value?.[0].text).toContain('castle');
+  });
+
+  it('splits a DOUBLE-ENCODED JSON list from the planning model', () => {
+    // Some models escape the array into a STRING value instead of a real array:
+    // {"pictures": "[\"desc 1\",\"desc 2\"]"}
+    const inner = JSON.stringify(['A castle at dawn.', 'A rider in the mist.']);
+    const slots = evaluateDescriptions({
+      raw: { choices: [{ message: { content: JSON.stringify({ pictures: inner }) } }] }
+    });
+    expect(slots.descriptions?.status).toBe('ok');
+    expect(slots.descriptions?.value).toHaveLength(2);
+    expect(slots.descriptions?.value?.[0].text).toContain('castle');
+    expect(slots.descriptions?.value?.[1].text).toContain('rider');
+  });
+
+  it('splits a bare JSON array when the model drops the wrapper object', () => {
+    const slots = evaluateDescriptions({
+      raw: { choices: [{ message: { content: JSON.stringify(['A bridge.', 'A lantern.']) } }] }
+    });
+    expect(slots.descriptions?.status).toBe('ok');
+    expect(slots.descriptions?.value).toHaveLength(2);
+    expect(slots.descriptions?.value?.[0].text).toContain('bridge');
+  });
+
+  it('splits a JSON object embedded in surrounding prose and keeps brackets inside descriptions intact', () => {
+    const json = JSON.stringify({
+      pictures: ['A sign reading "[EXIT]" above the door.', 'A lantern at dusk.']
+    });
+    const content = `Sure, here are the frozen frames:\n${json}\nEnjoy!`;
+    const slots = evaluateDescriptions({
+      raw: { choices: [{ message: { content } }] }
+    });
+    expect(slots.descriptions?.status).toBe('ok');
+    expect(slots.descriptions?.value).toHaveLength(2);
+    expect(slots.descriptions?.value?.[0].text).toContain('[EXIT]');
+    expect(slots.descriptions?.value?.[1].text).toContain('lantern');
+  });
+
+  it('splits a map keyed 0..n from the planning model', () => {
+    const slots = evaluateDescriptions({
+      raw: {
+        choices: [{
+          message: {
+            content: JSON.stringify({ pictures: { '0': 'First frame.', '1': 'Second frame.' } })
+          }
+        }]
+      }
+    });
+    expect(slots.descriptions?.status).toBe('ok');
+    expect(slots.descriptions?.value).toHaveLength(2);
+    expect(slots.descriptions?.value?.[0].text).toContain('First frame');
+    expect(slots.descriptions?.value?.[1].text).toContain('Second frame');
   });
 
   it('returns refused descriptions when planning output is unusable', () => {
@@ -298,6 +350,352 @@ describe('LLM orchestration — planned-scenes pipeline (use case 3)', () => {
     expect(plan?.attachments.some(a => a.name === 'prompt-2.txt')).toBe(true);
   });
 
+  it('uses the SCENE-oriented planning prompt for planned-scenes (fewer stills, more scenes)', async () => {
+    // 1 planning + 2 render calls.
+    fetchMock.mockResolvedValueOnce(textResponse('{"pictures":["A bridge.","A lantern."]}'));
+    fetchMock.mockResolvedValueOnce(completionImage(1));
+    fetchMock.mockResolvedValueOnce(completionImage(1));
+
+    await TestBed.configureTestingModule({
+      providers: [
+        provideZonelessChangeDetection(),
+        provideHttpClient(),
+        { provide: CHAT_API, useValue: api }
+      ]
+    }).compileComponents();
+    TestBed.inject(I18nService).setLocale('en');
+    const settings = TestBed.inject(SettingsService);
+    await settings.loadAll();
+    const generation = TestBed.inject(GenerationSettingsService);
+    generation.update('image-create', { providerId: 'prov-1', modelId: 'vendor/image' });
+    generation.update('image-interpret', { providerId: 'prov-1', modelId: 'vendor/text' });
+
+    const chatService = TestBed.inject(ChatService);
+    const uid = 'u1';
+    const aid = 'a1';
+    const now = new Date().toISOString();
+    api.chats.push({ id: 'chat-1', title: 'Story', projectId: null, node_number: 2, created_at: now, updated_at: now });
+    api.nodes = [
+      makeNode({ id: uid, chatId: 'chat-1', parentId: null, role: 'user', content: 'A direction.' }),
+      makeNode({ id: aid, chatId: 'chat-1', parentId: uid, role: 'assistant', content: 'A chapter.', isCurrent: true })
+    ];
+    await chatService.loadChats();
+    await chatService.selectChat('chat-1');
+
+    const runner = TestBed.inject(LlmUseCaseRunner);
+    await runner.run({
+      chat: { id: 'chat-1', title: 'Story', projectId: null, node_number: 2, created_at: now, updated_at: now },
+      node: makeNode({ id: aid, chatId: 'chat-1', parentId: uid, role: 'assistant', content: 'A chapter.', isCurrent: true }),
+      usecase: 'planned-scenes',
+      vars: { count: 2 }
+    });
+
+    // First fetch = the planning call: body carries the SCENE-oriented prompt
+    // (image.planning-scenes), not the static-still template (image.planning).
+    const body = JSON.parse((fetchMock.mock.calls[0][1] as { body: string }).body) as {
+      messages: { role: string; content: string }[];
+    };
+    // The plan prompt is the LAST user message (the earlier ones are context).
+    const user = [...body.messages].reverse().find(m => m.role === 'user')!.content;
+    expect(user).toContain('CONCRETE SCENES');
+    expect(user).toMatch(/feel ALIVE/);
+    expect(user).not.toContain('frozen instant');
+  });
+
+  it('does NOT forward reference attachments to the image model after planning', async () => {
+    // The render model can also READ images — prior illustrations exist along
+    // the path, but the post-planning render must still drive the image model
+    // from the derived descriptions ONLY (no image_url parts / binaries).
+    api.models = [
+      makeModel({
+        id: 'img', displayName: 'Image', modelId: 'vendor/image',
+        architecture: { input_modalities: ['image'], output_modalities: ['image'] }
+      }),
+      makeModel({ id: 'txt', displayName: 'Texter', modelId: 'vendor/text' })
+    ];
+    // 1 planning + 2 render calls.
+    fetchMock.mockResolvedValueOnce(textResponse('{"pictures":["A bridge.","A lantern."]}'));
+    fetchMock.mockResolvedValueOnce(completionImage(1));
+    fetchMock.mockResolvedValueOnce(completionImage(1));
+
+    await TestBed.configureTestingModule({
+      providers: [
+        provideZonelessChangeDetection(),
+        provideHttpClient(),
+        { provide: CHAT_API, useValue: api }
+      ]
+    }).compileComponents();
+    TestBed.inject(I18nService).setLocale('en');
+    const settings = TestBed.inject(SettingsService);
+    await settings.loadAll();
+    const generation = TestBed.inject(GenerationSettingsService);
+    generation.update('image-create', { providerId: 'prov-1', modelId: 'vendor/image' });
+    generation.update('image-interpret', { providerId: 'prov-1', modelId: 'vendor/text' });
+
+    const chatService = TestBed.inject(ChatService);
+    const now = new Date().toISOString();
+    const priorImage = makeAttachment({
+      id: 'img0', name: 'illustration-0.png', mimeType: 'image/png',
+      dataUrl: 'data:image/png;base64,REFIMAGE'
+    });
+    api.chats.push({ id: 'chat-1', title: 'Story', projectId: null, node_number: 4, created_at: now, updated_at: now });
+    api.nodes = [
+      makeNode({ id: 'u0', chatId: 'chat-1', parentId: null, role: 'user', content: 'Prior direction.' }),
+      makeNode({ id: 'a0', chatId: 'chat-1', parentId: 'u0', role: 'assistant', content: 'Prior chapter.', attachments: [priorImage] as never }),
+      makeNode({ id: 'u1', chatId: 'chat-1', parentId: 'a0', role: 'user', content: 'A direction.' }),
+      makeNode({ id: 'a1', chatId: 'chat-1', parentId: 'u1', role: 'assistant', content: 'A chapter.', isCurrent: true })
+    ];
+    await chatService.loadChats();
+    await chatService.selectChat('chat-1');
+    chatService.setActiveChild(null, 'u0');
+    chatService.setActiveChild('u0', 'a0');
+    chatService.setActiveChild('a0', 'u1');
+    chatService.setActiveChild('u1', 'a1');
+
+    const runner = TestBed.inject(LlmUseCaseRunner);
+    await runner.run({
+      chat: { id: 'chat-1', title: 'Story', projectId: null, node_number: 4, created_at: now, updated_at: now },
+      node: makeNode({ id: 'a1', chatId: 'chat-1', parentId: 'u1', role: 'assistant', content: 'A chapter.', isCurrent: true }),
+      usecase: 'planned-scenes',
+      vars: { count: 2 }
+    });
+
+    // 3 network calls: 1 planning + 2 scene renders.
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    for (const i of [1, 2]) {
+      const body = JSON.parse((fetchMock.mock.calls[i][1] as { body: string }).body) as {
+        messages: { role: string; content: unknown }[];
+      };
+      const user = body.messages.find(m => m.role === 'user')!;
+      // The render prompt is a PLAIN string — no image_url parts, no binaries.
+      expect(typeof user.content).toBe('string');
+      expect(JSON.stringify(body.messages)).not.toContain('image_url');
+      expect(JSON.stringify(body.messages)).not.toContain('REFIMAGE');
+    }
+  });
+
+  it('storyboard-direct does NOT send attachments to the image model either', async () => {
+    // The render model can also READ images and the path already contains an
+    // illustration attachment — but storyboard-direct must send TEXT only
+    // (chat text + the one-shot prompt), never the binaries / references.
+    api.models = [
+      makeModel({
+        id: 'img', displayName: 'Image', modelId: 'vendor/image',
+        architecture: { input_modalities: ['image'], output_modalities: ['image'] }
+      }),
+      makeModel({ id: 'txt', displayName: 'Texter', modelId: 'vendor/text' })
+    ];
+    fetchMock.mockResolvedValueOnce(completionImage(2)); // the one storyboard render
+
+    await TestBed.configureTestingModule({
+      providers: [
+        provideZonelessChangeDetection(),
+        provideHttpClient(),
+        { provide: CHAT_API, useValue: api }
+      ]
+    }).compileComponents();
+    TestBed.inject(I18nService).setLocale('en');
+    const settings = TestBed.inject(SettingsService);
+    await settings.loadAll();
+    const generation = TestBed.inject(GenerationSettingsService);
+    generation.update('image-create', { providerId: 'prov-1', modelId: 'vendor/image' });
+    generation.update('image-interpret', { providerId: 'prov-1', modelId: 'vendor/text' });
+
+    const chatService = TestBed.inject(ChatService);
+    const now = new Date().toISOString();
+    const priorImage = makeAttachment({
+      id: 'img0', name: 'illustration-0.png', mimeType: 'image/png',
+      dataUrl: 'data:image/png;base64,REFIMAGE'
+    });
+    const handImage = makeAttachment({
+      id: 'hand', name: 'memo.png', mimeType: 'image/png',
+      dataUrl: 'data:image/png;base64,HANDIMAGE'
+    });
+    api.chats.push({ id: 'chat-1', title: 'Story', projectId: null, node_number: 5, created_at: now, updated_at: now });
+    api.nodes = [
+      makeNode({ id: 'u0', chatId: 'chat-1', parentId: null, role: 'user', content: 'Prior direction.' }),
+      makeNode({ id: 'a0', chatId: 'chat-1', parentId: 'u0', role: 'assistant', content: 'Prior chapter.', attachments: [priorImage] as never }),
+      makeNode({ id: 'u1', chatId: 'chat-1', parentId: 'a0', role: 'user', content: 'A direction with a picture.', attachments: [handImage] as never }),
+      makeNode({ id: 'a1', chatId: 'chat-1', parentId: 'u1', role: 'assistant', content: 'A chapter.', isCurrent: true })
+    ];
+    await chatService.loadChats();
+    await chatService.selectChat('chat-1');
+    chatService.setActiveChild(null, 'u0');
+    chatService.setActiveChild('u0', 'a0');
+    chatService.setActiveChild('a0', 'u1');
+    chatService.setActiveChild('u1', 'a1');
+
+    const runner = TestBed.inject(LlmUseCaseRunner);
+    await runner.run({
+      chat: { id: 'chat-1', title: 'Story', projectId: null, node_number: 5, created_at: now, updated_at: now },
+      node: makeNode({ id: 'a1', chatId: 'chat-1', parentId: 'u1', role: 'assistant', content: 'A chapter.', isCurrent: true }),
+      usecase: 'storyboard-direct',
+      vars: { count: 2, planDescriptions: false }
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1); // no planning, one render
+    const body = JSON.parse((fetchMock.mock.calls[0][1] as { body: string }).body) as {
+      messages: { role: string; content: unknown }[];
+    };
+    const serialized = JSON.stringify(body.messages);
+    // The chat's TEXT context is still there, but NO images reach the model.
+    for (const m of body.messages) {
+      expect(typeof m.content).toBe('string');
+    }
+    expect(serialized).toContain('A direction with a picture'); // text context kept
+    expect(serialized).not.toContain('image_url');
+    expect(serialized).not.toContain('REFIMAGE');
+    expect(serialized).not.toContain('HANDIMAGE');
+  });
+
+  it('render-full does NOT send attachments to the image model either', async () => {
+    // Full-chat context: the render model can read images and the path carries
+    // both a prior illustration and a hand-attached image — but render-full
+    // must forward the chat TEXT only (context + anchor), never binaries.
+    api.models = [
+      makeModel({
+        id: 'img', displayName: 'Image', modelId: 'vendor/image',
+        architecture: { input_modalities: ['image'], output_modalities: ['image'] }
+      }),
+      makeModel({ id: 'txt', displayName: 'Texter', modelId: 'vendor/text' })
+    ];
+    fetchMock.mockResolvedValueOnce(completionImage(1)); // the single render
+
+    await TestBed.configureTestingModule({
+      providers: [
+        provideZonelessChangeDetection(),
+        provideHttpClient(),
+        { provide: CHAT_API, useValue: api }
+      ]
+    }).compileComponents();
+    TestBed.inject(I18nService).setLocale('en');
+    const settings = TestBed.inject(SettingsService);
+    await settings.loadAll();
+    const generation = TestBed.inject(GenerationSettingsService);
+    generation.update('image-create', { providerId: 'prov-1', modelId: 'vendor/image' });
+    generation.update('image-interpret', { providerId: 'prov-1', modelId: 'vendor/text' });
+
+    const chatService = TestBed.inject(ChatService);
+    const now = new Date().toISOString();
+    const priorImage = makeAttachment({
+      id: 'img0', name: 'illustration-0.png', mimeType: 'image/png',
+      dataUrl: 'data:image/png;base64,REFIMAGE'
+    });
+    const handImage = makeAttachment({
+      id: 'hand', name: 'memo.png', mimeType: 'image/png',
+      dataUrl: 'data:image/png;base64,HANDIMAGE'
+    });
+    api.chats.push({ id: 'chat-1', title: 'Story', projectId: null, node_number: 4, created_at: now, updated_at: now });
+    api.nodes = [
+      makeNode({ id: 'u0', chatId: 'chat-1', parentId: null, role: 'user', content: 'Prior direction.' }),
+      makeNode({ id: 'a0', chatId: 'chat-1', parentId: 'u0', role: 'assistant', content: 'Prior chapter.', attachments: [priorImage] as never }),
+      makeNode({ id: 'u1', chatId: 'chat-1', parentId: 'a0', role: 'user', content: 'A direction with a picture.', attachments: [handImage] as never }),
+      makeNode({ id: 'a1', chatId: 'chat-1', parentId: 'u1', role: 'assistant', content: 'A chapter.', isCurrent: true })
+    ];
+    await chatService.loadChats();
+    await chatService.selectChat('chat-1');
+    chatService.setActiveChild(null, 'u0');
+    chatService.setActiveChild('u0', 'a0');
+    chatService.setActiveChild('a0', 'u1');
+    chatService.setActiveChild('u1', 'a1');
+
+    const runner = TestBed.inject(LlmUseCaseRunner);
+    await runner.run({
+      chat: { id: 'chat-1', title: 'Story', projectId: null, node_number: 4, created_at: now, updated_at: now },
+      node: makeNode({ id: 'a1', chatId: 'chat-1', parentId: 'u1', role: 'assistant', content: 'A chapter.', isCurrent: true }),
+      usecase: 'render-full',
+      vars: { count: 1, historyMode: 'full' }
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const body = JSON.parse((fetchMock.mock.calls[0][1] as { body: string }).body) as {
+      messages: { role: string; content: unknown }[];
+    };
+    const serialized = JSON.stringify(body.messages);
+    // The chat's TEXT context survives, but no image payload reaches the model.
+    for (const m of body.messages) {
+      expect(typeof m.content).toBe('string');
+    }
+    expect(serialized).toContain('A direction with a picture'); // text context kept
+    expect(serialized).toContain('A chapter.'); // the anchor
+    expect(serialized).not.toContain('image_url');
+    expect(serialized).not.toContain('REFIMAGE');
+    expect(serialized).not.toContain('HANDIMAGE');
+  });
+
+  it('render-node does NOT send attachments to the image model either', async () => {
+    // Current-node only, but the render model can read images and the path
+    // carries an illustration + a hand-attached image — the render must still
+    // send ONLY the anchor text prompt (no reference/attachment images).
+    api.models = [
+      makeModel({
+        id: 'img', displayName: 'Image', modelId: 'vendor/image',
+        architecture: { input_modalities: ['image'], output_modalities: ['image'] }
+      }),
+      makeModel({ id: 'txt', displayName: 'Texter', modelId: 'vendor/text' })
+    ];
+    fetchMock.mockResolvedValueOnce(completionImage(1)); // the single render
+
+    await TestBed.configureTestingModule({
+      providers: [
+        provideZonelessChangeDetection(),
+        provideHttpClient(),
+        { provide: CHAT_API, useValue: api }
+      ]
+    }).compileComponents();
+    TestBed.inject(I18nService).setLocale('en');
+    const settings = TestBed.inject(SettingsService);
+    await settings.loadAll();
+    const generation = TestBed.inject(GenerationSettingsService);
+    generation.update('image-create', { providerId: 'prov-1', modelId: 'vendor/image' });
+    generation.update('image-interpret', { providerId: 'prov-1', modelId: 'vendor/text' });
+
+    const chatService = TestBed.inject(ChatService);
+    const now = new Date().toISOString();
+    const priorImage = makeAttachment({
+      id: 'img0', name: 'illustration-0.png', mimeType: 'image/png',
+      dataUrl: 'data:image/png;base64,REFIMAGE'
+    });
+    const handImage = makeAttachment({
+      id: 'hand', name: 'memo.png', mimeType: 'image/png',
+      dataUrl: 'data:image/png;base64,HANDIMAGE'
+    });
+    api.chats.push({ id: 'chat-1', title: 'Story', projectId: null, node_number: 4, created_at: now, updated_at: now });
+    api.nodes = [
+      makeNode({ id: 'u0', chatId: 'chat-1', parentId: null, role: 'user', content: 'Prior direction.' }),
+      makeNode({ id: 'a0', chatId: 'chat-1', parentId: 'u0', role: 'assistant', content: 'Prior chapter.', attachments: [priorImage] as never }),
+      makeNode({ id: 'u1', chatId: 'chat-1', parentId: 'a0', role: 'user', content: 'A direction with a picture.', attachments: [handImage] as never }),
+      makeNode({ id: 'a1', chatId: 'chat-1', parentId: 'u1', role: 'assistant', content: 'A chapter.', isCurrent: true })
+    ];
+    await chatService.loadChats();
+    await chatService.selectChat('chat-1');
+    chatService.setActiveChild(null, 'u0');
+    chatService.setActiveChild('u0', 'a0');
+    chatService.setActiveChild('a0', 'u1');
+    chatService.setActiveChild('u1', 'a1');
+
+    const runner = TestBed.inject(LlmUseCaseRunner);
+    await runner.run({
+      chat: { id: 'chat-1', title: 'Story', projectId: null, node_number: 4, created_at: now, updated_at: now },
+      node: makeNode({ id: 'a1', chatId: 'chat-1', parentId: 'u1', role: 'assistant', content: 'A chapter.', isCurrent: true }),
+      usecase: 'render-node',
+      vars: { count: 1 }
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const body = JSON.parse((fetchMock.mock.calls[0][1] as { body: string }).body) as {
+      messages: { role: string; content: unknown }[];
+    };
+    const serialized = JSON.stringify(body.messages);
+    for (const m of body.messages) {
+      expect(typeof m.content).toBe('string');
+    }
+    expect(serialized).toContain('A chapter.'); // the anchor prompt text
+    expect(serialized).not.toContain('image_url');
+    expect(serialized).not.toContain('REFIMAGE');
+    expect(serialized).not.toContain('HANDIMAGE');
+  });
+
   it('keeps previously collected images when one scene is refused (partial survival)', async () => {
     fetchMock.mockResolvedValueOnce(textResponse('{"pictures":["A bridge.","A lantern."]}'));
     fetchMock.mockResolvedValueOnce(completionImage(1));
@@ -345,6 +743,83 @@ describe('LLM orchestration — planned-scenes pipeline (use case 3)', () => {
     const plan = post.plan(slots, { chat: { id: 'chat-1' } as never, node: makeNode({ id: aid, role: 'assistant' }) as never, usecase: 'planned-scenes', vars: {} });
     expect(plan?.attachments.some(a => a.name === 'refused-prompt-2.txt')).toBe(true);
     expect(plan?.summary.partial).toBe(true);
+  });
+});
+
+describe('LLM orchestration — image-generation (explicit single picture)', () => {
+  let api: InMemoryChatApi;
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    localStorage.clear();
+    api = new InMemoryChatApi();
+    seedApi(api, {
+      providers: [{ id: 'prov-1' }],
+      models: [
+        { id: 'img', displayName: 'Image', modelId: 'vendor/image', architecture: { input_modalities: [], output_modalities: ['image'] } }
+      ]
+    });
+    fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    TestBed.resetTestingModule();
+  });
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('renders ONE picture from vars.promptText, no storytelling planning', async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: true, status: 200,
+      json: async () => ({ choices: [{ message: { images: [{ type: 'image_url', image_url: { url: 'data:image/png;base64,IMG0' } }] } }] })
+    } as unknown as Response);
+
+    await TestBed.configureTestingModule({
+      providers: [provideZonelessChangeDetection(), provideHttpClient(), { provide: CHAT_API, useValue: api }]
+    }).compileComponents();
+    TestBed.inject(I18nService).setLocale('en');
+    const settings = TestBed.inject(SettingsService);
+    await settings.loadAll();
+    const generation = TestBed.inject(GenerationSettingsService);
+    generation.update('image-create', { providerId: 'prov-1', modelId: 'vendor/image' });
+
+    const chatService = TestBed.inject(ChatService);
+    const uid = 'u1';
+    const aid = 'a1';
+    const now = new Date().toISOString();
+    api.chats.push({ id: 'chat-1', title: 'Story', projectId: null, node_number: 2, created_at: now, updated_at: now });
+    api.nodes = [
+      makeNode({ id: uid, chatId: 'chat-1', parentId: null, role: 'user', content: 'Raw direction full of prose.' }),
+      makeNode({ id: aid, chatId: 'chat-1', parentId: uid, role: 'assistant', content: 'Chapter full of prose.', isCurrent: true })
+    ];
+    await chatService.loadChats();
+    await chatService.selectChat('chat-1');
+
+    const runner = TestBed.inject(LlmUseCaseRunner);
+    const slots = await runner.run({
+      chat: { id: 'chat-1', title: 'Story', projectId: null, node_number: 2, created_at: now, updated_at: now },
+      node: makeNode({ id: aid, chatId: 'chat-1', parentId: uid, role: 'assistant', content: 'Chapter full of prose.', isCurrent: true }),
+      usecase: 'image-generation',
+      vars: { promptText: 'Assistant:\nA softer scene, lit by torchlight', count: 1 }
+    });
+
+    // Exactly one image-generation call — no planning pass.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const storyboard = slots.storyboard?.value ?? [];
+    expect(storyboard).toHaveLength(1);
+    expect(slots.images?.value).toHaveLength(1);
+    // The scene = drawing instruction + the EXPLICIT promptText (the node's
+    // saved content must NOT leak into the scene).
+    const prompt = storyboard[0].prompt;
+    expect(prompt).toContain('Illustrate this beat');
+    expect(prompt).toContain('A softer scene, lit by torchlight');
+    expect(prompt).not.toContain('Chapter full of prose');
+    expect(storyboard[0].refused).toBe(false);
+
+    // Postprocess → illustration-1 + prompt-1 records.
+    const post = TestBed.inject(LlmPostprocessorService);
+    const plan = post.plan(slots, { chat: { id: 'chat-1' } as never, node: makeNode({ id: aid, role: 'assistant' }) as never, usecase: 'image-generation', vars: {} });
+    expect(plan).not.toBeNull();
+    expect(plan?.attachments.some(a => a.name === 'illustration-1.png')).toBe(true);
+    expect(plan?.attachments.some(a => a.name === 'prompt-1.txt')).toBe(true);
   });
 });
 

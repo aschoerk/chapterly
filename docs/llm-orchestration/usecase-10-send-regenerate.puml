@@ -1,0 +1,50 @@
+@startuml usecase-10-send-regenerate
+!theme plain
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+skinparam maxMessageSize 200
+skinparam wrapWidth 170
+title Use case 10 — send-regenerate\n"delete the answer (+ subtree), re-stream a fresh answer under the same question"
+
+actor User
+participant "ChatNodeComponent\nregenerateAnswer()" as UI
+participant "LlmFlowRunner\n(env)" as RUN
+participant "sendRegenerate\n(controller)" as UC
+participant "prepareTextSend\n(shared rule)" as PREP
+participant "streamAnswerNode\n(shared)" as STRM
+participant "LlmOrchestratorService" as ORCH
+participant "LlmTransportService" as XPORT
+participant "Evaluators" as EVAL
+participant "ChatService" as SVC
+participant "Provider\n(proxy SSE)" as NET
+
+== 1. Confirm + flow runner ==
+User -> UI : Regenerate (on an assistant answer)
+UI -> UI : confirm (subtree will be deleted)
+UI -> RUN : runFlow('send-regenerate') — node = the ANSWER
+RUN -> RUN : parentQuestion(node) — the question it answers
+RUN --> UC : sendRegenerate(env)
+
+== 2. Delete the old answer + subtree ==
+UC -> SVC : deleteNode(chat, node.id)  (whole subtree)
+SVC --> UC : (subtree tombstoned)
+
+== 3. Prepare (interpret-if-needed on the QUESTION) ==
+UC -> PREP : prepareTextSend(env, chat, question,\n{ content: question.content, attachments })
+PREP --> UC : messages
+
+== 4. Stream a fresh answer under the question ==
+UC -> STRM : streamAnswerNode(env, chat, question.id, messages)
+STRM -> SVC : addNode(assistant) + startGeneration
+STRM -> ORCH : completion(stream) — SSE, live paint
+ORCH -> XPORT : complete()
+XPORT -> NET : POST SSE
+XPORT --> ORCH : final
+ORCH -> EVAL : finalizeStream → text
+ORCH --> STRM : answerNodeId + slots
+STRM --> UC : answerNodeId + slots
+
+== 5. Result ==
+UC -> UI : flow slot { questionNodeId, answerNodeId, activateId }\nactivate(question.id)
+
+@enduml

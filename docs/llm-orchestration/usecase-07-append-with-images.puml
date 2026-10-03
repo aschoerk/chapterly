@@ -1,0 +1,71 @@
+@startuml usecase-07-append-with-images
+!theme plain
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+skinparam maxMessageSize 200
+skinparam wrapWidth 170
+title Use case 7 — append-with-images\n"normal send with image attachments: interpret ONLY when the description is NOT already stored in the node text"
+
+actor User
+participant "ChatNodeComponent\nsendDraft()" as UI
+participant "LlmUseCaseRunner\n(env)" as RUN
+participant "appendWithImages\n(controller)" as UC
+participant "prepareTextSend\n(shared rule)" as PREP
+participant "buildSendMessagesEx\n(builder)" as BLDR
+participant "LlmOrchestratorService" as ORCH
+participant "Evaluators" as EVAL
+participant "LlmLogService" as LOG
+participant "LlmTransportService" as XPORT
+participant "ChatService" as SVC
+participant "Provider\n(proxy)" as NET
+
+== 1. Direction carries image attachments ==
+User -> UI : Send (draft + images)
+UI -> UI : detect data: images → usecase 'append-with-images'\nvars.attachments, vars.content, vars.interpretPrefix (removed: none)
+
+== 2. Shared preparation — THE interpretation rule ==
+UI -> RUN : runner.run(chat, node, 'append-with-images', vars)
+RUN --> UC : appendWithImages(env)
+UC -> PREP : prepareTextSend(env, chat, node, { content, attachments })
+note over PREP
+  needsImageInterpretation(node):
+  images present AND no matching image-description.txt\nrecord (signature match) AND the stored description\nis not already part of node content.
+end note
+alt images need interpreting (not stored)
+  PREP -> ORCH : completion(interpret model,\nbuildInterpretMessage(images), expect:'text', stream:false)
+  ORCH -> XPORT : complete()
+  XPORT -> LOG : record/complete
+  XPORT -> NET : POST /chat/completions (text)
+  XPORT --> ORCH : raw
+  ORCH -> EVAL : evaluateCompletion(raw)
+  EVAL --> ORCH : text slot = description
+  ORCH --> PREP : description
+  PREP -> PREP : mergedContent = direction + description\nbuildImageDescriptionRecord(images, description)
+  PREP -> BLDR : buildSendMessagesEx(contentOverride: merged)
+  BLDR --> PREP : { messages, mergedContent, record }
+  PREP --> UC : { messages, mergedContent, record }
+else description already stored
+  PREP -> BLDR : buildSendMessagesEx(content) — text-only history
+  BLDR --> PREP : { messages }
+  PREP --> UC : { messages }
+end
+
+== 3. Stream the answer (same as append) ==
+UC -> ORCH : completion({write}, expect:'text', stream:true, onChunk)
+ORCH -> XPORT : complete()
+XPORT -> NET : POST /chat/completions (stream:true)
+loop each SSE chunk
+  NET --> ORCH : chunk
+  ORCH -> EVAL : foldStreamChunk → text partial
+  ORCH --> UC : onChunk
+end
+XPORT --> ORCH : final
+ORCH -> EVAL : finalizeStream → text ok/refused
+ORCH --> UC : EvalSlots
+
+== 4. Persist interpretation + answer ==
+UC --> UI : { text slots, interpretation:{ content, record } }
+UI -> SVC : patchNode(question, content=merged) + append record\n(adds image-description.txt so re-sends skip interpretation)
+UI -> SVC : editAssistant(answerNode, content, thinking)\nsetActiveChild + activate
+
+@enduml

@@ -14,5 +14,9 @@
             "name": "chat"
         }
     ],
-    "chat.agent.maxRequests": 100
+    "chat.agent.maxRequests": 100,
+    "plantuml.server": "http://localhost:9999/plantuml",
+    "plantuml.render": "PlantUMLServer",
+    "plantuml.exportFormat": "svg",
+    "plantuml.exportOutDir": "${workspaceFolder}/docs"
 }

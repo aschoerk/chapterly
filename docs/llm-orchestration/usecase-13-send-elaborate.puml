@@ -1,0 +1,71 @@
+@startuml usecase-13-send-elaborate
+
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+skinparam maxMessageSize 200
+skinparam wrapWidth 170
+title Use case 13 — send-elaborate\n"append one chapter elaboration: create/reuse a question under the anchor (most recent assistant answer) and stream an answer into a new assistant node"
+
+actor User
+participant "ElaborateDialog" as DLG
+participant "ChatComponent\nconfirmElaborate()" as UI
+participant "LlmUseCaseRunner" as RUNNER
+participant "LlmFlowRunner\n(env)" as RUN
+participant "sendElaborate\n(controller)" as UC
+participant "getOrCreateElaborateQuestion\n(shared)" as QRY
+participant "buildSendMessagesEx\n(builder)" as BLDR
+participant "streamAnswerNode\n(shared)" as STRM
+participant "LlmOrchestratorService" as ORCH
+participant "LlmTransportService" as XPORT
+participant "LlmLogService" as LOG
+participant "ChatService" as SVC
+participant "Provider\n(proxy SSE)" as NET
+
+== 1. Dialog → use-case runner (one step per chapter / per name) ==
+User -> DLG : chapters first..last, characters, model
+DLG --> UI : elaborateFirst, elaborateLast, elaborateNames, elaborateModelId
+UI -> UI : anchor = mostRecentAssistantNode()\nprompt = render('structure.elaborate[-view]', { chapter[, name] })\nsaveElaborateState(chat, { lastChapter, characters })\nbeginOperation('elaborate')  →  Stop cancels the whole chain
+loop for chapter in first..last (and each name)
+UI -> RUNNER : run({ chat, node: anchor/answer,\nusecase: 'send-elaborate', vars: { content: prompt,\nmodelId, providerId } })
+RUNNER --> RUN : isFlowUsecase → send-elaborate(env)
+
+== 2. Create/reuse the question under the anchor ==
+RUN -> RUN : write = resolveWriteModel(anchor, modelId, providerId)\n(dialog model override wins) + textExtras
+RUN --> UC : sendElaborate(env, node = anchor)
+UC -> QRY : getOrCreateElaborateQuestion(env, chat, anchor.id, prompt)
+QRY -> SVC : getChildren(anchor.id)
+alt empty user leaf draft exists
+QRY -> SVC : persistQuestion(draft.id, prompt, model/provider)
+QRY -> SVC : setActiveChild(anchor.id, draft.id)
+QRY --> UC : draft
+else no draft
+QRY -> SVC : addNode(parentId: anchor.id,\nrole: user, content: prompt, model/provider)
+QRY -> SVC : setActiveChild(anchor.id, question.id)
+QRY --> UC : question
+end
+
+== 3. Build the text-only history up to the question ==
+UC -> BLDR : buildSendMessagesEx(chat, question.id,\ncontentOverride: prompt)
+BLDR --> UC : messages = prior path (text-only,\nimages never re-sent) + final user prompt\n(+ topic system prompt when none)
+
+== 4. Stream the answer under the question ==
+UC -> STRM : streamAnswerNode(env, chat, question.id, messages)
+STRM -> SVC : addNode(assistant under question) + startGeneration
+STRM -> ORCH : completion(stream) — SSE, live paint
+ORCH -> XPORT : complete()
+XPORT -> LOG : record/complete
+XPORT -> NET : POST SSE
+XPORT --> ORCH : final
+ORCH --> STRM : answerNodeId (versioned) + slots
+STRM --> UC : answerNodeId (versioned) + slots
+
+== 5. Result — chain the next chapter under this answer ==
+UC -> UI : flow slot { questionNodeId, answerNodeId, activateId = answer }\nactivate(answerNodeId)
+UI -> UI : parentId = slots.flow.value.answerNodeId\n(next iteration anchors under this answer)
+end
+
+note over UI
+  One Stop press cancels the whole chain (all\nchapters / all views) via isOperationCancelled().
+end note
+
+@enduml

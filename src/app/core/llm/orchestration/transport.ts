@@ -31,7 +31,7 @@ export interface CompletionRequest {
   /** Streaming callback — raw chunks, unpaced (pacing is a view concern). */
   onChunk?: (chunk: LlmChunk) => void;
   /** Chat attribution for the log. */
-  chat?: { id?: string; title?: string };
+  chat?: { id?: string; title?: string; usecase?: string };
   /** Per-attempt timeout in ms (default TIMEOUT_MS). */
   timeoutMs?: number;
 }
@@ -42,7 +42,7 @@ export interface ImagesRequest {
   prompt: string;
   n?: number;
   signal?: AbortSignal;
-  chat?: { id?: string; title?: string };
+  chat?: { id?: string; title?: string; usecase?: string };
   timeoutMs?: number;
 }
 
@@ -112,6 +112,7 @@ export class LlmTransportService {
       provider: req.provider.baseUrl,
       chatId: req.chat?.id,
       chatTitle: req.chat?.title,
+      usecase: req.chat?.usecase,
       endpoint: 'chat/completions',
       messages: payloadMessages.map(m => ({ role: m.role, content: m.content })),
       body: payload,
@@ -252,6 +253,7 @@ export class LlmTransportService {
       provider: req.provider.baseUrl,
       chatId: req.chat?.id,
       chatTitle: req.chat?.title,
+      usecase: req.chat?.usecase,
       endpoint: 'images',
       prompt: req.prompt,
       body: payload,

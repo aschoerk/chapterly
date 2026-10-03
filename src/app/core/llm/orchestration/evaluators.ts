@@ -22,11 +22,19 @@ import type { EvalSlots, PictureDescription, Slot } from './types';
 
 const DESCRIPTION_KEYS = ['description', 'text', 'prompt', 'scene', 'caption', 'desc', 'image', 'picture', 'frame'];
 
+/** Top-level object keys that may hold the list of picture descriptions. */
+const DESCRIPTION_ARRAY_KEYS = ['pictures', 'descriptions', 'scenes', 'images'];
+
 function descriptionFromEntry(x: unknown): string | null {
   if (x == null) return null;
   if (typeof x === 'string') {
     const t = x.trim();
     return t && t !== '[object Object]' ? t : null;
+  }
+  if (Array.isArray(x)) {
+    // A one-element wrapper around a real description (e.g. [{ "description": "…" }]).
+    if (x.length === 1) return descriptionFromEntry(x[0]);
+    return null;
   }
   if (typeof x === 'object') {
     const obj = x as Record<string, unknown>;
@@ -44,6 +52,91 @@ function descriptionFromEntry(x: unknown): string | null {
   return null;
 }
 
+/** Parse a JSON string strictly; returns the value or null. */
+function parseJson(raw: string): unknown {
+  try { return JSON.parse(raw); } catch { return null; }
+}
+
+/**
+ * Recursively collect the picture descriptions from a parsed JSON value.
+ * The planning model is instructed to return `{"pictures": [...]}` — cover
+ * the realistic shapes it actually emits:
+ *  - the full object (as prompted),
+ *  - a bare array at the top level (models often drop the wrapper),
+ *  - a DOUBLE-ENCODED list: the `pictures` value is itself a JSON string
+ *    (`"[\"desc 1\", ...]"`) instead of a real array,
+ *  - a map keyed `0..n` instead of an array.
+ */
+function descriptionsFromValue(v: unknown): string[] | null {
+  if (typeof v === 'string') {
+    // Double-encoded: the JSON text is embedded in a string value.
+    const t = v.trim();
+    if (t.startsWith('[') || t.startsWith('{')) {
+      return descriptionsFromValue(parseJson(t));
+    }
+    return null;
+  }
+  if (Array.isArray(v)) {
+    const arr = v.map(descriptionFromEntry).filter((s): s is string => !!s);
+    return arr.length ? arr : null;
+  }
+  if (v && typeof v === 'object') {
+    const obj = v as Record<string, unknown>;
+    for (const k of DESCRIPTION_ARRAY_KEYS) {
+      const inner = descriptionsFromValue(obj[k]);
+      if (inner) return inner;
+    }
+    // Some models hand back a map keyed 0..n rather than a real array.
+    if (Object.keys(obj).length > 0) {
+      const byIndex: string[] = [];
+      for (let i = 0; i < 64; i++) {
+        const s = descriptionFromEntry(obj[String(i)]);
+        if (!s) break;
+        byIndex.push(s);
+      }
+      if (byIndex.length > 0) return byIndex;
+    }
+  }
+  return null;
+}
+
+/**
+ * Find a balanced JSON `{...}` object or `[...]` array inside surrounding
+ * prose (string-aware, so brackets inside a description do not break the
+ * scan) and parse it. Returns the parsed value, or null.
+ */
+function parseJsonEmbedded(text: string): unknown | null {
+  for (const open of ['{', '['] as const) {
+    const close = open === '{' ? '}' : ']';
+    for (let i = 0; i < text.length; i++) {
+      if (text[i] !== open) continue;
+      let depth = 0;
+      let inString = false;
+      let escaped = false;
+      for (let j = i; j < text.length; j++) {
+        const ch = text[j];
+        if (inString) {
+          if (escaped) { escaped = false; continue; }
+          if (ch === '\\') { escaped = true; continue; }
+          if (ch === '"') inString = false;
+          continue;
+        }
+        if (ch === '"') { inString = true; continue; }
+        if (ch === open) depth++;
+        else if (ch === close) {
+          depth--;
+          if (depth === 0) {
+            const parsed = parseJson(text.slice(i, j + 1));
+            if (parsed != null) return parsed;
+            break;
+          }
+        }
+      }
+    }
+  }
+  return null;
+}
+
 function parsePictureDescriptions(content: string): (string | null)[] {
   const trimmed = (content || '').trim();
   if (!trimmed) return [];
@@ -51,33 +144,10 @@ function parsePictureDescriptions(content: string): (string | null)[] {
     .replace(/^```(?:json)?\s*/i, '')
     .replace(/```\s*$/, '');
 
-  const asStrings = (v: unknown): string[] | null => {
-    if (Array.isArray(v)) {
-      const arr = v.map(descriptionFromEntry).filter((s): s is string => !!s);
-      return arr.length ? arr : null;
-    }
-    if (v && typeof v === 'object') {
-      const obj = v as Record<string, unknown>;
-      for (const k of ['pictures', 'descriptions', 'scenes', 'images']) {
-        const inner = asStrings(obj[k]);
-        if (inner) return inner;
-      }
-    }
-    return null;
-  };
-  const parse = (raw: string): string[] | null => {
-    try {
-      return asStrings(JSON.parse(raw));
-    } catch {
-      return null;
-    }
-  };
+  let value = parseJson(fenced) ?? parseJson(trimmed);
+  if (value == null) value = parseJsonEmbedded(trimmed);
 
-  let arr = parse(fenced) ?? parse(trimmed);
-  if (!arr) {
-    const match = trimmed.match(/\[[\s\S]*\]/);
-    if (match) arr = parse(match[0]);
-  }
+  let arr = value == null ? null : descriptionsFromValue(value);
   if (!arr) {
     arr = fenced
       .split(/\r?\n/)

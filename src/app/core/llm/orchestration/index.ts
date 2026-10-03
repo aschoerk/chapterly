@@ -19,4 +19,5 @@ export * from './transport';
 export * from './context';
 export * from './orchestrator';
 export * from './usecases';
+export * from './flows';
 export * from './postprocessor';

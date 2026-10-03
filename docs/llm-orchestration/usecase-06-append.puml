@@ -1,0 +1,58 @@
+@startuml usecase-06-append
+!theme plain
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+skinparam maxMessageSize 200
+skinparam wrapWidth 170
+title Use case 6 — append\n"normal send: user/director at the end of the chat + full history, streamed text answer"
+
+actor User
+participant "ChatNodeComponent\nsendDraft()" as UI
+participant "LlmUseCaseRunner\n(env)" as RUN
+participant "append\n(controller)" as UC
+participant "buildSendMessagesEx\n(builder)" as BLDR
+participant "LlmOrchestratorService\ncompletion()" as ORCH
+participant "Evaluators\nfold + finalize" as EVAL
+participant "LlmTransportService\nSSE" as XPORT
+participant "LlmLogService" as LOG
+participant "ChatService" as SVC
+participant "Provider\n(proxy SSE)" as NET
+
+== 1. Text-only send ==
+User -> UI : Send (direction text)
+UI -> UI : persistQuestion(chat, node, content, attachments)\nactivate(node)
+UI -> RUN : runner.run(chat, node, 'append', { content })
+
+== 2. Env ==
+RUN -> RUN : resolveWriteModel(node) — node's model or first enabled\nbuildSendMessages (full chat)\ntextExtras (keeps temp/thinking/stream)
+RUN --> UC : append(env)
+
+== 3. Builder: topic system prompt + text-only history ==
+UC -> BLDR : buildSendMessagesEx(chat, node, contentOverride)\n→ history text-only (image_url/file parts STRIPPED),\ntopic defaultSystemPrompt injected when no system msg
+BLDR --> UC : sendMessages
+
+== 4. Stream through the orchestrator ==
+UC -> ORCH : completion({write}, expect:'text', stream:true)
+ORCH -> XPORT : complete() — stream
+XPORT -> LOG : record({ kind:'chat', body })/complete
+XPORT -> NET : POST /chat/completions (stream:true)
+loop each SSE chunk
+  NET --> ORCH : chunk { content, thinking }
+  ORCH -> EVAL : foldStreamChunk(running, chunk)
+  EVAL --> EVAL : text slot = partial (growing)
+  ORCH --> UC : onChunk (raw, unpaced)
+  UC --> SVC : (view adapter paints the node live during stream)
+end
+XPORT --> ORCH : final raw
+ORCH -> EVAL : finalizeStream(running, { raw })
+EVAL --> ORCH : text slot (ok | refused, reason)
+ORCH --> UC : EvalSlots { text }
+
+== 5. Place (postprocessor / chat-node) ==
+UC --> UI : slots
+UI -> SVC : editAssistant(answerNode, content, thinking)\nsetActiveChild + activate(answer)
+note over UI
+  The node already carries the streamed content\n(live paint); the postprocessor only persists\nand versions it.
+end note
+
+@enduml

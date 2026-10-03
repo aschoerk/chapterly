@@ -1,0 +1,61 @@
+@startuml usecase-02-planned-enblock
+!theme plain
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+skinparam maxMessageSize 200
+skinparam wrapWidth 170
+title Use case 2 — planned-enblock\n"text model derives PICTURE DESCRIPTIONS ONLY,\nthen ALL of them go as ONE block to the image model"
+
+actor User
+participant "IllustrateDialog" as DLG
+participant "ChatNodeComponent\nillustrate()" as UI
+participant "LlmUseCaseRunner\n(env)" as RUN
+participant "plannedEnblock\n(controller)" as UC
+participant "planStoryboardDescriptions\n(shared)" as PLAN
+participant "LlmOrchestratorService" as ORCH
+participant "LlmTransportService" as XPORT
+participant "Evaluators" as EVAL
+participant "LlmLogService" as LOG
+participant "LlmPostprocessorService" as POST
+participant "ChatService" as SVC
+participant "Provider\n(proxy)" as NET
+
+== 1. Dialog picks the use case ==
+User -> DLG : count(>1), planning ON, singleCall/pure\n+ style, storyboard rules
+DLG --> UI : options
+UI -> UI : pickUsecase(vars) → 'planned-enblock'
+
+== 2. Run: env ==
+UI -> RUN : runner.run(chat, node, 'planned-enblock', vars)
+RUN -> RUN : render = resolveImageModel(...)\nplan = resolvePlanModel(render, node)\n(plan = node's writing model → image-interpret task → render)
+RUN --> UC : controllerFor('planned-enblock')(env)
+
+== 3. Step 1 — planning (SHARED with use case 3) ==
+UC -> PLAN : runPlanning(env) — text-only context + plan instruction\npicturePlanningInstruction(count, storyboardRules)
+PLAN -> ORCH : completion({ plan model }, expect:'descriptions', stream:false)
+ORCH -> XPORT : complete()
+XPORT -> LOG : record/complete
+XPORT -> NET : POST /chat/completions (text)
+XPORT --> ORCH : raw
+ORCH -> EVAL : evaluateDescriptions(raw)
+EVAL --> ORCH : descriptions slot (ok | refused, reason)
+ORCH --> PLAN : descriptions
+PLAN --> UC : descriptions[]
+
+== 4. Step 2 — ONE en-block render ==
+UC -> UC : prompt = purePictures\n  ? purePicturesPrompt(instruction, desc, …)\n  : oneShotStoryboardPrompt(anchor, desc, …)
+UC -> ORCH : completeImage(request, expect:'images')
+ORCH -> XPORT : completeImage()
+XPORT -> LOG : record/complete
+XPORT -> NET : POST /chat/completions (or /images for image-only models)
+XPORT --> ORCH : raw
+ORCH -> EVAL : evaluateImagesResponse(raw)
+EVAL --> ORCH : images slot (ok | partial | refused, reason)
+ORCH --> UC : EvalSlots
+
+== 5. Place ==
+UC -> POST : storyboard slot (all N in one scene on success;\nper-scene refusal records on moderation)
+POST -> SVC : editAssistant(chapter, illustration-N + prompt-N)
+POST --> UI : activate(chapter.id)
+
+@enduml

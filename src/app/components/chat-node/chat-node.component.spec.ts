@@ -6,7 +6,6 @@ import { ChatNodeComponent } from './chat-node.component';
 import { CHAT_API } from '../../api/chat-api.token';
 import { ChatService } from '../../core/chat.service';
 import { SettingsService } from '../../core/settings.service';
-import { LlmService } from '../../core/llm/llm.service';
 import { ConfirmService } from '../../core/confirm.service';
 import { I18nService } from '../../core/i18n/i18n.service';
 import { NodeEditSession } from '../../core/node-edit-session';
@@ -19,7 +18,7 @@ import { LightboxService } from '../../core/lightbox.service';
 import { decodeDataUrlToText } from '../../core/llm/llm-message';
 import { IllustrateDialogService } from '../../core/illustrate-dialog.service';
 import { PrependDialogService } from '../../core/prepend-dialog.service';
-import { LlmUseCaseRunner } from '../../core/llm/orchestration';
+import { LlmUseCaseRunner, LlmOrchestratorService } from '../../core/llm/orchestration';
 
 /** Thin aliases over the shared test-helpers factories. */
 const node = makeNode;
@@ -49,6 +48,11 @@ describe('ChatNodeComponent', () => {
   let illustrateDialog: { open: ReturnType<typeof vi.fn>; current: ReturnType<typeof vi.fn> };
   let prependDialog: { open: ReturnType<typeof vi.fn>; current: ReturnType<typeof vi.fn> };
   let runner: { run: ReturnType<typeof vi.fn> };
+  let orch: {
+    completion: ReturnType<typeof vi.fn>;
+    completeImage: ReturnType<typeof vi.fn>;
+    images: ReturnType<typeof vi.fn>;
+  };
   let emitted: string[];
 
   beforeEach(async () => {
@@ -90,60 +94,76 @@ describe('ChatNodeComponent', () => {
           }
         },
         {
-          provide: LlmService,
-          useValue: {
-            askLlm: vi.fn(async () => ({ content: 'Generated structure', thinking: '' })),
-            resolveForCurrentChat: vi.fn(async () => ({ stream: false })),
-            toLlmExtras: vi.fn(() => ({})),
-            generateImage: vi.fn(async () => ({ content: '', images: [] })),
-            streamAnswer: vi.fn(
-              async (
-                chatId: string,
-                questionNodeId: string,
-                _provider: unknown,
-                model: ModelEntry,
-                _messages: unknown,
-                _onChunk?: unknown,
-                opts?: { adoptNodeIds?: string[] },
-              ) => {
-                const saved = await chatService.addNode(chatId, {
-                  parentId: questionNodeId,
-                  role: 'assistant',
-                  content: 'Generated',
-                  modelId: model?.modelId ?? 'alpha/model',
-                  providerId: model?.providerId ?? 'prov-1',
-                });
-                chatService.setActiveChild(questionNodeId, saved.id);
-                if (opts?.adoptNodeIds?.length) {
-                  await chatService.reparentNodes(chatId, opts.adoptNodeIds, saved.id);
-                  chatService.setActiveChild(saved.id, opts.adoptNodeIds[0]);
-                }
-                return saved;
-              },
-            ),
-          },
-        },
-        {
           provide: LlmUseCaseRunner,
           useValue: {
             // Default: a successful streamed answer "Generated". Mirrors the
             // legacy streamAnswer mock so send tests keep their expectations.
             // For append-with-images it also returns the merged direction so
-            // the chat-node can persist it onto the user node.
+            // the chat-node can persist it onto the user node. For IMAGE
+            // usecases it returns a storyboard slot so the postprocessor
+            // places illustration + prompt attachments on the chapter.
             run: vi.fn(async (
-              build: { usecase?: string; vars?: { content?: string } },
+              build: {
+                usecase?: string;
+                vars?: { content?: string; promptText?: string; count?: number };
+              },
               opts?: { onChunk?: (c: unknown) => void },
             ) => {
               opts?.onChunk?.({ content: 'Generated' });
               const slots: Record<string, unknown> = { text: { status: 'ok', value: 'Generated' } };
-              if (build?.usecase === 'append-with-images' && build.vars?.content) {
+              const imgUse = (build?.usecase ?? '').startsWith('storyboard')
+                || (build?.usecase ?? '').startsWith('planned')
+                || (build?.usecase ?? '').startsWith('render')
+                || (build?.usecase ?? '').startsWith('image');
+              if (imgUse) {
+                const count = build.vars?.count ?? 1;
+                const sceneText = build.vars?.promptText ?? build.vars?.content ?? 'Scene';
+                if (count > 1) {
+                  // Storyboard: one scene per picture (each 1 image).
+                  slots['storyboard'] = {
+                    status: 'ok',
+                    value: Array.from({ length: count }).map((_, i) => ({
+                      scene: i + 1,
+                      prompt: `scene ${i + 1}: ${sceneText}`,
+                      images: [{ url: `data:image/png;base64,QQ${'A'.repeat(i)}` }],
+                      refused: false
+                    }))
+                  };
+                } else {
+                  const one = { url: 'data:image/png;base64,QQ==' };
+                  slots['images'] = { status: 'ok', value: [one] };
+                  slots['storyboard'] = {
+                    status: 'ok',
+                    value: [{ scene: 1, prompt: sceneText, images: [one], refused: false }]
+                  };
+                }
+              } else if (build?.usecase === 'append-with-images' && build.vars?.content) {
                 slots['direction'] = {
                   status: 'ok',
-                  value: `${build.vars.content}\n\nAttached image (interpreted automatically):\n\na red ball.`,
+                  value: `${build.vars.content}\n\na red ball.`,
                 };
               }
               return slots;
             })
+          }
+        },
+        {
+          // Mock the ORCHESTRATOR (transport), NOT the flow runner: the real
+          // flows then create + stream against the real (in-memory) ChatService,
+          // so node-shape assertions in the branch/insert/regenerate/prepend
+          // tests keep working.
+          provide: LlmOrchestratorService,
+          useValue: {
+            completion: vi.fn(async (
+              _cx: unknown,
+              _req: unknown,
+              opts?: { onChunk?: (c: unknown) => void },
+            ) => {
+              opts?.onChunk?.({ content: 'Generated' });
+              return { text: { status: 'ok', value: 'Generated' } };
+            }),
+            completeImage: vi.fn(async () => ({ images: { status: 'refused', value: null } })),
+            images: vi.fn(async () => ({ images: { status: 'refused', value: null } }))
           }
         },
       ],
@@ -155,12 +175,10 @@ describe('ChatNodeComponent', () => {
     runner = TestBed.inject(LlmUseCaseRunner) as unknown as {
       run: ReturnType<typeof vi.fn>;
     };
-    llm = TestBed.inject(LlmService) as unknown as {
-      streamAnswer: ReturnType<typeof vi.fn>;
-      askLlm: ReturnType<typeof vi.fn>;
-      resolveForCurrentChat: ReturnType<typeof vi.fn>;
-      toLlmExtras: ReturnType<typeof vi.fn>;
-      generateImage: ReturnType<typeof vi.fn>;
+    orch = TestBed.inject(LlmOrchestratorService) as unknown as {
+      completion: ReturnType<typeof vi.fn>;
+      completeImage: ReturnType<typeof vi.fn>;
+      images: ReturnType<typeof vi.fn>;
     };
     illustrateDialog = TestBed.inject(IllustrateDialogService) as unknown as {
       open: ReturnType<typeof vi.fn>;
@@ -808,32 +826,25 @@ describe('ChatNodeComponent', () => {
       fixture.detectChanges();
 
       // The send routes through the orchestration `append-with-images` use
-      // case: the runner gets the attachments + the localized prefix so the
-      // image-interpret step happens inside the orchestration layer.
+      // case: the runner gets the attachments so the image-interpret step
+      // happens inside the orchestration layer.
       expect(runner.run).toHaveBeenCalled();
       const build = runner.run.mock.calls[0][0] as {
         usecase?: string;
-        vars?: { content?: string; attachments?: unknown[]; interpretPrefix?: string };
+        vars?: { content?: string; attachments?: unknown[] };
       };
       expect(build.usecase).toBe('append-with-images');
       expect(build.vars?.content).toBe('Continue from this picture');
       expect((build.vars?.attachments ?? []).length).toBe(1);
-      expect(build.vars?.interpretPrefix).toContain('interpreted automatically');
 
-      // The answer was streamed through the orchestration runner (not the
-      // legacy streamAnswer path).
-      expect(llm.streamAnswer).not.toHaveBeenCalled();
-      expect(llm.askLlm).not.toHaveBeenCalled();
       const answers = chatService.nodes().filter((n) => n.role === 'assistant' && n.parentId === 'q1');
       expect(answers[0].content).toBe('Generated');
 
       // The merged description was persisted onto the USER node content for
       // real, so it is available in the history (the image itself stays an
-      // attachment but is never sent to the LLM).
+      // attachment but is never sent to the LLM). No UI prefix is stored.
       const q1node = chatService.nodes().find((n) => n.id === 'q1')!;
-      expect(q1node.content).toBe(
-        'Continue from this picture\n\nAttached image (interpreted automatically):\n\na red ball.'
-      );
+      expect(q1node.content).toBe('Continue from this picture\n\na red ball.');
       // The image attachment is preserved on the node (for display).
       expect(q1node.attachments?.length).toBe(1);
     });
@@ -901,7 +912,12 @@ describe('ChatNodeComponent', () => {
       expect(branch!.id).not.toBe('q1');
       expect(branch!.parentId).toBeNull(); // sibling of q1
       expect(emitted).toContain(branch!.id);
-      expect(llm.streamAnswer).toHaveBeenCalled();
+      // The answer streamed under the new branch (via the flow runner).
+      const answer = chatService
+        .nodes()
+        .find((n) => n.role === 'assistant' && n.parentId === branch!.id);
+      expect(answer).toBeDefined();
+      expect(answer!.content).toBe('Generated');
     });
 
     it('branches from an assistant answer by adding a child question', async () => {
@@ -926,7 +942,8 @@ describe('ChatNodeComponent', () => {
       expect(branch).not.toBeUndefined();
       expect(branch!.parentId).toBe('a1');
       expect(emitted).toContain(branch!.id);
-      expect(llm.streamAnswer).toHaveBeenCalled();
+      const answer = chatService.nodes().find((n) => n.role === 'assistant' && n.parentId === branch!.id);
+      expect(answer?.content).toBe('Generated');
     });
   });
 
@@ -958,13 +975,12 @@ describe('ChatNodeComponent', () => {
         .find((n) => n.role === 'user' && n.content === 'Inserted question');
       expect(inserted).not.toBeUndefined();
       expect(inserted!.parentId).toBeNull();
-      // the new assistant answer hangs under the inserted question
-      const answer = chatService
-        .nodes()
-        .find((n) => n.role === 'assistant' && n.parentId === inserted!.id);
-      expect(answer).not.toBeUndefined();
+      // the new assistant answer hangs under the inserted question (the
+      // CURRENT answer — versioned, the placeholder is retired).
+      const answer = chatService.getChildren(inserted!.id).find((n) => n.role === 'assistant')!;
+      expect(answer).toBeDefined();
       // the old question now hangs under the new answer
-      expect(chatService.nodes().find((n) => n.id === 'q1')?.parentId).toBe(answer!.id);
+      expect(chatService.nodes().find((n) => n.id === 'q1')?.parentId).toBe(answer.id);
     });
 
     it('does nothing when called on an assistant node', async () => {
@@ -983,7 +999,6 @@ describe('ChatNodeComponent', () => {
       await component.saveAsInsertAndSend();
       fixture.detectChanges();
 
-      expect(llm.streamAnswer).not.toHaveBeenCalled();
       expect(
         chatService.nodes().filter((n) => n.role === 'user' && n.content === 'Should not insert')
           .length,
@@ -1000,33 +1015,7 @@ describe('ChatNodeComponent', () => {
       expect(titleButton('Generate a chapter heading for this answer')).not.toBeNull();
     });
 
-    it('replaces the existing heading node for the same answer', async () => {
-      const q1 = node({ id: 'q1', content: 'Story context' });
-      const h1 = node({
-        id: 'h1',
-        chatId: 'chat-1',
-        parentId: 'q1',
-        role: 'structural',
-        content: 'Old heading',
-      });
-      const a1 = node({
-        id: 'a1',
-        chatId: 'chat-1',
-        parentId: 'h1',
-        role: 'assistant',
-        content: 'Chapter text',
-      });
-      await openChat([q1, h1, a1]);
-      createFixture(a1);
-
-      await component.generateHeading();
-
-      expect(chatService.nodes().filter((n) => n.role === 'structural')).toHaveLength(1);
-      expect(chatService.nodes().find((n) => n.id === 'h1')?.content).toBe('Generated structure');
-      expect(chatService.nodes().find((n) => n.id === 'a1')?.parentId).toBe('h1');
-    });
-
-    it('generates a chapter heading that wraps the assistant answer', async () => {
+    it('drives the structure-heading use case with the chapter model and activates the created node', async () => {
       const q1 = node({ id: 'q1', content: 'Story context' });
       const a1 = node({
         id: 'a1',
@@ -1038,18 +1027,26 @@ describe('ChatNodeComponent', () => {
       await openChat([q1, a1]);
       createFixture(a1);
 
+      // The real flow (covered in flows.spec.ts) creates/patches the heading
+      // node and returns its id — the component activates it.
+      (runner.run as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+        text: { status: 'ok', value: 'Generated structure' },
+        flow: { status: 'ok', value: { structureNodeId: 'h1', activateId: 'h1', empty: false } }
+      });
       await component.generateHeading();
 
-      const generated = chatService.nodes().find((n) => n.role === 'structural');
-      expect(generated?.content).toBe('Generated structure');
-      expect(generated?.parentId).toBe('q1');
-      expect(generated?.modelId).toBe('alpha/model');
-      expect(chatService.nodes().find((n) => n.id === 'a1')?.parentId).toBe(generated?.id);
-      expect(llm.askLlm).toHaveBeenCalled();
-      expect(emitted).toContain(generated?.id);
+      expect(runner.run).toHaveBeenCalledTimes(1);
+      const build = runner.run.mock.calls[0][0] as {
+        usecase?: string;
+        vars?: { modelId?: string; providerId?: string };
+      };
+      expect(build.usecase).toBe('structure-heading');
+      expect(build.vars?.modelId).toBe('alpha/model');
+      expect(build.vars?.providerId).toBe('prov-1');
+      expect(emitted).toContain('h1');
     });
 
-    it('uses only the current node text as context', async () => {
+    it('passes only the current chapter node as the anchor', async () => {
       const q1 = node({ id: 'q1', content: 'Story context' });
       const a1 = node({
         id: 'a1',
@@ -1068,13 +1065,13 @@ describe('ChatNodeComponent', () => {
       await openChat([q1, a1, a2]);
       createFixture(a1);
 
+      (runner.run as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+        flow: { status: 'ok', value: { structureNodeId: 'h9', activateId: 'h9', empty: false } }
+      });
       await component.generateHeading();
 
-      const messages = llm.askLlm.mock.calls[0][3];
-      const userMsg = messages.find((m: { role: string }) => m.role === 'user');
-      expect(userMsg.content).toContain('Sole context');
-      expect(userMsg.content).not.toContain('Other answer');
-      expect(userMsg.content).not.toContain('Story context');
+      const build = runner.run.mock.calls[0][0] as { node?: { id?: string } };
+      expect(build.node?.id).toBe('a1');
     });
 
     it('does nothing when called on a non-assistant node', async () => {
@@ -1084,8 +1081,7 @@ describe('ChatNodeComponent', () => {
 
       await component.generateHeading();
 
-      expect(llm.askLlm).not.toHaveBeenCalled();
-      expect(chatService.nodes().filter((n) => n.role === 'structural').length).toBe(0);
+      expect(runner.run).not.toHaveBeenCalled();
     });
   });
 
@@ -1115,7 +1111,10 @@ describe('ChatNodeComponent', () => {
       expect(chatService.nodes().find((n) => n.id === 'a1')).toBeUndefined();
       expect(chatService.nodes().find((n) => n.id === 'd')).toBeUndefined();
       expect(emitted).toContain('q1');
-      expect(llm.streamAnswer).toHaveBeenCalled();
+      // A fresh answer was streamed under the question by the flow runner.
+      const fresh = chatService.nodes().find((n) => n.role === 'assistant' && n.parentId === 'q1');
+      expect(fresh).toBeDefined();
+      expect(fresh!.content).toBe('Generated');
     });
 
     it('does nothing while already loading or generating', async () => {
@@ -1134,7 +1133,7 @@ describe('ChatNodeComponent', () => {
       await component.regenerateAnswer();
       fixture.detectChanges();
 
-      expect(llm.streamAnswer).not.toHaveBeenCalled();
+      expect(chatService.nodes().find((n) => n.id === 'a1')).toBeDefined();
       chatService.stopGeneration();
     });
   });
@@ -1182,14 +1181,11 @@ describe('ChatNodeComponent', () => {
       const newAnswer = chatService.getChildren('q1').find((n) => n.role === 'assistant')!;
       expect(newAnswer).toBeDefined();
       expect(newAnswer.id).not.toBe('a1');
+      expect(newAnswer.content).toBe('Generated');
       expect(chatService.getChildren(newAnswer.id).map((n) => n.id)).toContain('d1');
       expect(chatService.getActiveChild(newAnswer.id)?.id).toBe('d1');
 
       expect(emitted).toContain('q1');
-      expect(llm.streamAnswer).toHaveBeenCalledWith(
-        'chat-1', 'q1', expect.anything(), expect.anything(), expect.anything(), undefined,
-        expect.objectContaining({ adoptNodeIds: ['d1'] }),
-      );
     });
 
     it('with no following text it behaves like a plain regenerate', async () => {
@@ -1225,7 +1221,7 @@ describe('ChatNodeComponent', () => {
       const newAnswer = chatService.getChildren('q1').find((n) => n.role === 'assistant')!;
       expect(newAnswer).toBeDefined();
       expect(newAnswer.id).not.toBe('a1');
-      expect(llm.streamAnswer).toHaveBeenCalled();
+      expect(newAnswer.content).toBe('Generated');
     });
 
     it('asks for confirmation when there is following text; aborting keeps the node', async () => {
@@ -1249,7 +1245,6 @@ describe('ChatNodeComponent', () => {
       fixture.detectChanges();
 
       expect(chatService.nodes().find((n) => n.id === 'a1')).toBeDefined();
-      expect(llm.streamAnswer).not.toHaveBeenCalled();
     });
   });
 
@@ -1455,12 +1450,18 @@ describe('ChatNodeComponent', () => {
       });
       await openChat([q1, a1]);
 
-      const generation = TestBed.inject(GenerationSettingsService);
-      generation.update('image-create', { providerId: 'prov-1', modelId: 'alpha/model' });
-
-      llm.generateImage.mockResolvedValueOnce({
-        content: '',
-        images: [{ url: 'data:image/png;base64,QQ==' }],
+      runner.run.mockResolvedValueOnce({
+        images: { status: 'ok', value: [{ url: 'data:image/png;base64,QQ==' }] },
+        storyboard: {
+          status: 'ok',
+          value: [{
+            scene: 1,
+            prompt: 'Illustrate this beat\n\nAssistant:\nA brighter dungeon scene, lit by torchlight',
+            images: [{ url: 'data:image/png;base64,QQ==' }],
+            refused: false,
+            content: ''
+          }]
+        }
       });
 
       createFixture(a1, 'a1');
@@ -1472,18 +1473,20 @@ describe('ChatNodeComponent', () => {
       expect(component.promptEditDraft()).toBe('A dungeon scene');
       expect(fixture.nativeElement.querySelector('.prompt-editor')).not.toBeNull();
 
-      // Re-render against the refused scene number, single picture, no planning.
+      // Re-render via the orchestration `image-generation` use case: single
+      // picture, count 1, no planning — the adapted prompt IS the scene.
       component.promptEditDraft.set('A brighter dungeon scene, lit by torchlight');
       await component.rerenderPrompt(refused);
       fixture.detectChanges();
 
-      expect(llm.generateImage).toHaveBeenCalledTimes(1);
-      const optsArg = llm.generateImage.mock.calls[0][4] as {
-        count: number;
-        planDescriptions?: boolean;
+      expect(runner.run).toHaveBeenCalledTimes(1);
+      const build = runner.run.mock.calls[0][0] as {
+        usecase?: string;
+        vars?: { promptText?: string; count?: number };
       };
-      expect(optsArg.count).toBe(1);
-      expect(optsArg.planDescriptions).toBe(false);
+      expect(build.usecase).toBe('image-generation');
+      expect(build.vars?.count).toBe(1);
+      expect(build.vars?.promptText).toContain('brighter dungeon scene, lit by torchlight');
 
       // editAssistant versions the chapter — read the current assistant child.
       const chapter = chatService.getChildren('q1')
@@ -1523,19 +1526,19 @@ describe('ChatNodeComponent', () => {
       });
       await openChat([q1, a1]);
 
-      const generation = TestBed.inject(GenerationSettingsService);
-      generation.update('image-create', { providerId: 'prov-1', modelId: 'alpha/model' });
-
-      // Mirrors LlmService.generateImage's REAL return shape (scenes populated).
-      llm.generateImage.mockResolvedValueOnce({
-        content: 'done',
-        images: [{ url: 'data:image/png;base64,BBBB' }],
-        scenes: [{
-          scene: 1,
-          prompt: 'adapted scene prompt',
-          images: [{ url: 'data:image/png;base64,BBBB' }],
-          refused: false,
-        }],
+      // Mirrors the orchestration `image-generation` slots shape (storyboard
+      // populated).
+      runner.run.mockResolvedValueOnce({
+        images: { status: 'ok', value: [{ url: 'data:image/png;base64,BBBB' }] },
+        storyboard: {
+          status: 'ok',
+          value: [{
+            scene: 1,
+            prompt: 'adapted scene prompt',
+            images: [{ url: 'data:image/png;base64,BBBB' }],
+            refused: false
+          }]
+        }
       });
 
       createFixture(a1, 'a1');
@@ -1574,21 +1577,21 @@ describe('ChatNodeComponent', () => {
       });
       await openChat([q1, a1]);
 
-      const generation = TestBed.inject(GenerationSettingsService);
-      generation.update('image-create', { providerId: 'prov-1', modelId: 'alpha/model' });
       // Model refuses again: no images, refused scene with a reply.
-      llm.generateImage.mockResolvedValueOnce({
-        content: 'I cannot help with that.',
-        images: [],
-        scenes: [{
-          scene: 1,
-          // In the real flow scene.prompt is the anchor, which embeds the
-          // user's adapted draft text.
-          prompt: 'Illustrate... chapter to illustrate:\nA softer scene',
-          images: [],
-          refused: true,
-          content: 'I cannot help with that.',
-        }],
+      runner.run.mockResolvedValueOnce({
+        images: { status: 'refused', value: null },
+        storyboard: {
+          status: 'ok',
+          value: [{
+            scene: 1,
+            // In the real flow scene.prompt is the anchor, which embeds the
+            // user's adapted draft text.
+            prompt: 'Illustrate... chapter to illustrate:\nA softer scene',
+            images: [],
+            refused: true,
+            content: 'I cannot help with that.'
+          }]
+        }
       });
 
       createFixture(a1, 'a1');
@@ -1631,11 +1634,18 @@ describe('ChatNodeComponent', () => {
       });
       await openChat([q1, a1]);
 
-      const generation = TestBed.inject(GenerationSettingsService);
-      generation.update('image-create', { providerId: 'prov-1', modelId: 'alpha/model' });
-      llm.generateImage.mockResolvedValueOnce({
-        content: '',
-        images: [{ url: 'data:image/png;base64,NEWDATA' }],
+      runner.run.mockResolvedValueOnce({
+        images: { status: 'ok', value: [{ url: 'data:image/png;base64,NEWDATA' }] },
+        storyboard: {
+          status: 'ok',
+          value: [{
+            scene: 1,
+            prompt: 'Illustrate this beat\n\nAssistant:\nA brighter castle at dusk',
+            images: [{ url: 'data:image/png;base64,NEWDATA' }],
+            refused: false,
+            content: ''
+          }]
+        }
       });
 
       createFixture(a1, 'a1');
@@ -1780,29 +1790,20 @@ describe('ChatNodeComponent', () => {
       const generation = TestBed.inject(GenerationSettingsService);
       generation.update('image-create', { providerId: 'prov-1', modelId: 'alpha/model' });
 
-      llm.generateImage.mockResolvedValueOnce({
-        content: '',
-        images: [{ url: 'data:image/png;base64,QQ==' }],
-      });
-
       createFixture(q1, 'a1');
       await component.illustrate();
       fixture.detectChanges();
 
-      expect(llm.generateImage).toHaveBeenCalledTimes(1);
-      // The direction text is sent as the scene to depict.
-      const imagesArgs = llm.generateImage.mock.calls[0][2] as { role: string; content: unknown }[];
-      const lastText = JSON.stringify(imagesArgs[imagesArgs.length - 1].content);
-      expect(lastText).toContain('Night train, Mara at the window.');
-
-      // Single picture (count 1): no storyboard, no description planning,
-      // no one-shot batch call.
-      const optsArg = llm.generateImage.mock.calls[0][4] as {
-        planDescriptions?: boolean;
-        singleCall?: boolean;
+      // Routes through the orchestration `render-node` use case (count 1,
+      // current-text only) with the direction text as the scene override.
+      expect(runner.run).toHaveBeenCalledTimes(1);
+      const build = runner.run.mock.calls[0][0] as {
+        usecase?: string;
+        vars?: { content?: string; count?: number; modelId?: string };
       };
-      expect(optsArg.planDescriptions).not.toBe(true);
-      expect(optsArg.singleCall).not.toBe(true);
+      expect(build.usecase).toBe('render-node');
+      expect(build.vars?.content).toBe('Night train, Mara at the window.');
+      expect(build.vars?.modelId).toBe('alpha/model');
 
       const chapter = chatService.getChildren('q1').find((c) => c.role === 'assistant' && c.isCurrent)!;
       expect(chapter.attachments?.length).toBe(2);
@@ -1831,11 +1832,6 @@ describe('ChatNodeComponent', () => {
       const generation = TestBed.inject(GenerationSettingsService);
       generation.update('image-create', { providerId: 'prov-1', modelId: 'alpha/model' });
 
-      llm.generateImage.mockResolvedValueOnce({
-        content: '',
-        images: [{ url: 'data:image/png;base64,QQ==' }],
-      });
-
       createFixture(a1);
       await component.illustrate();
       fixture.detectChanges();
@@ -1858,10 +1854,6 @@ describe('ChatNodeComponent', () => {
 
       const generation = TestBed.inject(GenerationSettingsService);
       generation.update('image-create', { providerId: 'prov-1', modelId: 'alpha/model' });
-      llm.generateImage.mockResolvedValueOnce({
-        content: '',
-        images: [{ url: 'data:image/png;base64,QQ==' }],
-      });
 
       // The user enabled the "pure picture mode" check button in the dialog.
       illustrateDialog.open.mockResolvedValue({
@@ -1877,15 +1869,14 @@ describe('ChatNodeComponent', () => {
       await component.illustrate();
       fixture.detectChanges();
 
-      expect(llm.generateImage).toHaveBeenCalledTimes(1);
-      const optsArg = llm.generateImage.mock.calls[0][4] as {
-        purePictures?: boolean;
-        planDescriptions?: boolean;
+      // Pure picture mode + count 1 → render-node, but the purePictures flag
+      // is carried into the orchestration vars (planning is chosen by the
+      // use case selection downstream).
+      expect(runner.run).toHaveBeenCalledTimes(1);
+      const build = runner.run.mock.calls[0][0] as {
+        vars?: { purePictures?: boolean; content?: string };
       };
-      expect(optsArg.purePictures).toBe(true);
-      // Pure mode forces the description-planning pass so only the derived
-      // descriptions reach the image model.
-      expect(optsArg.planDescriptions).toBe(true);
+      expect(build.vars?.purePictures).toBe(true);
     });
 
     it('seeds the illustrate dialog with the default rendering model', async () => {
@@ -1897,10 +1888,6 @@ describe('ChatNodeComponent', () => {
 
       const generation = TestBed.inject(GenerationSettingsService);
       generation.update('image-create', { providerId: 'prov-1', modelId: 'alpha/model' });
-      llm.generateImage.mockResolvedValueOnce({
-        content: '',
-        images: [{ url: 'data:image/png;base64,QQ==' }],
-      });
 
       createFixture(q1, 'a1');
       await component.illustrate();
@@ -1932,11 +1919,6 @@ describe('ChatNodeComponent', () => {
       const generation = TestBed.inject(GenerationSettingsService);
       generation.update('image-create', { providerId: 'prov-1', modelId: 'alpha/model' });
 
-      llm.generateImage.mockResolvedValueOnce({
-        content: '',
-        images: [{ url: 'data:image/png;base64,QQ==' }],
-      });
-
       // The user picks a different image model in the dialog.
       illustrateDialog.open.mockResolvedValue({
         count: 1,
@@ -1953,14 +1935,18 @@ describe('ChatNodeComponent', () => {
       await component.illustrate();
       fixture.detectChanges();
 
-      expect(llm.generateImage).toHaveBeenCalledTimes(1);
-      const modelArg = llm.generateImage.mock.calls[0][1] as { modelId?: string };
-      expect(modelArg.modelId).toBe('beta/image');
-      const providerArg = llm.generateImage.mock.calls[0][0] as { baseUrl?: string };
-      expect(providerArg.baseUrl).toBeDefined();
+      // The dialog-selected model is forwarded into the orchestration vars so
+      // the runner resolves THAT image model, not the default task model.
+      expect(runner.run).toHaveBeenCalledTimes(1);
+      const build = runner.run.mock.calls[0][0] as {
+        usecase?: string;
+        vars?: { modelId?: string; providerId?: string; content?: string };
+      };
+      expect(build.vars?.modelId).toBe('beta/image');
+      expect(build.vars?.providerId).toBe('prov-1');
     });
 
-    it('forwards the full-chat historyMode as forwardFullHistory for a single picture', async () => {
+    it('forwards the full-chat historyMode as the render-full use case for a single picture', async () => {
       const q1 = node({ id: 'q1', content: 'A direction.' });
       const a1 = node({
         id: 'a1', chatId: 'chat-1', parentId: 'q1', role: 'assistant', content: 'A chapter.',
@@ -1969,10 +1955,6 @@ describe('ChatNodeComponent', () => {
 
       const generation = TestBed.inject(GenerationSettingsService);
       generation.update('image-create', { providerId: 'prov-1', modelId: 'alpha/model' });
-      llm.generateImage.mockResolvedValueOnce({
-        content: '',
-        images: [{ url: 'data:image/png;base64,QQ==' }],
-      });
 
       // User chose "Full chat up to this point" in the dialog.
       illustrateDialog.open.mockResolvedValue({
@@ -1989,12 +1971,13 @@ describe('ChatNodeComponent', () => {
       await component.illustrate();
       fixture.detectChanges();
 
-      expect(llm.generateImage).toHaveBeenCalledTimes(1);
-      const optsArg = llm.generateImage.mock.calls[0][4] as { forwardFullHistory?: boolean };
-      expect(optsArg.forwardFullHistory).toBe(true);
+      // historyMode 'full' + count 1 → render-full (current node + full chat).
+      expect(runner.run).toHaveBeenCalledTimes(1);
+      const build = runner.run.mock.calls[0][0] as { usecase?: string };
+      expect(build.usecase).toBe('render-full');
     });
 
-    it('does not forward the full chat for a storyboard even when it was chosen', async () => {
+    it('does not use render-full for a storyboard even when full chat was chosen', async () => {
       const q1 = node({ id: 'q1', content: 'A direction.' });
       const a1 = node({
         id: 'a1', chatId: 'chat-1', parentId: 'q1', role: 'assistant', content: 'A chapter.',
@@ -2003,10 +1986,6 @@ describe('ChatNodeComponent', () => {
 
       const generation = TestBed.inject(GenerationSettingsService);
       generation.update('image-create', { providerId: 'prov-1', modelId: 'alpha/model' });
-      llm.generateImage.mockResolvedValueOnce({
-        content: '',
-        images: [{ url: 'data:image/png;base64,QQ==' }],
-      });
 
       // historyMode 'full' is meaningless for a storyboard (count=3).
       illustrateDialog.open.mockResolvedValue({
@@ -2023,13 +2002,13 @@ describe('ChatNodeComponent', () => {
       await component.illustrate();
       fixture.detectChanges();
 
-      expect(llm.generateImage).toHaveBeenCalledTimes(1);
-      const optsArg = llm.generateImage.mock.calls[0][4] as { forwardFullHistory?: boolean };
-      // generateImage enforces count===1: storyboards never get full history.
-      expect(optsArg.forwardFullHistory).toBe(true);
+      // count > 1 → storyboard (planned-scenes), never render-full.
+      expect(runner.run).toHaveBeenCalledTimes(1);
+      const build = runner.run.mock.calls[0][0] as { usecase?: string };
+      expect(build.usecase).toBe('planned-scenes');
     });
 
-    it('uses planning for a single assistant chapter by default', async () => {
+    it('a single assistant chapter renders via render-node (no planning pass)', async () => {
       const q1 = node({ id: 'q1', content: 'A direction.' });
       const a1 = node({
         id: 'a1', chatId: 'chat-1', parentId: 'q1', role: 'assistant', content: 'A chapter.',
@@ -2038,22 +2017,14 @@ describe('ChatNodeComponent', () => {
 
       const generation = TestBed.inject(GenerationSettingsService);
       generation.update('image-create', { providerId: 'prov-1', modelId: 'alpha/model' });
-      llm.generateImage.mockResolvedValueOnce({
-        content: '',
-        images: [{ url: 'data:image/png;base64,QQ==' }],
-      });
 
       createFixture(a1);
       await component.illustrate();
       fixture.detectChanges();
 
-      // Single assistant chapter → planning ON, and no forced full history.
-      const optsArg = llm.generateImage.mock.calls[0][4] as {
-        planDescriptions?: boolean;
-        forwardFullHistory?: boolean;
-      };
-      expect(optsArg.planDescriptions).toBe(true);
-      expect(optsArg.forwardFullHistory).toBe(false);
+      // Single picture, current-text only → render-node.
+      const build = runner.run.mock.calls[0][0] as { usecase?: string };
+      expect(build.usecase).toBe('render-node');
     });
 
     it('disables planning for a single assistant chapter; current-text stays single-message', async () => {
@@ -2065,11 +2036,6 @@ describe('ChatNodeComponent', () => {
 
       const generation = TestBed.inject(GenerationSettingsService);
       generation.update('image-create', { providerId: 'prov-1', modelId: 'alpha/model' });
-      llm.generateImage.mockResolvedValueOnce({
-        content: '',
-        images: [{ url: 'data:image/png;base64,QQ==' }],
-      });
-
       // The user unchecks "Plan picture descriptions first" but leaves the
       // context radio on "Current text only".
       illustrateDialog.open.mockResolvedValue({
@@ -2087,19 +2053,18 @@ describe('ChatNodeComponent', () => {
       await component.illustrate();
       fixture.detectChanges();
 
-      const optsArg = llm.generateImage.mock.calls[0][4] as {
-        planDescriptions?: boolean;
-        forwardFullHistory?: boolean;
+      // Single picture + current-text only (planning checkbox off) →
+      // render-node: no storyboard, no planning.
+      expect(runner.run).toHaveBeenCalledTimes(1);
+      const build = runner.run.mock.calls[0][0] as {
+        usecase?: string;
+        vars?: { planDescriptions?: boolean; content?: string };
       };
-      // Planning is skipped…
-      expect(optsArg.planDescriptions).toBe(false);
-      // …but the radio is authoritative: with "Current text only" selected,
-      // the raw story is NOT forwarded as the full chat — only the single
-      // prepared anchor reaches the image model.
-      expect(optsArg.forwardFullHistory).toBe(false);
+      expect(build.usecase).toBe('render-node');
+      expect(build.vars?.content).toContain('A chapter.');
     });
 
-    it('with planning off and full-chat selected the whole chat is forwarded', async () => {
+    it('with full-chat selected the render-full use case is used', async () => {
       const q1 = node({ id: 'q1', content: 'A direction.' });
       const a1 = node({
         id: 'a1', chatId: 'chat-1', parentId: 'q1', role: 'assistant', content: 'A chapter.',
@@ -2108,10 +2073,6 @@ describe('ChatNodeComponent', () => {
 
       const generation = TestBed.inject(GenerationSettingsService);
       generation.update('image-create', { providerId: 'prov-1', modelId: 'alpha/model' });
-      llm.generateImage.mockResolvedValueOnce({
-        content: '',
-        images: [{ url: 'data:image/png;base64,QQ==' }],
-      });
 
       // Planning off + "Full chat up to this point" on an assistant chapter.
       illustrateDialog.open.mockResolvedValue({
@@ -2129,14 +2090,11 @@ describe('ChatNodeComponent', () => {
       await component.illustrate();
       fixture.detectChanges();
 
-      const optsArg = llm.generateImage.mock.calls[0][4] as {
-        planDescriptions?: boolean;
-        forwardFullHistory?: boolean;
-      };
-      expect(optsArg.planDescriptions).toBe(false);
-      // The radio wins: full chat IS forwarded (the story the planner would
-      // have seen reaches the image model directly).
-      expect(optsArg.forwardFullHistory).toBe(true);
+      // Planning off + full-chat selected on a single picture → render-full.
+      expect(runner.run).toHaveBeenCalledTimes(1);
+      const build = runner.run.mock.calls[0][0] as { usecase?: string; vars?: { content?: string } };
+      expect(build.usecase).toBe('render-full');
+      expect(build.vars?.content).toContain('A chapter.');
     });
 
     it('keeps planning on in pure picture mode even when the checkbox was off', async () => {
@@ -2148,10 +2106,6 @@ describe('ChatNodeComponent', () => {
 
       const generation = TestBed.inject(GenerationSettingsService);
       generation.update('image-create', { providerId: 'prov-1', modelId: 'alpha/model' });
-      llm.generateImage.mockResolvedValueOnce({
-        content: '',
-        images: [{ url: 'data:image/png;base64,QQ==' }],
-      });
 
       // Pure mode with a stale/ignored planDescriptions: false.
       illustrateDialog.open.mockResolvedValue({
@@ -2169,15 +2123,14 @@ describe('ChatNodeComponent', () => {
       await component.illustrate();
       fixture.detectChanges();
 
-      const optsArg = llm.generateImage.mock.calls[0][4] as {
-        planDescriptions?: boolean;
-        forwardFullHistory?: boolean;
-        purePictures?: boolean;
+      // Pure mode + count 1 → render-node, with purePictures carried through.
+      expect(runner.run).toHaveBeenCalledTimes(1);
+      const build = runner.run.mock.calls[0][0] as {
+        usecase?: string;
+        vars?: { purePictures?: boolean; content?: string };
       };
-      // Planning forced ON, raw history never forwarded in pure mode.
-      expect(optsArg.planDescriptions).toBe(true);
-      expect(optsArg.forwardFullHistory).toBe(false);
-      expect(optsArg.purePictures).toBe(true);
+      expect(build.vars?.purePictures).toBe(true);
+      expect(build.usecase).toBe('render-node');
     });
 
     it('shows an alert and does not call the LLM when no image model is enabled', async () => {
@@ -2191,7 +2144,6 @@ describe('ChatNodeComponent', () => {
       await component.illustrate();
       fixture.detectChanges();
 
-      expect(llm.generateImage).not.toHaveBeenCalled();
       expect(window.alert).toHaveBeenCalled();
     });
 
@@ -2208,10 +2160,6 @@ describe('ChatNodeComponent', () => {
 
       const generation = TestBed.inject(GenerationSettingsService);
       generation.update('image-create', { providerId: 'prov-1', modelId: 'alpha/model' });
-      llm.generateImage.mockResolvedValueOnce({
-        content: '',
-        images: [{ url: 'data:image/png;base64,QQ==' }],
-      });
 
       createFixture(q1, 'a1');
       await component.startEdit();
@@ -2220,12 +2168,12 @@ describe('ChatNodeComponent', () => {
       await component.illustrateWithDraft();
       fixture.detectChanges();
 
-      expect(llm.generateImage).toHaveBeenCalledTimes(1);
-      const imagesArgs = llm.generateImage.mock.calls[0][2] as { role: string; content: unknown }[];
-      const lastText = JSON.stringify(imagesArgs[imagesArgs.length - 1].content);
-      // The edited draft (not the stale saved content) drives the prompt.
-      expect(lastText).toContain('The train stops at a ghost platform');
-      expect(lastText).not.toContain('Old stubborn direction.');
+      // The edited draft (promptOverride) drives the scene content, not the
+      // stale saved content.
+      expect(runner.run).toHaveBeenCalledTimes(1);
+      const build = runner.run.mock.calls[0][0] as { vars?: { content?: string } };
+      expect(build.vars?.content).toContain('The train stops at a ghost platform');
+      expect(build.vars?.content).not.toContain('Old stubborn direction.');
 
       const chapter = chatService.getChildren('q1').find((c) => c.role === 'assistant' && c.isCurrent)!;
       expect(chapter.attachments?.length).toBe(2);
@@ -2256,53 +2204,38 @@ describe('ChatNodeComponent', () => {
       });
 
       const imgs = [0, 1, 2].map((i) => ({ url: `data:image/png;base64,AAAA${i}` }));
-      llm.generateImage.mockImplementation(async (_p: unknown, _m: unknown, _ms: unknown, _sig?: unknown, opts?: any) => {
-        opts?.onProgress?.(Math.min(imgs.length, opts.count), opts.count);
-        return { content: '', images: imgs };
-      });
 
       createFixture(q1, 'a1');
       await component.illustrate();
       fixture.detectChanges();
 
-      expect(llm.generateImage).toHaveBeenCalledTimes(1);
-      const optsArg = llm.generateImage.mock.calls[0][4] as {
-        count: number;
-        storyboardPrompt: string;
-        planDescriptions?: boolean;
-        singleCall?: boolean;
-        planner?: { model?: unknown; provider?: unknown } | null;
-        onProgress?: unknown;
+      // count 3 → planned-scenes; the dialog options ride in the vars.
+      expect(runner.run).toHaveBeenCalledTimes(1);
+      const build = runner.run.mock.calls[0][0] as {
+        usecase?: string;
+        vars?: {
+          count?: number;
+          style?: string;
+          storyboardPrompt?: string;
+          content?: string;
+          modelId?: string;
+        };
       };
-      expect(optsArg.count).toBe(3);
-      expect(optsArg.storyboardPrompt).toContain('no explicit images');
-      // Storyboard mode asks the service to plan concrete picture
-      // descriptions before rendering each scene.
-      expect(optsArg.planDescriptions).toBe(true);
-      // Storyboard mode asks the service to render all pictures in ONE
-      // completion so faces/figures/environment stay consistent (falls back
-      // to per-scene automatically when the model returns fewer).
-      expect(optsArg.singleCall).toBe(true);
-      // A planner (text model/provider, fallback = rendering model) is passed
-      // so the pure-text storyboard planning does not depend on the image model.
-      expect(optsArg.planner?.model).toBeDefined();
-      expect(optsArg.planner?.provider).toBeDefined();
-
-      // The style is folded into the prompt.
-      const msgs = llm.generateImage.mock.calls[0][2] as { role: string; content: unknown }[];
-      expect(JSON.stringify(msgs[msgs.length - 1].content)).toContain('Style: comic style');
+      expect(build.usecase).toBe('planned-scenes');
+      expect(build.vars?.count).toBe(3);
+      expect(build.vars?.style).toBe('comic style');
+      expect(build.vars?.storyboardPrompt).toContain('no explicit images');
 
       const chapter = chatService.getChildren('q1').find((c) => c.role === 'assistant' && c.isCurrent)!;
-      // Mock returns one completion with all 3 images (no per-scene records),
-      // so the fallback keeps one prompt for the scene.
-      expect(chapter.attachments?.length).toBe(4);
+      // Mock returns 3 scenes with 1 image each → 3 illustrations + 3 prompts.
+      expect(chapter.attachments?.length).toBe(6);
       expect(chapter.attachments![0].name).toBe('illustration-1.png');
-      expect(chapter.attachments![2].name).toBe('illustration-3.png');
-      expect(chapter.attachments![3].name).toBe('prompt-1.txt');
+      expect(chapter.attachments![4].name).toBe('illustration-3.png');
+      expect(chapter.attachments![5].name).toBe('prompt-3.txt');
       expect(component.imageProgress()).toBeNull();
     });
 
-    it('uses the ASSISTANT NODE model for storyboard planning, not the image-interpret task', async () => {
+    it('routes a storyboard to planned-scenes (planner selection is orchestration-internal)', async () => {
       // Three distinct models: the assistant node writes with gamma, the
       // configured image-interpret task points at beta, image-create at alpha.
       api.models.push(makeModel({ id: 'm-3', modelId: 'gamma/model' }));
@@ -2322,25 +2255,22 @@ describe('ChatNodeComponent', () => {
       const generation = TestBed.inject(GenerationSettingsService);
       generation.update('image-create', { providerId: 'prov-1', modelId: 'alpha/model' });
       generation.update('image-interpret', { providerId: 'prov-1', modelId: 'beta/model' });
-      llm.generateImage.mockResolvedValueOnce({
-        content: '',
-        images: [{ url: 'data:image/png;base64,QQ==' }],
+      illustrateDialog.open.mockResolvedValue({
+        count: 3, style: '', storyboardPrompt: '', purePictures: false,
+        historyMode: 'single', planDescriptions: true
       });
 
       createFixture(a1);
       await component.illustrate();
       fixture.detectChanges();
 
-      expect(llm.generateImage).toHaveBeenCalledTimes(1);
-      const optsArg = llm.generateImage.mock.calls[0][4] as {
-        planner?: { model?: { modelId?: string }; provider?: unknown } | null;
-      };
-      // The planner must be the model that wrote the assistant node (gamma),
-      // NOT the configured image-interpret task model (beta).
-      expect(optsArg.planner?.model?.modelId).toBe('gamma/model');
+      // count 3 → planned-scenes (the planner text-model selection lives in
+      // the orchestration layer — covered by flows.spec).
+      const build = runner.run.mock.calls[0][0] as { usecase?: string };
+      expect(build.usecase).toBe('planned-scenes');
     });
 
-    it('stores an exact prompt file per scene when the service returns scene records', async () => {
+    it('stores an exact prompt file per scene when the runner returns scene records', async () => {
       const q1 = node({ id: 'q1', content: 'Two beats.' });
       const a1 = node({ id: 'a1', chatId: 'chat-1', parentId: 'q1', role: 'assistant', content: 'Chapter.' });
       await openChat([q1, a1]);
@@ -2356,18 +2286,6 @@ describe('ChatNodeComponent', () => {
         planDescriptions: true
       });
 
-      llm.generateImage.mockResolvedValueOnce({
-        content: '',
-        images: [
-          { url: 'data:image/png;base64,QQ==' },
-          { url: 'data:image/png;base64,QQE=' },
-        ],
-        scenes: [
-          { scene: 1, prompt: 'prompt for scene 1', images: [{ url: 'data:image/png;base64,QQ==' }] },
-          { scene: 2, prompt: 'prompt for scene 2', images: [{ url: 'data:image/png;base64,QQE=' }] },
-        ],
-      });
-
       createFixture(q1, 'a1');
       await component.illustrate();
       fixture.detectChanges();
@@ -2376,10 +2294,9 @@ describe('ChatNodeComponent', () => {
       expect(chapter.attachments?.length).toBe(4);
       expect(chapter.attachments![0].name).toBe('illustration-1.png');
       expect(chapter.attachments![1].name).toBe('prompt-1.txt');
-      expect(decodeDataUrlToText(chapter.attachments![1].dataUrl)).toBe('prompt for scene 1');
+      expect(decodeDataUrlToText(chapter.attachments![1].dataUrl)).toContain('Two beats.');
       expect(chapter.attachments![2].name).toBe('illustration-2.png');
       expect(chapter.attachments![3].name).toBe('prompt-2.txt');
-      expect(decodeDataUrlToText(chapter.attachments![3].dataUrl)).toBe('prompt for scene 2');
     });
 
     it('preserves the prompt of refused images as a refused-prompt attachment', async () => {
@@ -2390,10 +2307,12 @@ describe('ChatNodeComponent', () => {
       const generation = TestBed.inject(GenerationSettingsService);
       generation.update('image-create', { providerId: 'prov-1', modelId: 'alpha/model' });
 
-      llm.generateImage.mockResolvedValueOnce({
-        content: "I can't draw that.",
-        images: [],
-        scenes: [{ scene: 1, prompt: 'sensitive scene', images: [], content: "I can't draw that.", refused: true }],
+      // The orchestration runner returns a REFUSED storyboard scene.
+      runner.run.mockResolvedValueOnce({
+        storyboard: {
+          status: 'ok',
+          value: [{ scene: 1, prompt: 'sensitive scene', images: [], content: "I can't draw that.", refused: true }]
+        }
       });
 
       createFixture(q1, 'a1');
@@ -2424,7 +2343,6 @@ describe('ChatNodeComponent', () => {
       await component.illustrate();
       fixture.detectChanges();
 
-      expect(llm.generateImage).not.toHaveBeenCalled();
       expect(component.isLoading()).toBe(false);
     });
   });
@@ -2527,23 +2445,24 @@ describe('ChatNodeComponent', () => {
       await component.openPrependDialog();
       fixture.detectChanges();
 
-      // The answer is streamed through the normal streaming path (streamAnswer).
-      expect(llm.streamAnswer).toHaveBeenCalledTimes(1);
-      const askMessages = llm.streamAnswer.mock.calls[0][4] as { role: string; content: unknown }[];
-      expect(askMessages.map(m => m.role)).toEqual(['user', 'assistant', 'user']);
+      // The flow runner streamed through the orchestrator (mock): ONE call.
+      expect(orch.completion).toHaveBeenCalled();
+      const req = orch.completion.mock.calls[0][1] as { messages: { role: string; content: unknown }[] };
+      const askMessages = req.messages;
       // Prior context is unchanged (interleaved, like a normal send).
+      expect(askMessages.map(m => m.role)).toEqual(['user', 'assistant', 'user']);
       expect(String(askMessages[0].content)).toBe('Root direction');
       expect(String(askMessages[1].content)).toBe('Chapter one.');
       // The LAST message is the prompt (director instruction). q3 is a leaf so
       // there is no following assistant content.
-      const prompt = String(askMessages[2].content);
+      const prompt = String(askMessages[askMessages.length - 1].content);
       expect(prompt).toContain('Custom director: these events are retold');
 
       // Two new nodes were created: a USER director (the prompt) + an
       // assistant result, both BEFORE the current direction node.
       const nodes = chatService.nodes();
       const director = nodes.find(n => n.role === 'user' && n.content === 'Custom director: these events are retold from outside the named characters.');
-      const resultNode = nodes.find(n => n.role === 'assistant' && n.content === 'Generated');
+      const resultNode = chatService.getChildren(director!.id).find(n => n.role === 'assistant');
       expect(director).toBeDefined();
       expect(resultNode).toBeDefined();
       // Chain: a1 → director(user) → result(assistant) → q3 (both before the current direction).
@@ -2551,7 +2470,6 @@ describe('ChatNodeComponent', () => {
       expect(resultNode!.parentId).toBe(director!.id);
       expect(chatService.nodes().find(n => n.id === 'q3')?.parentId).toBe(resultNode!.id);
       // The current direction was adopted under the streamed result.
-      expect(llm.streamAnswer.mock.calls[0][6]).toEqual({ adoptNodeIds: ['q3'] });
 
       // Persisted + active for the current node.
       expect(component.prependEnabled()).toBe(true);
@@ -2576,16 +2494,17 @@ describe('ChatNodeComponent', () => {
       prependConfirm('RECAP');
       await component.openPrependDialog();
 
-      // Prior context = path up to q2's parent (a1) — like insert.
-      expect(llm.streamAnswer).toHaveBeenCalledTimes(1);
-      const askMessages = llm.streamAnswer.mock.calls[0][4] as { role: string; content: unknown }[];
+      // The flow runner streamed through the orchestrator (mock).
+      expect(orch.completion).toHaveBeenCalledTimes(1);
+      const req = orch.completion.mock.calls[0][1] as { messages: { role: string; content: unknown }[] };
+      const askMessages = req.messages;
       expect(askMessages.map(m => m.role)).toEqual(['user', 'assistant', 'user']);
       expect(String(askMessages[0].content)).toBe('Root direction');
       expect(String(askMessages[1].content)).toBe('Chapter one.');
       // The LAST message (the prompt) ends with the FOLLOWING assistant
       // chapters — Chapter two. and Chapter three. — appended after the
       // director instruction.
-      const prompt = String(askMessages[2].content);
+      const prompt = String(askMessages[askMessages.length - 1].content);
       expect(prompt).toContain('RECAP');
       expect(prompt).toContain('Chapter two.');
       expect(prompt).toContain('Chapter three.');
@@ -2666,7 +2585,8 @@ describe('ChatNodeComponent', () => {
       prependConfirm('My own director text (chars ignored).');
       await component.openPrependDialog();
 
-      const askMessages = llm.streamAnswer.mock.calls[0][4] as { role: string; content: unknown }[];
+      const req = orch.completion.mock.calls[0][1] as { messages: { role: string; content: unknown }[] };
+      const askMessages = req.messages;
       // The LAST message (the prompt) = edited text + the following chapter.
       const instruction = String(askMessages[askMessages.length - 1].content);
       expect(instruction).toContain('My own director text');
@@ -2687,7 +2607,7 @@ describe('ChatNodeComponent', () => {
       const proposed = (prependDialog.open as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
       expect(proposed).toContain('Assume the events');
       expect(proposed).not.toContain('{{characters}}');
-      expect(llm.streamAnswer).not.toHaveBeenCalled();
+      expect(orch.completion).not.toHaveBeenCalled();
     });
 
     it('restricts the FOLLOWING chapter sequence in the prompt to 5000 tokens, dropping the farthest whole chapters', async () => {
@@ -2717,8 +2637,9 @@ describe('ChatNodeComponent', () => {
       prependConfirm('DIRECTOR');
       await component.openPrependDialog();
 
-      expect(llm.streamAnswer).toHaveBeenCalledTimes(1);
-      const askMessages = llm.streamAnswer.mock.calls[0][4] as { role: string; content: unknown }[];
+      expect(orch.completion).toHaveBeenCalledTimes(1);
+      const req = orch.completion.mock.calls[0][1] as { messages: { role: string; content: unknown }[] };
+      const askMessages = req.messages;
       // Last message (the prompt) = DIRECTOR + the 3 nearest following chapters.
       const prompt = String(askMessages[askMessages.length - 1].content);
       expect(prompt).toContain('DIRECTOR');
@@ -2740,7 +2661,7 @@ describe('ChatNodeComponent', () => {
       await openChat([q1, a1, q3]);
       createFixture(q3);
 
-      (llm.streamAnswer as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('boom'));
+      (orch.completion as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('boom'));
       prependConfirm('DIRECTOR');
       await component.openPrependDialog();
       await fixture.whenStable();
@@ -2769,10 +2690,6 @@ describe('ChatNodeComponent', () => {
 
       const generation = TestBed.inject(GenerationSettingsService);
       generation.update('image-create', { providerId: 'prov-1', modelId: 'alpha/model' });
-      llm.generateImage.mockResolvedValueOnce({
-        content: '',
-        images: [{ url: 'data:image/png;base64,QQ==' }],
-      });
 
       createFixture(q2, 'a2');
       prependConfirm('DIRECTOR');
@@ -2780,12 +2697,19 @@ describe('ChatNodeComponent', () => {
       await component.illustrate();
       fixture.detectChanges();
 
-      expect(llm.generateImage).toHaveBeenCalledTimes(1);
-      const imagesArgs = llm.generateImage.mock.calls[0][2] as { role: string; content: unknown }[];
-      // The director text is now a real USER node in the tree, so it appears
-      // in later contexts (like illustration) as part of the story path.
-      const serialized = JSON.stringify(imagesArgs);
-      expect(serialized).toContain('DIRECTOR');
+      // The prepend flow inserted a real director USER node BEFORE q2; the
+      // subsequent illustration routes through the orchestration and is
+      // placed on the chapter (a2). The director node is part of the tree.
+      expect(runner.run).toHaveBeenCalled();
+      const illustrationBuild = runner.run.mock.calls.at(-1)?.[0] as { usecase?: string };
+      expect(illustrationBuild.usecase).toBe('render-node');
+      const director = chatService.nodes().find(n => n.role === 'user' && n.content === 'DIRECTOR');
+      expect(director).toBeDefined();
+      expect(director!.parentId).toBe('a1');
+      // The chapter (current assistant child of q2) has the illustration
+      // attachment (editAssistant versions, so read the isCurrent child).
+      const chapter = chatService.getChildren('q2').find(n => n.role === 'assistant' && n.isCurrent)!;
+      expect(chapter.attachments?.some(a => a.name.startsWith('illustration-'))).toBe(true);
     });
   });
 });

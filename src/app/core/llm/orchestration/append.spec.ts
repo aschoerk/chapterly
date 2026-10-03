@@ -221,8 +221,7 @@ describe('LLM orchestration — append (normal send: user/director at the end + 
       usecase: 'append-with-images',
       vars: {
         content: 'Continue from this picture',
-        attachments: [img],
-        interpretPrefix: 'Attached image (interpreted automatically):'
+        attachments: [img]
       }
     });
 
@@ -238,7 +237,7 @@ describe('LLM orchestration — append (normal send: user/director at the end + 
     expect(interpretContent.some(p => p.type === 'image_url' && p.image_url?.url === img.dataUrl)).toBe(true);
 
     // Call 2 — the write/send step: full history + the final user message is
-    // the DIRECTION TEXT with the description merged in (prefix + description),
+    // the DIRECTION TEXT with the description merged in (no UI prefix),
     // and NO binary image is re-sent.
     const sendBody = JSON.parse(fetchMock.mock.calls[1][1].body);
     expect(sendBody.messages).toHaveLength(3); // opening, chapter, merged direction
@@ -246,7 +245,7 @@ describe('LLM orchestration — append (normal send: user/director at the end + 
     expect(sendBody.messages[0].content).toBe('Opening direction.');
     const finalContent = String(sendBody.messages[2].content);
     expect(finalContent).toContain('Continue from this picture');
-    expect(finalContent).toContain('Attached image (interpreted automatically):');
+    expect(finalContent).not.toContain('Attached image (interpreted automatically):');
     expect(finalContent).toContain('A red ball on green grass.');
     const serialized = JSON.stringify(sendBody.messages);
     expect(serialized).not.toContain('image_url');
@@ -259,7 +258,7 @@ describe('LLM orchestration — append (normal send: user/director at the end + 
     // can persist it for real → the description is in the history.
     expect(slots.direction?.status).toBe('ok');
     expect(slots.direction?.value).toContain('Continue from this picture');
-    expect(slots.direction?.value).toContain('Attached image (interpreted automatically):');
+    expect(slots.direction?.value).not.toContain('Attached image (interpreted automatically):');
     expect(slots.direction?.value).toContain('A red ball on green grass.');
 
     // Placement is identical to append.

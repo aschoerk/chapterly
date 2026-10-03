@@ -6,11 +6,10 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ChatService } from '../../core/chat.service';
 import { SettingsService } from '../../core/settings.service';
-import { ChatNode, NodeAttachment, ChatMessage } from '../../models/chat';
+import { ChatNode, NodeAttachment, ChatMessage, Chat } from '../../models/chat';
 import { MarkdownService } from '../../core/markdown.service';
 import { NodeEditSession} from '../../core/node-edit-session';
 import {ConfirmService} from '../../core/confirm.service';
-import {LlmService} from '../../core/llm/llm.service';
 import { ChatParametersService } from '../../core/chat-parameters.service';
 import {
   inferMimeType,
@@ -18,27 +17,24 @@ import {
   isTextualMime,
   resolvedMime,
   nodeToMessageContent,
-  imagePartToAttachment,
-  textPromptAttachment,
   decodeDataUrlToText,
   estimateContentTokens,
-  PREPEND_MAX_TOKENS,
-  type MessagePart
+  PREPEND_MAX_TOKENS
 } from '../../core/llm/llm-message';
-import { GenerateImagesResult, GeneratedImageScene } from '../../core/llm/llm.service';
 import { formatParametersSummary } from '../../models/chat-parameters';
 import {ProjectService} from '../../core/project.service';
 import { I18nService } from '../../core/i18n/i18n.service';
 import { newId } from '../../core/common/helpers';
 import { GenerationSettingsService } from '../../core/generation-settings.service';
 import { PromptDefaultsService } from '../../core/prompt-defaults.service';
-import { GenerationTaskKind } from '../../models/generation-task';
-import { ModelEntry, ProviderConfig, canInterpretImages, canGenerateImages } from '../../models/chat-config';
+import { ModelEntry, ProviderConfig, canGenerateImages } from '../../models/chat-config';
 import { IllustrateDialogService } from '../../core/illustrate-dialog.service';
 import { PrependDialogService } from '../../core/prepend-dialog.service';
 import { IllustrateOptions } from '../../models/illustrate-options';
 import { LightboxService } from '../../core/lightbox.service';
 import { LlmUseCaseRunner } from '../../core/llm/orchestration';
+import { LlmFlowRunner } from '../../core/llm/orchestration';
+import { LlmPostprocessorService, pickUsecase, buildIllustrationAttachments } from '../../core/llm/orchestration';
 
 @Component({
   selector: 'app-chat-node',
@@ -52,8 +48,9 @@ export class ChatNodeComponent {
   public readonly markdownService = inject(MarkdownService);
   readonly chatService = inject(ChatService);
   readonly projectService = inject(ProjectService);
-  readonly llmService = inject(LlmService);
   private readonly runner = inject(LlmUseCaseRunner);
+  private readonly flowRunner = inject(LlmFlowRunner);
+  private readonly postprocessor = inject(LlmPostprocessorService);
   private readonly parameters = inject(ChatParametersService);
   private readonly generation = inject(GenerationSettingsService);
   private readonly promptDefaults = inject(PromptDefaultsService);
@@ -424,126 +421,6 @@ export class ChatNodeComponent {
     }
   }
 
-  private async streamForQuestion(
-    chatId: string,
-    question: ChatNode,
-    contextParentId: string | null,
-    provider: { baseUrl: string; apiKey: string },
-    model: ModelEntry,
-    extra?: { content?: string; attachments?: NodeAttachment[]; adoptNodeIds?: string[] }
-  ): Promise<ChatNode> {
-    const effective: ChatNode = extra
-      ? { ...question, content: extra.content ?? question.content, attachments: extra.attachments ?? question.attachments }
-      : question;
-
-    // The full context path. When a prepend was generated, the director
-    // (structural) node is skipped and the inserted narration (assistant)
-    // chapter is part of the normal path — no extra injection needed here.
-    const contextMessages = this.buildContextMessagesUpTo(contextParentId);
-
-    // Automatic image interpretation: when a direction carries image
-    // attachments, describe them via the image-interpret task model so the
-    // writing model understands what it is looking at.
-    if (effective.role === 'user') {
-      const images = (effective.attachments || []).filter(
-        a => isImageMime(resolvedMime(a)) && a.dataUrl?.startsWith('data:')
-      );
-      if (images.length > 0) {
-        const interpretation = await this.interpretDirectionImages(images);
-        const directionText = (effective.content || '').trim();
-        if (interpretation) {
-          contextMessages.push({
-            role: 'user',
-            content: directionText
-              ? this.i18n.t('node.imageInterpretPrefix') + '\n\n' + interpretation
-              : interpretation
-          });
-          this.closeEditor();
-          return this.streamAnswerWithoutImages(chatId, effective, provider, model, contextMessages, extra);
-        }
-      }
-    }
-
-    contextMessages.push({
-      role: 'user',
-      content: nodeToMessageContent(effective)
-    });
-    this.closeEditor();
-    return this.llmService.streamAnswer(
-      chatId, question.id, provider, model, contextMessages, undefined,
-      extra?.adoptNodeIds?.length ? { adoptNodeIds: extra.adoptNodeIds } : undefined
-    );
-  }
-
-  /**
-   * After images were interpreted into text, stream the answer for the
-   * direction text without re-sending the binary image payload.
-   */
-  private streamAnswerWithoutImages(
-    chatId: string,
-    question: ChatNode,
-    provider: { baseUrl: string; apiKey: string },
-    model: ModelEntry,
-    contextMessages: ChatMessage[],
-    extra?: { content?: string; attachments?: NodeAttachment[]; adoptNodeIds?: string[] }
-  ): Promise<ChatNode> {
-    const textOnly: ChatNode = {
-      ...question,
-      content: extra?.content ?? question.content ?? '',
-      attachments: (extra?.attachments ?? question.attachments ?? []).filter(
-        a => !isImageMime(resolvedMime(a))
-      )
-    };
-    contextMessages.push({ role: 'user', content: nodeToMessageContent(textOnly) });
-    return this.llmService.streamAnswer(
-      chatId, question.id, provider, model, contextMessages, undefined,
-      extra?.adoptNodeIds?.length ? { adoptNodeIds: extra.adoptNodeIds } : undefined
-    );
-  }
-
-  /**
-   * Describe the attached images with the image-interpret generation task
-   * model, falling back to any enabled model that supports image input.
-   * Returns a combined textual description, or null when no capable model is
-   * available / the call failed.
-   */
-  private async interpretDirectionImages(images: NodeAttachment[]): Promise<string | null> {
-    // 1. Prefer the configured image-interpret task.
-    let model = this.generation.modelFor('image-interpret');
-    let provider = this.generation.providerFor('image-interpret');
-    // 2. Fall back to any enabled model that can interpret images.
-    if (!model || !provider) {
-      const fallback = this.enabledModels().find(canInterpretImages);
-      if (fallback) {
-        model = fallback;
-        provider = this.settings.providers().find(p => p.id === fallback.providerId) ?? null;
-      }
-    }
-    if (!model || !provider) return null;
-
-    const prompt = this.promptDefaults.effective('image.interpret');
-    const imageParts = nodeToMessageContent({ content: prompt, attachments: images } as ChatNode);
-    try {
-      const resolved = await this.llmService.resolveForCurrentChat(model);
-      const result = await this.llmService.askLlm(
-        provider.baseUrl,
-        provider.apiKey,
-        model.modelId,
-        [{ role: 'user', content: imageParts }],
-        false,
-        undefined,
-        undefined,
-        { ...this.llmService.toLlmExtras(resolved), stream: false },
-        model.providerId
-      );
-      const desc = result.content.trim();
-      return desc || null;
-    } catch (err) {
-      console.error('Image interpretation failed', err);
-      return null;
-    }
-  }
-
   // ------------------------------------------------------------------
   // Illustrate — generate a picture for this beat from the chat so far
   // ------------------------------------------------------------------
@@ -704,8 +581,9 @@ export class ChatNodeComponent {
   /**
    * Re-render ONE refused picture with the adapted prompt. The fresh image
    * (and its prompt file) replace the refused prompt record on the same
-   * chapter; every other attachment stays. Runs as a single picture (no
-   * storyboard planning) — the adapted prompt IS the concrete scene.
+   * chapter; every other attachment stays. Runs the orchestration
+   * `image-generation` use case: a single picture (no storyboard planning) —
+   * the adapted prompt IS the concrete scene.
    */
   async rerenderPrompt(a: NodeAttachment): Promise<void> {
     const prompt = this.promptEditDraft().trim();
@@ -715,66 +593,54 @@ export class ChatNodeComponent {
     if (node.role !== 'assistant') return;
     if (this.isLoading() || this.chatService.isGenerating(node.id)) return;
 
-    // 1. Prefer the configured image-create task model.
-    let model = this.generation.modelFor('image-create');
-    let provider = this.generation.providerFor('image-create');
-    // 2. Fall back to any enabled model that can generate images.
-    if (!model || !provider) {
-      const fallback = this.enabledModels().find(canGenerateImages);
-      if (fallback) {
-        model = fallback;
-        provider = this.settings.providers().find(p => p.id === fallback.providerId) ?? null;
-      }
-    }
-    if (!model || !provider) {
-      alert(this.i18n.t('node.imageModelMissing'));
-      return;
-    }
-
     this.isLoading.set(true);
     this.pendingAction.set('image');
     this.imageProgress.set(null);
     try {
-      // Ground the picture in the previous content along the active path.
-      const contextMessages = this.buildContextMessagesUpTo(node.parentId);
-      const messages: ChatMessage[] = this.textOnlyMessages(contextMessages);
-      const instruction = this.generation.get('image-create').prompt.trim()
-        || this.defaultImagePrompt();
-      const anchor = `${instruction}\n\n` +
-        this.i18n.t('node.imageAnchor', {
-          role: this.i18n.t('node.roleAssistant')
-        }) + `:\n${prompt}`;
+      const chat = this.chatService.chats().find(c => c.id === chatId);
+      if (!chat) return;
 
-      // Forward prior illustrations as reference when the chosen model can
-      // read images (same rule as `illustrate`).
-      const priorImages = this.priorChapterImages(node.parentId);
-      if (canInterpretImages(model) && priorImages.length > 0) {
-        const parts: MessagePart[] = [
-          { type: 'text', text: anchor + '\n\n' + this.i18n.t('node.imageReference') }
-        ];
-        for (const img of priorImages) {
-          parts.push({ type: 'image_url', image_url: { url: img.dataUrl } });
+      // The orchestration `image-generation` use case resolves the image
+      // model itself (image-create task → first enabled image-capable model),
+      // grounds the picture in the context up to the chapter, forwards prior
+      // illustrations as reference when the model can read images, and
+      // renders the ADAPTED prompt as a single concrete scene — no storyboard
+      // planning.
+      const promptText = `${this.i18n.t('node.imageAnchor', {
+        role: this.i18n.t('node.roleAssistant')
+      })}:\n${prompt}`;
+      const result = await this.runner.run({
+        chat,
+        node,
+        usecase: 'image-generation',
+        vars: { promptText, count: 1 }
+      });
+
+      // A hard failure (e.g. no image model enabled) with no scene to fall
+      // back on surfaces as an alert instead of silently doing nothing.
+      const scenes = result.storyboard?.value ?? [];
+      const images = result.images?.value ?? [];
+      if (scenes.length === 0 && images.length > 0) {
+        // No per-scene records but images came back (defensive — the
+        // image-generation controller always emits a storyboard slot).
+        scenes.push({ scene: 1, prompt: promptText, images, refused: false });
+      }
+      const imageCount = images.length;
+      if (result.error?.status === 'error' && scenes.length === 0) {
+        const reason = result.error.reason ?? '';
+        if (/image model/i.test(reason)) {
+          alert(this.i18n.t('node.imageModelMissing'));
+          return;
         }
-        messages.push({ role: 'user', content: parts });
-      } else {
-        messages.push({ role: 'user', content: anchor });
+        throw new Error(reason || this.i18n.t('node.imageEmpty'));
       }
 
-      const result = await this.llmService.generateImage(
-        provider, model, messages, undefined,
-        {
-          count: 1,
-          planDescriptions: false,
-          onProgress: (done, total) => this.imageProgress.set({ done, total })
-        }
-      );
-      const imageCount = result.images.length;
-
-      const generated = this.buildIllustrationAttachments(result, anchor)
+      const generated = buildIllustrationAttachments(scenes, promptText)
         .map(x => ({ ...x, id: x.id || newId() }));
 
       if (generated.length === 0) {
-        const reply = (result.content || '').trim();
+        const reply = (scenes[0]?.content ?? '').trim()
+          || (result.text?.value ?? '').trim();
         throw new Error(
           reply
             ? `${this.i18n.t('node.imageEmpty')} — ${reply.slice(0, 300)}`
@@ -815,7 +681,8 @@ export class ChatNodeComponent {
         // findable and pre-fills the next attempt — but there is STILL no
         // picture. Surface the model's reply instead of silently "succeeding"
         // (same as `illustrate`).
-        const reply = (result.content || '').trim();
+        const reply = (scenes[0]?.content ?? '').trim()
+          || (result.text?.value ?? '').trim();
         alert(reply
           ? `${this.i18n.t('node.imageEmpty')} — ${reply.slice(0, 300)}`
           : this.i18n.t('node.imageEmpty'));
@@ -868,57 +735,6 @@ export class ChatNodeComponent {
     });
   }
 
-  /**
-   * Build the attachments to persist for an image-generation result.
-   *
-   * For every scene it keeps a text attachment with the exact prompt that was
-   * sent:
-   * - successful scene → `prompt-N.txt` next to the `illustration-N.*` image(s);
-   * - refused / empty scene → `refused-prompt-N.txt` (with the model's reply,
-   *   e.g. the refusal text), so the prompt of a refused picture stays findable.
-   */
-  private buildIllustrationAttachments(
-    result: GenerateImagesResult,
-    fallbackPrompt: string
-  ): NodeAttachment[] {
-    const scenes: GeneratedImageScene[] = Array.isArray(result.scenes) && result.scenes.length > 0
-      ? result.scenes
-      : [{
-          scene: 1,
-          prompt: fallbackPrompt,
-          images: result.images,
-          refused: result.images.length === 0,
-          ...(result.content ? { content: result.content } : {})
-        }];
-
-    const out: NodeAttachment[] = [];
-    let imageIndex = 0;
-    for (const scene of scenes) {
-      const prompt = (scene.prompt || '').trim() || fallbackPrompt;
-      for (const img of scene.images ?? []) {
-        out.push(imagePartToAttachment(img, imageIndex));
-        imageIndex += 1;
-      }
-      if (!prompt) continue;
-
-      if (scene.refused) {
-        const reply = (scene.content || '').trim();
-        out.push(textPromptAttachment(
-          `refused-prompt-${scene.scene}.txt`,
-          [
-            'Prompt used:',
-            prompt,
-            '',
-            reply ? `Model reply:\n${reply}` : 'Model reply: (none — image was not created)'
-          ].join('\n')
-        ));
-      } else {
-        out.push(textPromptAttachment(`prompt-${scene.scene}.txt`, prompt));
-      }
-    }
-    return out;
-  }
-
   private hasCurrentChapter(n: ChatNode): boolean {
     return this.chatService.getChildren(n.id).some(c => c.role === 'assistant' && c.isCurrent);
   }
@@ -958,11 +774,9 @@ export class ChatNodeComponent {
     // Where the resulting picture is stored, and what it should depict.
     let chapter: ChatNode;
     let anchorText: string;
-    let contextParentId: string | null;
     if (node.role === 'assistant') {
       chapter = node;
       anchorText = promptOverride ?? node.content ?? '';
-      contextParentId = node.parentId; // the direction (and everything before) is context
     } else {
       const answers = this.chatService.getChildren(node.id)
         .filter(c => c.role === 'assistant' && c.isCurrent);
@@ -974,7 +788,6 @@ export class ChatNodeComponent {
       }
       chapter = candidate;
       anchorText = promptOverride ?? node.content ?? '';
-      contextParentId = node.parentId; // previous chapters only; the direction is added below
     }
 
     // 1. Prefer the configured image-create task model.
@@ -1002,159 +815,58 @@ export class ChatNodeComponent {
       providerId: defaultModel.providerId
     });
     if (!options) return; // cancelled
-    const { count, style, storyboardPrompt, purePictures, historyMode } = options;
+    const { count, style, storyboardPrompt, purePictures, historyMode, planDescriptions } = options;
 
-    // Resolve the model chosen in the dialog; fall back to the default task
-    // model when the selection is empty or no longer enabled.
-    let model: ModelEntry | null = null;
-    let provider: ProviderConfig | null = null;
-    if (options.modelId && options.providerId) {
-      model = this.enabledModels().find(
-        m => m.providerId === options.providerId && m.modelId === options.modelId
-      ) ?? null;
-    }
-    if (!model && options.modelId) {
-      model = this.enabledModels().find(m => m.modelId === options.modelId) ?? null;
-    }
-    model = model ?? defaultModel;
-    provider = model
-      ? this.settings.providers().find(p => p.id === model.providerId) ?? null
-      : defaultProvider;
-    if (!model || !provider) {
-      alert(this.i18n.t('node.imageModelMissing'));
-      return;
-    }
+    // The dialog's options CHOOSE the orchestration use case:
+    //   count > 1 || assistant chapter || pure mode → planning-based
+    //   storyboards; single direction → render-node (current) / render-full
+    //   (± full chat). `content` overrides the node text so an edited draft
+    //   (promptOverride) is used as the scene.
+    const vars = {
+      count,
+      style,
+      storyboardPrompt,
+      purePictures,
+      historyMode,
+      planDescriptions,
+      content: anchorText,
+      modelId: options.modelId || defaultModel.modelId,
+      providerId: (options.modelId && options.providerId)
+        ? options.providerId
+        : defaultModel.providerId
+    };
+    const usecase = pickUsecase(vars);
 
     this.isLoading.set(true);
     this.pendingAction.set('image');
     this.imageProgress.set(null);
     try {
-      // Ground the picture in the previous content along the active path.
-      const contextMessages = this.buildContextMessagesUpTo(contextParentId);
-      const messages: ChatMessage[] = this.textOnlyMessages(contextMessages);
-      const instruction = this.generation.get('image-create').prompt.trim()
-        || this.defaultImagePrompt();
-      const styledInstruction = style
-        ? `${instruction}\n\nStyle: ${style}`
-        : instruction;
+      const chat = this.chatService.chats().find(c => c.id === chatId)!;
+      const build = { chat, node, usecase, vars };
+      const result = await this.runner.run(build);
 
-      const anchor = `${styledInstruction}\n\n` +
-        this.i18n.t('node.imageAnchor', {
-          role: this.i18n.t(node.role === 'user' ? 'node.roleUser' : 'node.roleAssistant')
-        }) + `:\n${anchorText.trim() ? anchorText.trim() : '(no text)'}`;
-
-      // Forward prior illustrations as reference only when the chosen model
-      // can take images (otherwise providers may reject image_url parts).
-      const priorImages = this.priorChapterImages(contextParentId);
-      if (canInterpretImages(model) && priorImages.length > 0) {
-        const parts: MessagePart[] = [
-          { type: 'text', text: anchor + '\n\n' + this.i18n.t('node.imageReference') }
-        ];
-        for (const img of priorImages) {
-          parts.push({ type: 'image_url', image_url: { url: img.dataUrl } });
-        }
-        messages.push({ role: 'user', content: parts });
-      } else {
-        messages.push({ role: 'user', content: anchor });
+      // Place the pictures on the chapter node (illustration-N + prompt-N /
+      // refused-prompt-N attachments), consistent with the app.
+      const plan = this.postprocessor.plan(result, build);
+      if (!plan) {
+        throw new Error(this.i18n.t('node.imageNoChapter'));
       }
-
-      // Storyboard planning runs on a capable TEXT model when available
-      // (image models are unreliable at following the strict JSON / still-frame
-      // planning instructions); falls back to the image model.
-      const planner = this.resolvePlanner(model, provider);
-      // For an ASSISTANT chapter the node text is the writer's OUTPUT (the
-      // whole chapter) — a terrible verbatim picture cue. Always route it
-      // through the picture-description planning pass (even for a single
-      // picture) so the actual prompt is a derived scene description, and
-      // hand the drawing instruction over separately via `sceneInstruction`.
-      // Pure picture mode forces the planning pass too: only the derived,
-      // temporal-free descriptions reach the image model.
-      const isAssistantChapter = node.role === 'assistant';
-      // Storyboards / assistant chapters / pure picture mode always involve the
-      // picture-description planning pass (or, in pure mode, the derived
-      // descriptions ARE the prompt). A single direction is already a scene
-      // cue, so planning never runs for it.
-      const planningWouldRun = count > 1 || isAssistantChapter || purePictures;
-      const planDescriptions = purePictures || (options.planDescriptions && planningWouldRun);
-      // Skipping planning (checkbox off) means the story text that would have
-      // been distilled by the planning text model now reaches the image
-      // generating model directly. HOW MUCH of that story is delivered is
-      // governed by the full-chat / current-text selection below — the radio
-      // ALWAYS takes effect (planning off never forces full chat on its own).
-      const result = await this.llmService.generateImage(
-        provider, model, messages, undefined,
-        {
-          count,
-          storyboardPrompt: count > 1 ? storyboardPrompt : undefined,
-          // Storyboard: first derive concrete picture descriptions from the
-          // story, then render each image from its description (instead of
-          // letting the model pick scenes from the raw prose). Also used for
-          // single pictures of an assistant chapter and in pure picture mode.
-          // Disabled by the "Plan picture descriptions first" checkbox.
-          planDescriptions,
-          // Storyboard: render the whole storyboard in ONE completion so
-          // characters/faces/environment stay consistent across all images
-          // (falls back to per-scene automatically when the model returns
-          // fewer than requested). Skipped internally in pure mode (the pure
-          // en-block path replaces it). Note: the one-shot path is guarded to
-          // count > 1 inside generateImage — a single picture always takes
-          // ONE completion regardless.
-          singleCall: count > 1,
-          // Single picture: the full-chat / current-text radio is
-          // authoritative. "Full chat up to this point" sends the complete
-          // chat text in normal form as messages; "Current text only" sends a
-          // single message with just this beat. Enforced inside generateImage
-          // (only for count 1, never in pure picture mode).
-          forwardFullHistory: historyMode === 'full',
-          planner,
-          sceneInstruction: styledInstruction,
-          purePictures,
-          onProgress: (done, total) => this.imageProgress.set({ done, total })
-        }
-      );
-
-      // Store, for every scene, a text attachment with the exact prompt used:
-      // a `prompt-N.txt` next to each generated illustration, and a
-      // `refused-prompt-N.txt` for scenes that were refused — so the prompt
-      // behind every image (or every failed attempt) stays findable.
-      const attachments = this.buildIllustrationAttachments(result, anchor)
-        .map(a => ({ ...a, id: a.id || newId() }));
-
-      if (attachments.length === 0) {
-        // Surface what the model actually replied so a "no picture" case can
-        // be diagnosed (e.g. a model that only describes the image, or a URL
-        // shape the parser did not recognize).
-        const reply = (result.content || '').trim();
-        throw new Error(
-          reply
-            ? `${this.i18n.t('node.imageEmpty')} — ${reply.slice(0, 300)}`
-            : this.i18n.t('node.imageEmpty')
-        );
-      }
-
-      const merged = [...(chapter.attachments || []), ...attachments];
-      const saved = await this.chatService.editAssistant(
-        chatId,
-        chapter.id,
-        chapter.content || '',
-        merged,
-        chapter.thinking ?? undefined
-      );
+      const saved = await this.postprocessor.apply(plan, build);
       this.activate.emit(saved.id);
 
-      const imageCount = result.images.length;
-      if (imageCount === 0) {
+      const imagesTotal = plan.summary.imagesTotal;
+      if (imagesTotal === 0) {
         // Everything was refused — the refused-prompt attachments were saved
         // above so the prompts stay findable; still inform the user.
-        const reply = (result.content || '').trim();
+        const reply = result.text?.value?.trim() ?? '';
         alert(reply
           ? `${this.i18n.t('node.imageEmpty')} — ${reply.slice(0, 300)}`
           : this.i18n.t('node.imageEmpty'));
-      } else if (count > 1 && imageCount < count) {
+      } else if (count > 1 && imagesTotal < count) {
         // Storyboard partially completed — keep what was generated, tell the
         // user how many scenes came back.
         alert(this.i18n.t('node.imagePartial', {
-          got: imageCount,
+          got: imagesTotal,
           want: count
         }));
       }
@@ -1166,84 +878,6 @@ export class ChatNodeComponent {
       this.pendingAction.set(null);
       this.imageProgress.set(null);
     }
-  }
-
-  /** Reduce a list of chat messages to their text, dropping image/file parts. */
-  private textOnlyMessages(messages: ChatMessage[]): ChatMessage[] {
-    return messages.map(m => {
-      if (typeof m.content === 'string') return m;
-      const text = m.content
-        .map(part => (part.type === 'text' && part.text ? part.text : ''))
-        .filter(Boolean)
-        .join('\n');
-      return { role: m.role, content: text };
-    });
-  }
-
-  /**
-   * Collect images already present on chapters before `parentId` along the
-   * active path (used as visual reference for the next illustration).
-   */
-  private priorChapterImages(parentId: string | null): NodeAttachment[] {
-    if (!parentId) return [];
-    const path = this.chatService.getPathToNode(parentId);
-    const out: NodeAttachment[] = [];
-    for (const n of path) {
-      if (n.role !== 'assistant') continue;
-      for (const a of n.attachments || []) {
-        const mime = resolvedMime(a);
-        const url = a.dataUrl || '';
-        if (isImageMime(mime) && /^(data:|https?:\/\/)/i.test(url)) out.push(a);
-      }
-    }
-    return out.slice(-4);
-  }
-
-  /**
-   * Model/provider for the picture-description planning pass used by
-   * storyboard generation. The scene description is derived by the SAME
-   * (text) model that wrote the chapter — the base model of the last
-   * assistant / direction node — so the picture cues match the story's
-   * voice without needing to configure a separate task. Only when that model
-   * cannot be resolved do we fall back to an explicitly-configured
-   * "image-interpret" / "language-check" task, and finally to the image
-   * generation model itself (a poor planner; some image models e.g.
-   * qwen-image-3 can't even be called via chat/completions).
-   */
-  private resolvePlanner(
-    imageModel: ModelEntry,
-    imageProvider: { baseUrl: string; apiKey: string }
-  ): { model: ModelEntry; provider: { baseUrl: string; apiKey: string } } {
-    // 1. The chat node's OWN (writing) model — the normal model of the
-    //    current chat-node (the one that produced the assistant node) — so
-    //    scene extraction runs on the same model, not the image-interpret
-    //    task.
-    const node = this.node();
-    const nodeModelId = node.modelId || this.resolvePreferredModelId(node);
-    const nodeModel = this.enabledModels().find(
-      m => nodeModelId && (m.modelId === nodeModelId || m.id === nodeModelId)
-    );
-    if (nodeModel && nodeModel.id !== imageModel.id) {
-      const provider = this.settings.providers().find(p => p.id === nodeModel.providerId);
-      if (provider) {
-        return { model: nodeModel, provider: { baseUrl: provider.baseUrl, apiKey: provider.apiKey } };
-      }
-    }
-
-    // 2. Explicitly-configured planner tasks (fallback only).
-    for (const kind of ['image-interpret', 'language-check'] as GenerationTaskKind[]) {
-      const model = this.generation.modelFor(kind);
-      const provider = this.generation.providerFor(kind);
-      if (model && provider) return { model, provider };
-    }
-
-    // 3. Last resort: the rendering model (kept only so storyboard planning
-    //    still works when no text model is configured anywhere).
-    return { model: imageModel, provider: imageProvider };
-  }
-
-  private defaultImagePrompt(): string {
-    return this.promptDefaults.effective('image.create');
   }
 
   /**
@@ -1356,11 +990,26 @@ export class ChatNodeComponent {
 
       // append-with-images: persist the merged direction text (direction +
       // image description) ONTO the user node for real, so the description
-      // stays available in the history. The attachments themselves remain on
-      // the node but are never sent to the LLM (history is text-only).
-      const mergedDirection = slots.direction?.value?.trim();
+      // stays available in the history. The interpretation RECORD is stored
+      // too — it marks "the description is already part of this node's text",
+      // so the same images are NOT interpreted again on a later send.
+      // The attachments themselves remain on the node but are never sent to
+      // the LLM (history is text-only).
+      const interpretation = slots.interpretation?.value;
+      const mergedDirection = interpretation?.content?.trim()
+        ?? slots.direction?.value?.trim();
       if (mergedDirection && mergedDirection !== question.content?.trim()) {
-        await this.chatService.patchNode(chatId, question.id, { content: mergedDirection });
+        const attachments = interpretation
+          ? [...(question.attachments ?? []), interpretation.record as NodeAttachment]
+          : question.attachments;
+        await this.chatService.patchNode(chatId, question.id, {
+          content: mergedDirection,
+          ...(interpretation ? { attachments } : {})
+        });
+      } else if (interpretation) {
+        // Content already matches — only store the record so re-sends skip.
+        const attachments = [...(question.attachments ?? []), interpretation.record as NodeAttachment];
+        await this.chatService.patchNode(chatId, question.id, { attachments });
       }
 
       // Prefer the evaluator's settled slots.
@@ -1388,6 +1037,47 @@ export class ChatNodeComponent {
   }
 
   /**
+   * Run a structural flow through the orchestration `LlmFlowRunner` (branch /
+   * insert / regenerate / rewrite / prepend) with loading + pending-action
+   * tracking. After the flow, activates the flow's target node and surfaces
+   * the outcome. `builder` supplies the flow vars (content, director text,
+   * …); `pending` is the UI spinner label.
+   */
+  private async runFlow(
+    usecase: 'send-branch' | 'send-insert' | 'send-regenerate' | 'send-rewrite' | 'send-prepend',
+    pending: 'branch' | 'insert' | 'send' | 'prepend',
+    builder?: (build: { vars: Record<string, unknown> }) => void
+  ): Promise<boolean> {
+    const node = this.node();
+    const chatId = this.chatService.currentChatId();
+    if (!chatId) return false;
+    const chat = this.chatService.chats().find(c => c.id === chatId) ?? null;
+
+    this.isLoading.set(true);
+    this.pendingAction.set(pending);
+    try {
+      const build: { chat: Chat; node: ChatNode; usecase: typeof usecase; vars: Record<string, unknown> } = {
+        chat: chat as Chat,
+        node,
+        usecase,
+        vars: {}
+      };
+      builder?.(build);
+      const slots = await this.flowRunner.run(build as never);
+      const flow = slots.flow?.value;
+      if (flow?.activateId) this.activate.emit(flow.activateId);
+      return true;
+    } catch (err: any) {
+      console.error(err);
+      alert(this.i18n.t('node.failed', { error: err?.message || err }));
+      return false;
+    } finally {
+      this.isLoading.set(false);
+      this.pendingAction.set(null);
+    }
+  }
+
+  /**
    * Branch — create a new sibling question (a new leaf) and stream an answer.
    *
    * - From a question: sibling under the same parent.
@@ -1397,39 +1087,15 @@ export class ChatNodeComponent {
   async saveAsBranchAndSend(): Promise<void> {
     const target = await this.resolveSendTarget();
     if (!target) return;
-    const { node, content, attachments, chatId, model, provider } = target;
+    const { node, content, attachments } = target;
 
-    await this.runSend('branch', async () => {
-      const newQuestion =
-        node.role === 'user'
-          ? await this.chatService.branchQuestion(
-            chatId,
-            node.id,
-            content,
-            model.modelId,
-            model.providerId,
-            attachments
-          )
-          : await this.chatService.addNode(chatId, {
-            parentId: node.id,
-            role: 'user',
-            content,
-            modelId: model.modelId,
-            providerId: model.providerId,
-            attachments
-          });
-
-      this.activate.emit(newQuestion.id);
-
-      const contextParentId = node.role === 'user' ? node.parentId : node.id;
-      await this.streamForQuestion(chatId, newQuestion, contextParentId, provider, model, {
-        content,
-        attachments
-      });
+    await this.runFlow('send-branch', 'branch', build => {
+      build.vars['content'] = content;
+      build.vars['attachments'] = attachments;
     });
   }
 
-  /**
+/**
    * Insert — like Branch (new sibling question + LLM answer with the same
    * prior-message context), then hang the previous question and its siblings
    * under that new assistant answer.
@@ -1437,43 +1103,12 @@ export class ChatNodeComponent {
   async saveAsInsertAndSend(): Promise<void> {
     const target = await this.resolveSendTarget();
     if (!target) return;
-    const { node, content, attachments, chatId, model, provider } = target;
+    const { node, content, attachments } = target;
     if (node.role !== 'user') return;
 
-    await this.runSend('insert', async () => {
-      const parentId = node.parentId ?? null;
-      const newQuestion = await this.chatService.branchQuestion(
-        chatId,
-        node.id,
-        content,
-        model.modelId,
-        model.providerId,
-        attachments
-      );
-
-      this.activate.emit(newQuestion.id);
-
-      // Previous question + siblings (including retired versions at this level).
-      const adoptNodeIds = this.chatService.nodes()
-        .filter(n =>
-          n.chatId === chatId
-          && (n.parentId ?? null) === parentId
-          && n.id !== newQuestion.id
-        )
-        .map(n => n.id);
-
-      const answer = await this.streamForQuestion(
-        chatId, newQuestion, parentId, provider, model,
-        { content, attachments, adoptNodeIds }
-      );
-
-      this.chatService.setActiveChild(parentId, newQuestion.id);
-      this.chatService.setActiveChild(newQuestion.id, answer.id);
-      if (adoptNodeIds.includes(node.id)) {
-        this.chatService.setActiveChild(answer.id, node.id);
-      } else if (adoptNodeIds.length > 0) {
-        this.chatService.setActiveChild(answer.id, adoptNodeIds[0]);
-      }
+    await this.runFlow('send-insert', 'insert', build => {
+      build.vars['content'] = content;
+      build.vars['attachments'] = attachments;
     });
   }
 
@@ -1485,8 +1120,7 @@ export class ChatNodeComponent {
     const chatId = this.chatService.currentChatId();
     if (!chatId) return;
 
-    const task: GenerationTaskKind = 'headings';
-    const configuredModel = this.generation.modelFor(task);
+    const configuredModel = this.generation.modelFor('headings');
     const model = configuredModel
       ?? this.enabledModels().find(m => m.modelId === this.resolvePreferredModelId(node));
     const provider = model
@@ -1500,60 +1134,22 @@ export class ChatNodeComponent {
     this.isLoading.set(true);
     this.pendingAction.set('structure');
     try {
-      const resolved = await this.llmService.resolveForCurrentChat(model);
-      const config = this.generation.get(task);
-      const instruction = config.prompt.trim() || this.defaultStructurePrompt(task);
-
-      // The current chapter heading is derived from this single answer.
-      const context = node.content.trim();
-
-      const result = await this.llmService.askLlm(
-        provider.baseUrl,
-        provider.apiKey,
-        model.modelId,
-        [{
-          role: 'user',
-          content: `${instruction}\n\nCurrent chat context:\n${context || '(empty chat)'}\n\nReturn only the resulting text.`
-        }],
-        resolved.stream,
-        undefined,
-        undefined,
-        this.llmService.toLlmExtras(resolved),
-        model.providerId
-      );
-      const content = result.content.trim();
-      if (!content) throw new Error(this.i18n.t('node.structureEmpty'));
-
-      const existingHeading = node.parentId
-        ? this.chatService.nodes().find(n => n.id === node.parentId && n.role === 'structural')
-        : undefined;
-
-      if (existingHeading) {
-        await this.chatService.patchNode(chatId, existingHeading.id, {
-          content,
-          modelId: model.modelId,
-          providerId: model.providerId
-        });
-        this.activate.emit(existingHeading.id);
-        return;
-      }
-
-      // The heading wraps this answer: it becomes the new parent (prepend placement).
-      const created = await this.chatService.addNode(chatId, {
-        parentId: node.parentId,
-        role: 'structural',
-        content,
-        modelId: model.modelId,
-        providerId: model.providerId,
-        chatParametersId: this.chatService.chats().find(c => c.id === chatId)?.chatParametersId
-          || model.chatParametersId
-          || undefined
+      const chat = this.chatService.chats().find(c => c.id === chatId) ?? null;
+      // The `structure-heading` use case resolves the task prompt, runs the
+      // non-streaming completion and creates/patches the structural heading
+      // (activating it via the flow result).
+      const slots = await this.runner.run({
+        chat,
+        node,
+        usecase: 'structure-heading',
+        vars: { modelId: model.modelId, providerId: model.providerId }
       });
-
-      await this.chatService.reparentNodes(chatId, [node.id], created.id);
-      this.chatService.setActiveChild(node.parentId, created.id);
-      this.chatService.setActiveChild(created.id, node.id);
-      this.activate.emit(created.id);
+      if (slots.error?.status === 'error') {
+        const reason = (slots.error.reason ?? '').trim();
+        throw new Error(reason || this.i18n.t('node.structureEmpty'));
+      }
+      const structureNodeId = slots.flow?.value?.structureNodeId;
+      if (structureNodeId) this.activate.emit(structureNodeId);
     } catch (err: any) {
       console.error(err);
       alert(this.i18n.t('node.structureFailed', { error: err?.message || err }));
@@ -1561,12 +1157,6 @@ export class ChatNodeComponent {
       this.isLoading.set(false);
       this.pendingAction.set(null);
     }
-  }
-
-  private defaultStructurePrompt(task: GenerationTaskKind): string {
-    if (task === 'title') return this.promptDefaults.effective('structure.title');
-    if (task === 'overview') return this.promptDefaults.effective('structure.overview');
-    return this.promptDefaults.effective('structure.headings');
   }
 
   /**
@@ -1609,31 +1199,27 @@ export class ChatNodeComponent {
       return;
     }
 
-    // Optional per-task prompt override; otherwise use the built-in default.
-    const config = this.generation.get('language-check');
-    const instruction = config.prompt.trim() || this.defaultEnglishCheckPrompt();
-
     this.checkingEnglish.set(true);
     this.englishSuggestions.set(null);
     try {
-      const resolved = await this.llmService.resolveForCurrentChat(model);
-      const extras = { ...this.llmService.toLlmExtras(resolved), stream: false };
-      const result = await this.llmService.askLlm(
-        provider.baseUrl,
-        provider.apiKey,
-        model.modelId,
-        [{
-          role: 'user',
-          content: `${instruction}\n\nOriginal direction:\n${text}`
-        }],
-        false,
-        undefined,
-        undefined,
-        extras,
-        model.providerId
-      );
-
-      const variants = this.parseEnglishVariants(result.content);
+      const chatId = this.chatService.currentChatId();
+      const chat = chatId
+        ? this.chatService.chats().find(c => c.id === chatId) ?? null
+        : null;
+      // The `language-check` use case resolves the task prompt + model, runs
+      // the non-streaming completion and returns the RAW model text — the
+      // variants are parsed here for the suggestion panel.
+      const slots = await this.runner.run({
+        chat,
+        node: this.node(),
+        usecase: 'language-check',
+        vars: { content: text, modelId: model.modelId, providerId: model.providerId }
+      });
+      if (slots.error?.status === 'error') {
+        const reason = (slots.error.reason ?? '').trim();
+        throw new Error(reason || this.i18n.t('node.englishFailed'));
+      }
+      const variants = this.parseEnglishVariants(slots.text?.value ?? '');
       if (variants.length === 0) {
         alert(this.i18n.t('node.englishFailed', {
           error: this.i18n.t('node.englishNoVariants')
@@ -1700,10 +1286,6 @@ export class ChatNodeComponent {
     return (arr ?? []).slice(0, 3);
   }
 
-  private defaultEnglishCheckPrompt(): string {
-    return this.promptDefaults.effective('language.check');
-  }
-
   /**
    * Delete this assistant answer and its subtree, then resend the parent
    * user request. Confirms first when the answer already has children.
@@ -1740,32 +1322,10 @@ export class ChatNodeComponent {
       return;
     }
 
-    const modelId = node.modelId || question.modelId || this.resolvePreferredModelId(question);
-    const model = this.enabledModels().find(m => m.modelId === modelId || m.id === modelId);
-    if (!model) {
-      alert(this.i18n.t('node.modelMissing'));
-      return;
-    }
-
-    const provider = this.settings.providers().find(p => p.id === model.providerId);
-    if (!provider) {
-      alert(this.i18n.t('node.providerMissing'));
-      return;
-    }
-
-    this.isLoading.set(true);
-    this.pendingAction.set('send');
-    try {
-      await this.chatService.deleteNode(chatId, node.id);
-      this.activate.emit(question.id);
-      await this.streamForQuestion(chatId, question, question.parentId, provider, model);
-    } catch (err: any) {
-      console.error(err);
-      alert(this.i18n.t('node.regenerateFailed', { error: err?.message || err }));
-    } finally {
-      this.isLoading.set(false);
-      this.pendingAction.set(null);
-    }
+    await this.runFlow('send-regenerate', 'send', build => {
+      // The flow deletes the ANSWER (this.node) and re-streams under its
+      // parent question — no extra vars needed.
+    });
   }
 
   /**
@@ -1796,47 +1356,11 @@ export class ChatNodeComponent {
     const chatId = this.chatService.currentChatId();
     if (!chatId) return;
 
-    const question = node.parentId
-      ? this.chatService.nodes().find(n => n.id === node.parentId)
-      : undefined;
-    if (!question || question.role !== 'user') {
-      alert(this.i18n.t('node.regenerateNoParent'));
-      return;
-    }
-
-    const modelId = node.modelId || question.modelId || this.resolvePreferredModelId(question);
-    const model = this.enabledModels().find(m => m.modelId === modelId || m.id === modelId);
-    if (!model) {
-      alert(this.i18n.t('node.modelMissing'));
-      return;
-    }
-
-    const provider = this.settings.providers().find(p => p.id === model.providerId);
-    if (!provider) {
-      alert(this.i18n.t('node.providerMissing'));
-      return;
-    }
-
-    // Following text stays: remember the direct children (roots of the
-    // preserved subtree) so they can be hung under the new answer.
-    const adoptNodeIds = children.map(c => c.id);
-
-    this.isLoading.set(true);
-    this.pendingAction.set('send');
-    try {
-      await this.chatService.deleteNode(chatId, node.id, { keepChildren: true });
-      this.activate.emit(question.id);
-      await this.streamForQuestion(
-        chatId, question, question.parentId, provider, model,
-        adoptNodeIds.length ? { adoptNodeIds } : undefined
-      );
-    } catch (err: any) {
-      console.error(err);
-      alert(this.i18n.t('node.regenerateFailed', { error: err?.message || err }));
-    } finally {
-      this.isLoading.set(false);
-      this.pendingAction.set(null);
-    }
+    await this.runFlow('send-rewrite', 'send', build => {
+      // The flow deletes only THIS answer (keeping children) and re-streams
+      // under its parent question, re-adopting the preserved children.
+      build.vars['keepChildren'] = true;
+    });
   }
 
   async deleteNodeOnly(): Promise<void> {
@@ -2072,106 +1596,37 @@ export class ChatNodeComponent {
     this.prependText.set(this.storedPrependText(nodeId));
     if (!cleaned) return; // cleared — no generation
 
-    await this.generatePrependNodes(node, chatId, cleaned);
+    await this.generatePrependNodes(node, cleaned);
   }
 
   /**
-   * Stream the LLM answer (the normal way — SSE reveal, versioning, stop
-   * button) and insert TWO nodes BEFORE the current direction node, mirroring
-   * the "insert" flow:
-   *
-   *   [parent] → director(user, prompt) → result(assistant, streamed) → node
-   *
-   * The prompt-prefix becomes a USER node (the "proposed standard text + user
-   * edits"); the generated narration streams into a new assistant node exactly
-   * like a normal send. On failure the stored flag is rolled back.
+   * Insert the director (user) node + a streamed result (assistant) BEFORE
+   * the current direction, adopting the current node under the result — via
+   * the orchestration `send-prepend` flow. On failure the stored flag is
+   * rolled back.
    */
   private async generatePrependNodes(
     node: ChatNode,
-    chatId: string,
     directorText: string
   ): Promise<void> {
-    const modelId = this.branchModelId() || this.resolvePreferredModelId(node);
-    const model = this.enabledModels().find(
-      m => m.modelId === modelId || m.id === modelId
-    );
-    if (!model) {
-      alert(this.i18n.t('node.modelMissing'));
-      return;
-    }
-    const provider = this.settings.providers().find(p => p.id === model.providerId);
-    if (!provider) {
-      alert(this.i18n.t('node.providerMissing'));
-      return;
-    }
-
-    // "Like insert": the message array is the normal prior context (the path
-    // up to the current node's parent), and the newly created DIRECTORY prompt
-    // is appended as the LAST user message. Unlike a real insert (where the
-    // downstream subtree is adopted and ignored), that prompt ends with the
-    // concatenated full content of the assistant nodes FOLLOWING the current
-    // node, capped to `PREPEND_MAX_TOKENS`.
-    const contextMessages = this.buildContextMessagesUpTo(node.parentId);
     const following = this.followingAssistantContent(node.id);
-    const hasAssistant = contextMessages.some(m => m.role === 'assistant')
+    const hasHistory = this.buildContextMessagesUpTo(node.parentId).length > 0
       || following.trim().length > 0;
     // Nothing to narrate — no assistant chapter anywhere in the thread.
-    if (!hasAssistant) return;
+    if (!hasHistory) return;
 
-    const prompt = [directorText, following].filter(Boolean).join('\n\n');
-    const messages = [
-      ...contextMessages,
-      { role: 'user' as const, content: prompt }
-    ];
-
-    const chatParametersId = this.chatService.chats()
-      .find(c => c.id === chatId)?.chatParametersId
-      || model.chatParametersId
-      || undefined;
-
-    // 1. The prompt-prefix (director) node — a USER node inserted before the
-    //    current direction, holding the proposed + edited standard text.
-    const directorNode = await this.chatService.addNode(chatId, {
-      parentId: node.parentId,
-      role: 'user',
-      content: directorText,
-      modelId: model.modelId,
-      providerId: model.providerId,
-      chatParametersId
+    const ok = await this.runFlow('send-prepend', 'prepend', build => {
+      build.vars['directorText'] = directorText;
+      build.vars['followingText'] = following;
     });
-    this.chatService.setActiveChild(node.parentId, directorNode.id);
-
-    this.isLoading.set(true);
-    this.pendingAction.set('prepend');
-    try {
-      // 2. Stream the answer into a new assistant node under the director (the
-      //    normal way: content reveals live in the chat-node window, a Stop
-      //    button appears, and the node is versioned on completion). The
-      //    current direction is adopted (re-parented) under the result so it
-      //    stays the active leaf.
-      const resultNode = await this.llmService.streamAnswer(
-        chatId,
-        directorNode.id,
-        provider,
-        model,
-        messages,
-        undefined,
-        { adoptNodeIds: [node.id] }
-      );
-      this.chatService.setActiveChild(node.parentId, directorNode.id);
-      this.activate.emit(resultNode.id);
-    } catch (err: any) {
-      console.error(err);
-      alert(this.i18n.t('node.structureFailed', { error: err?.message || err }));
-      // Roll back the stored flag so the UI reflects "not active" on failure.
+    // On failure the flow runner alerted; roll back the stored flag so the UI
+    // reflects "not active".
+    if (!ok && this.prependEnabled()) {
       const map = this.readPrependMap();
       delete map[node.id];
       this.writePrependMap(map);
       this.prependEnabled.set(false);
       this.prependText.set('');
-    } finally {
-      this.isLoading.set(false);
-      this.pendingAction.set(null);
     }
   }
 

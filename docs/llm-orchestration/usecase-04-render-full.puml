@@ -1,0 +1,48 @@
+@startuml usecase-04-render-full
+!theme plain
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+skinparam maxMessageSize 200
+skinparam wrapWidth 170
+title Use case 4 — render-full\n"no storyboard: render the CURRENT NODE while knowing the COMPLETE chat up to now"
+
+actor User
+participant "IllustrateDialog" as DLG
+participant "ChatNodeComponent\nillustrate()" as UI
+participant "LlmUseCaseRunner\n(env)" as RUN
+participant "renderFull\n(controller)" as UC
+participant "LlmOrchestratorService" as ORCH
+participant "LlmTransportService" as XPORT
+participant "Evaluators" as EVAL
+participant "LlmLogService" as LOG
+participant "LlmPostprocessorService" as POST
+participant "ChatService" as SVC
+participant "Provider\n(proxy)" as NET
+
+== 1. Dialog picks the use case ==
+User -> DLG : count(=1), historyMode FULL, style, planning any
+DLG --> UI : options
+UI -> UI : pickUsecase(vars) → 'render-full'
+
+== 2. Run: env ==
+UI -> RUN : runner.run(chat, node, 'render-full', vars)
+RUN -> RUN : render model, instruction, imageExtras,\nanchor = instruction + scene text (vars.content)
+RUN --> UC : controllerFor('render-full')(env)
+
+== 3. Controller: full chat + single render ==
+UC -> UC : messages = FULL chat up to node (text-only history)\n+ renderMessages(anchor, prior refs when model reads images)
+UC -> ORCH : completeImage(request, expect:'images', prompt:anchor)
+ORCH -> XPORT : completeImage() — modalities + fallback tree
+XPORT -> LOG : record/complete
+XPORT -> NET : POST /chat/completions
+XPORT --> ORCH : raw
+ORCH -> EVAL : evaluateImagesResponse(raw)
+EVAL --> ORCH : images slot (ok | refused, reason)
+ORCH --> UC : EvalSlots
+
+== 4. Place ==
+UC -> POST : wrapImagesAsStoryboard(1 scene)
+POST -> SVC : editAssistant(chapter, illustration-1 + prompt-1.txt)
+POST --> UI : activate(chapter.id)
+
+@enduml

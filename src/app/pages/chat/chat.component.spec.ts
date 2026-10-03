@@ -21,7 +21,7 @@ import { ProviderConfig, ModelEntry } from '../../models/chat-config';
 import { ChatParameters, ChatParametersDraft } from '../../models/chat-parameters';
 import { ChatService } from '../../core/chat.service';
 import { SettingsService } from '../../core/settings.service';
-import { LlmService } from '../../core/llm/llm.service';
+import { LlmOrchestratorService } from '../../core/llm/orchestration';
 import { I18nService } from '../../core/i18n/i18n.service';
 import { NodeClipboardService } from '../../core/node-clipboard.service';
 import { ConfirmService } from '../../core/confirm.service';
@@ -41,6 +41,11 @@ describe('Chat', () => {
     toLlmExtras: ReturnType<typeof vi.fn>;
     streamAnswer: ReturnType<typeof vi.fn>;
   };
+  let orch: {
+    completion: ReturnType<typeof vi.fn>;
+    completeImage: ReturnType<typeof vi.fn>;
+    images: ReturnType<typeof vi.fn>;
+  };
 
   beforeEach(async () => {
     api = new InMemoryChatApi();
@@ -53,30 +58,24 @@ describe('Chat', () => {
       imports: [ChatComponent],
       providers: [
         provideHttpClient(),
-        { provide: CHAT_API, useValue: api },
+        { provide: CHAT_API, useValue: api },      
         {
-          provide: LlmService,
+          // Mock the ORCHESTRATOR (transport), NOT the use-case/flow runner:
+          // the real send-elaborate flow then creates + streams against the
+          // real (in-memory) ChatService, so node-shape + chaining assertions
+          // in the elaborate tests keep working.
+          provide: LlmOrchestratorService,
           useValue: {
-            askLlm: vi.fn(async () => ({ content: 'Generated structure', thinking: '' })),
-            resolveForCurrentChat: vi.fn(async () => ({ stream: false })),
-            toLlmExtras: vi.fn(() => ({})),
-            streamAnswer: vi.fn(async (
-              chatId: string,
-              questionNodeId: string,
-              _provider: unknown,
-              model: ModelEntry,
-              _messages: unknown
+            completion: vi.fn(async (
+              _cx: unknown,
+              _req: unknown,
+              opts?: { onChunk?: (c: { content: string }) => void },
             ) => {
-              const saved = await chatService.addNode(chatId, {
-                parentId: questionNodeId,
-                role: 'assistant',
-                content: 'Generated answer',
-                modelId: model?.modelId ?? 'alpha/model',
-                providerId: model?.providerId ?? 'prov-1'
-              });
-              chatService.setActiveChild(questionNodeId, saved.id);
-              return saved;
-            })
+              opts?.onChunk?.({ content: 'Generated answer' });
+              return { text: { status: 'ok', value: 'Generated answer' } };
+            }),
+            completeImage: vi.fn(async () => ({ images: { status: 'refused', value: null } })),
+            images: vi.fn(async () => ({ images: { status: 'refused', value: null } }))
           }
         }
       ]
@@ -85,11 +84,10 @@ describe('Chat', () => {
     fixture = TestBed.createComponent(ChatComponent);
     component = fixture.componentInstance;
     chatService = TestBed.inject(ChatService);
-    llm = TestBed.inject(LlmService) as unknown as {
-      askLlm: ReturnType<typeof vi.fn>;
-      resolveForCurrentChat: ReturnType<typeof vi.fn>;
-      toLlmExtras: ReturnType<typeof vi.fn>;
-      streamAnswer: ReturnType<typeof vi.fn>;
+    orch = TestBed.inject(LlmOrchestratorService) as unknown as {
+      completion: ReturnType<typeof vi.fn>;
+      completeImage: ReturnType<typeof vi.fn>;
+      images: ReturnType<typeof vi.fn>;
     };
     TestBed.inject(I18nService).setLocale('en');
 
@@ -124,6 +122,9 @@ describe('Chat', () => {
 
   it('generates a title that wraps the whole story', async () => {
     await openStory();
+    orch.completion.mockResolvedValueOnce({
+      text: { status: 'ok', value: 'Generated structure' }
+    });
 
     await component.generateTitle();
 
@@ -135,7 +136,7 @@ describe('Chat', () => {
     // the title wraps the first story node
     expect(chatService.nodes().find(n => n.id === 'q1')?.parentId).toBe(title.id);
     expect(chatService.getActivePath()[0].id).toBe(title.id);
-    expect(llm.askLlm).toHaveBeenCalledTimes(1);
+    expect(orch.completion).toHaveBeenCalledTimes(1);
     // the generated title also becomes the chat title
     expect(chatService.chats().find(c => c.id === 'chat-1')?.title).toBe('Generated structure');
   });
@@ -145,8 +146,10 @@ describe('Chat', () => {
 
     await component.generateIntroduction();
 
-    const messages = llm.askLlm.mock.calls[0][3];
-    const userMsg = messages.find((m: { role: string }) => m.role === 'user')!;
+    const req = orch.completion.mock.calls[0][1] as {
+      messages: { role: string; content: string }[];
+    };
+    const userMsg = req.messages.find(m => m.role === 'user')!;
     expect(userMsg.content).toContain('Answer one');
     expect(userMsg.content).toContain('Answer two');
     expect(userMsg.content).not.toContain('Question');
@@ -156,6 +159,9 @@ describe('Chat', () => {
 
   it('places the introduction first and wraps the story when no structure node exists', async () => {
     await openStory();
+    orch.completion.mockResolvedValueOnce({
+      text: { status: 'ok', value: 'Generated structure' }
+    });
 
     await component.generateIntroduction();
 
@@ -183,6 +189,9 @@ describe('Chat', () => {
     chatService.setActiveChild(null, 't1');
     chatService.setActiveChild('t1', 'q1');
     chatService.setActiveChild('q1', 'a1');
+    orch.completion.mockResolvedValueOnce({
+      text: { status: 'ok', value: 'Generated structure' }
+    });
 
     await component.generateIntroduction();
 
@@ -217,11 +226,11 @@ describe('Chat', () => {
 
   it('generates a heading for each assistant node on the active path', async () => {
     await openChapteredStory();
-    llm.askLlm.mockClear();
+    orch.completion.mockClear();
 
     await component.generateHeadings();
 
-    expect(llm.askLlm).toHaveBeenCalledTimes(2);
+    expect(orch.completion).toHaveBeenCalledTimes(2);
     const structural = chatService.nodes().filter(n => n.role === 'structural');
     expect(structural.length).toBe(2);
 
@@ -234,15 +243,16 @@ describe('Chat', () => {
 
   it('provides previous chapters incl. their headings as context for the last one', async () => {
     await openChapteredStory();
-    llm.askLlm.mockClear();
-    llm.askLlm.mockResolvedValueOnce({ content: 'First Heading', thinking: '' });
-    llm.askLlm.mockResolvedValueOnce({ content: 'Second Heading', thinking: '' });
+    orch.completion.mockClear();
+    orch.completion.mockResolvedValueOnce({ text: { status: 'ok', value: 'First Heading' } });
+    orch.completion.mockResolvedValueOnce({ text: { status: 'ok', value: 'Second Heading' } });
 
     await component.generateHeadings();
 
-    const calls = llm.askLlm.mock.calls;
+    const calls = orch.completion.mock.calls;
     const userOf = (i: number) =>
-      (calls[i][3] as { role: string; content: string }[]).find(m => m.role === 'user')!.content;
+      (calls[i][1] as { messages: { role: string; content: string }[] }).messages
+        .find(m => m.role === 'user')!.content;
 
     // first call: only its own chapter, no prior heading
     expect(userOf(0)).toContain('Answer one');
@@ -271,21 +281,22 @@ describe('Chat', () => {
     chatService.setActiveChild('h1', 'a1');
     chatService.setActiveChild('a1', 'q2');
     chatService.setActiveChild('q2', 'a2');
-    llm.askLlm.mockClear();
-    llm.askLlm.mockResolvedValueOnce({ content: 'New Heading', thinking: '' });
+    orch.completion.mockClear();
+    orch.completion.mockResolvedValueOnce({ text: { status: 'ok', value: 'New Heading' } });
 
     await component.generateHeadings();
 
     // only a2 needs a heading – a1 already has one
-    expect(llm.askLlm).toHaveBeenCalledTimes(1);
+    expect(orch.completion).toHaveBeenCalledTimes(1);
     const structural = chatService.nodes().filter(n => n.role === 'structural');
     expect(structural.length).toBe(2); // h1 (existing) + new one
     expect(structural.some(n => n.content === 'Existing Heading')).toBe(true);
     expect(chatService.nodes().find(n => n.id === 'a2')!.parentId).not.toBe('q2');
 
     // the pre-existing heading still appears in the context for a2
-    const content = llm.askLlm.mock.calls[0][3]
-      .find((m: { role: string }) => m.role === 'user')!.content;
+    const content = (orch.completion.mock.calls[0][1] as {
+      messages: { role: string; content: string }[];
+    }).messages.find((m: { role: string }) => m.role === 'user')!.content;
     expect(content).toContain('"Existing Heading"');
     expect(content).toContain('Answer two');
   });
@@ -312,7 +323,7 @@ describe('Chat', () => {
 
   it('elaborates chapters first..last sequentially with the most recent answer model', async () => {
     await openElaborateStory();
-    llm.streamAnswer.mockClear();
+    orch.completion.mockClear();
 
     component.elaborateFirst.set(1);
     component.elaborateLast.set(2);
@@ -328,15 +339,17 @@ describe('Chat', () => {
       'elaborate on chapter 2'
     ]);
 
-    // one LLM answer per question, chained head-to-tail
+    // one LLM answer per question, chained head-to-tail. Answers are read via
+    // getChildren (editAssistant VERSIONS the placeholder → only the current
+    // node carries the content).
     const [q1, q2] = questions;
-    const a1 = nodes.find(n => n.role === 'assistant' && n.parentId === q1.id)!;
-    const a2 = nodes.find(n => n.role === 'assistant' && n.parentId === q2.id)!;
+    const a1 = chatService.getChildren(q1.id).find(n => n.role === 'assistant')!;
+    const a2 = chatService.getChildren(q2.id).find(n => n.role === 'assistant')!;
     expect(a1.content).toBe('Generated answer');
     expect(a2.content).toBe('Generated answer');
     expect(q2.parentId).toBe(a1.id); // chapter 2 continues from the chapter-1 answer
 
-    expect(llm.streamAnswer).toHaveBeenCalledTimes(2);
+    expect(orch.completion).toHaveBeenCalledTimes(2);
 
     // the model of the most recent assistant answer drives every question
     expect(q1.modelId).toBe('alpha/model');
@@ -347,7 +360,7 @@ describe('Chat', () => {
 
   it('elaborates each chapter from the point of view of each named character', async () => {
     await openElaborateStory();
-    llm.streamAnswer.mockClear();
+    orch.completion.mockClear();
 
     component.elaborateFirst.set(1);
     component.elaborateLast.set(1);
@@ -369,9 +382,9 @@ describe('Chat', () => {
       n.content.indexOf('elaborate on chapter 1 out of the view of Anna in first person') !== -1)!;
     const q2 = chatService.nodes().find(n =>
       n.content.indexOf('elaborate on chapter 1 out of the view of Ben in first person') !== -1) !;
-    const a1 = chatService.nodes().find(n => n.role === 'assistant' && n.parentId === q1.id)!;
+    const a1 = chatService.getChildren(q1.id).find(n => n.role === 'assistant')!;
     expect(q2.parentId).toBe(a1.id);
-    expect(llm.streamAnswer).toHaveBeenCalledTimes(2);
+    expect(orch.completion).toHaveBeenCalledTimes(2);
   });
 
   it('pre-selects the most recent answer model when opening the elaborate dialog', async () => {
@@ -395,7 +408,7 @@ describe('Chat', () => {
 
   it('reopens elaborate on the same chat at previous last chapter + 1 with the last characters', async () => {
     await openElaborateStory();
-    llm.streamAnswer.mockClear();
+    orch.completion.mockClear();
 
     // First use: elaborate chapters 1–3 with two characters
     component.elaborateFirst.set(1);
@@ -404,7 +417,7 @@ describe('Chat', () => {
     await component.confirmElaborate();
 
     // Reopen the dialog for the SAME chat.
-    llm.streamAnswer.mockClear();
+    orch.completion.mockClear();
     component.openElaborateDialog();
 
     expect(component.elaborateFirst()).toBe(4); // last chapter (3) + 1
@@ -414,7 +427,7 @@ describe('Chat', () => {
 
   it('keeps elaborate continuation state separate per chat', async () => {
     await openElaborateStory();
-    llm.streamAnswer.mockClear();
+    orch.completion.mockClear();
     component.elaborateFirst.set(1);
     component.elaborateLast.set(5);
     component.elaborateNames.set('Cassidy');
@@ -436,7 +449,7 @@ describe('Chat', () => {
     await chatService.selectChat('chat-2');
     chatService.setActiveChild(null, 'q0b');
     chatService.setActiveChild('q0b', 'a0b');
-    llm.streamAnswer.mockClear();
+    orch.completion.mockClear();
 
     component.openElaborateDialog();
 
@@ -455,7 +468,7 @@ describe('Chat', () => {
     await TestBed.inject(SettingsService).loadAll();
 
     await openElaborateStory();
-    llm.streamAnswer.mockClear();
+    orch.completion.mockClear();
 
     component.openElaborateDialog();
     expect(component.elaborateModelId()).toBe('alpha/model'); // pre-selected
@@ -471,7 +484,7 @@ describe('Chat', () => {
     const q1 = nodes.find(n => n.role === 'user' && n.content === 'elaborate on chapter 1')!;
     expect(q1.modelId).toBe('beta/model');
     expect(q1.providerId).toBe('prov-2');
-    const a1 = nodes.find(n => n.role === 'assistant' && n.parentId === q1.id)!;
+    const a1 = chatService.getChildren(q1.id).find(n => n.role === 'assistant')!;
     expect(a1.modelId).toBe('beta/model');
     expect(a1.providerId).toBe('prov-2');
   });

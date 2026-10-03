@@ -29,6 +29,25 @@ import { ModelEntry, ProviderConfig } from '../../../models/chat-config';
  *  4. render-full        — no storyboard: render the current node while
  *                          knowing the COMPLETE chat up to now.
  *  5. render-node        — no storyboard: render the CURRENT NODE only.
+ *  6. image-generation   — no storyboard: render ONE explicit picture prompt
+ *                          (from `vars.promptText`); no planning — the prompt
+ *                          IS the concrete scene. Used by the "adapt prompt
+ *                          & re-render" flow.
+ *  structure-title      — generate a story TITLE from ALL current chapters
+ *                          and wrap the story under it (structural node at
+ *                          the root + the title becomes the chat title).
+ *  structure-overview   — generate an INTRODUCTION from ALL current chapters
+ *                          and place it right after an existing structural
+ *                          node (or at the very start when none exists).
+ *  structure-heading    — generate a heading for ONE chapter (the current
+ *                          node): patch its structural parent when one
+ *                          exists, else wrap the chapter under a new one.
+ *  structure-headings   — generate a heading for EVERY chapter on the active
+ *                          path that has none yet, each wrapped under a new
+ *                          structural node (with prior headings as context).
+ *  language-check       — copy-edit a writing direction and return three
+ *                          corrected variants (no chat mutation — the caller
+ *                          parses `text`).
  *  append               — normal send: a user/director node at the end of the
  *                          chat + the FULL history as context; stream a text
  *                          answer back (used by sendDraft-like flows).
@@ -37,7 +56,30 @@ import { ModelEntry, ProviderConfig } from '../../../models/chat-config';
  *                          image-interpret model FIRST, then inject the
  *                          description into the direction text (no binary
  *                          images are re-sent to the writing model) and
- *                          stream the answer.
+ *                          stream the answer. Interpretation runs ONLY when
+ *                          the descriptions are NOT yet stored in the node's
+ *                          text (i.e. the node has no matching
+ *                          image-description record).
+ *
+ * Structural text-send flows (all reuse the append machinery + interpretation
+ * rule and do the chat structural changes via ChatService):
+ *  send-branch       — create a new sibling question, stream the answer
+ *                      under it.
+ *  send-insert       — create a new sibling question, stream the answer
+ *                      under it, then hang the previous siblings under the
+ *                      new answer.
+ *  send-regenerate   — delete the old answer (+ subtree) and stream a fresh
+ *                      answer under the same question.
+ *  send-rewrite      — delete only the answer (keep following text) and
+ *                      stream a fresh answer that re-adopts the preserved
+ *                      children.
+ *  send-prepend      — insert a director (user) node + streamed result
+ *                      (assistant) BEFORE the current direction, adopting
+ *                      the current node under the result.
+ *  send-elaborate    — append one chapter elaboration: create/reuse a fresh
+ *                      question under the anchor (most recent assistant
+ *                      answer) and stream the answer into a new assistant
+ *                      node. `vars.content` is the rendered elaborate prompt.
  */
 export type UsecaseKind =
   | 'storyboard-direct'
@@ -45,8 +87,20 @@ export type UsecaseKind =
   | 'planned-scenes'
   | 'render-full'
   | 'render-node'
+  | 'image-generation'
+  | 'structure-title'
+  | 'structure-overview'
+  | 'structure-heading'
+  | 'structure-headings'
+  | 'language-check'
   | 'append'
-  | 'append-with-images';
+  | 'append-with-images'
+  | 'send-branch'
+  | 'send-insert'
+  | 'send-regenerate'
+  | 'send-rewrite'
+  | 'send-prepend'
+  | 'send-elaborate';
 
 /** Which provider endpoint a request intent targets. */
 export type LlmEndpoint = 'completion' | 'images';
@@ -120,11 +174,47 @@ export interface EvalSlots {
    */
   direction?: Slot<string>;
   /**
+   * When images were freshly interpreted: the record to persist on the node
+   * (marks "description already stored in text" so it is never interpreted
+   * again on a later send of the same node).
+   */
+  interpretation?: Slot<{ content: string; record: import('./context').NodeAttachmentLike }>;
+  /**
+   * Structural-flow placement (`send-branch` / `send-insert` /
+   * `send-regenerate` / `send-rewrite` / `send-prepend`): which nodes were
+   * created/mutated so the caller can activate the right one.
+   */
+  flow?: Slot<FlowResult>;
+  /**
    * Overall error slot, set when the whole use case could not complete
    * (timeout, caller abort, hard failure). A use case may end with BOTH
    * partial scenes and an error — never throws.
    */
   error?: Slot<'timeout' | 'aborted' | 'http' | 'parse'>;
+}
+
+/** Placement result of a structural text-send flow. */
+export interface FlowResult {
+  /** The user node the answer was attached under. */
+  questionNodeId: string;
+  /** The streamed (versioned) assistant answer node id. */
+  answerNodeId: string;
+  /** The id the UI should activate. */
+  activateId: string;
+  /** For `send-branch`/`send-insert`: the new sibling question id. */
+  branchNodeId?: string;
+  /** For `send-prepend`: the inserted director (user) node id. */
+  directorNodeId?: string;
+  /**
+   * Structure-generation use cases (`structure-title` / `structure-overview` /
+   * `structure-heading` / `structure-headings`): the structure node that was
+   * created or patched (title / introduction / chapter heading).
+   */
+  structureNodeId?: string;
+  /** `structure-headings`: every heading node created, in creation order. */
+  structureNodeIds?: string[];
+  /** True when the answer streamed no content (refused/empty). */
+  empty: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -179,11 +269,22 @@ export interface UsecaseVars {
   /** Prompt text provided directly (e.g. from a text template). */
   promptText?: string;
   /** For `append`: the text to send as the final user message. When omitted
-   *  the current node's saved content is used. */
+   *  the current node's saved content is used. Also used as the new question
+   *  content for structural flows. */
   content?: string;
   /** For `append-with-images`: the user node's attachments (the images to
    *  interpret). The current node's own attachments are used when absent. */
   attachments?: NodeAttachment[];
+  /** Structural flows: nodes to re-parent under the fresh answer. */
+  adoptNodeIds?: string[];
+  /** Structural flows: the director/instruction text for `send-prepend`. */
+  directorText?: string;
+  /** Structural flows: pre-built following-chapters text for `send-prepend`. */
+  followingText?: string;
+  /** Image use cases: explicit rendering model chosen in a dialog. */
+  modelId?: string;
+  /** Image use cases: provider of the chosen rendering model. */
+  providerId?: string;
 }
 
 /** The full static run context handed to every use case. */

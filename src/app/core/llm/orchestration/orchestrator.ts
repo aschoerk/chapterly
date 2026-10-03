@@ -41,9 +41,11 @@ export interface PrimitiveOptions {
 export class LlmOrchestratorService {
   private readonly transport = inject(LlmTransportService);
 
-  /** Chat attribution slice for the log. */
-  private chatRef(cx: Pick<UsecaseContext, 'chat'>): { id: string; title: string | undefined } | undefined {
-    return cx?.chat ? { id: cx.chat.id, title: cx.chat.title } : undefined;
+  /** Chat attribution slice for the log (incl. the orchestration use case). */
+  private chatRef(
+    cx: Pick<UsecaseContext, 'chat'> & Partial<Pick<UsecaseContext, 'usecase'>>
+  ): { id: string; title: string | undefined; usecase: string | undefined } | undefined {
+    return cx?.chat ? { id: cx.chat.id, title: cx.chat.title, usecase: cx.usecase } : undefined;
   }
 
   /**
@@ -53,7 +55,7 @@ export class LlmOrchestratorService {
    * raw JSON. NEVER throws a generation result — failures become slots.
    */
   async completion(
-    cx: Pick<UsecaseContext, 'chat'>,
+    cx: Pick<UsecaseContext, 'chat'> & Partial<Pick<UsecaseContext, 'usecase'>>,
     req: PrimitiveRequest,
     opts: PrimitiveOptions
   ): Promise<EvalSlots> {
@@ -99,7 +101,7 @@ export class LlmOrchestratorService {
    * failures become `images` refused / `error` slots.
    */
   async completeImage(
-    cx: Pick<UsecaseContext, 'chat'>,
+    cx: Pick<UsecaseContext, 'chat'> & Partial<Pick<UsecaseContext, 'usecase'>>,
     req: PrimitiveRequest,
     opts: PrimitiveOptions
   ): Promise<EvalSlots> {
@@ -128,7 +130,7 @@ export class LlmOrchestratorService {
    * One OpenRouter-Images endpoint call. Same slot contract.
    */
   async images(
-    cx: Pick<UsecaseContext, 'chat'>,
+    cx: Pick<UsecaseContext, 'chat'> & Partial<Pick<UsecaseContext, 'usecase'>>,
     req: { model: ModelEntry; provider: ProviderRef; prompt: string; n?: number },
     opts: PrimitiveOptions
   ): Promise<EvalSlots> {

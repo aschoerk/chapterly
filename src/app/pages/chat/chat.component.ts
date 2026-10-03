@@ -3,7 +3,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ChatService } from '../../core/chat.service';
 import { LastModelService } from '../../core/last-model.service';
-import { Chat, ChatNode, NodeAttachment, ChatMessage } from '../../models/chat';
+import { Chat, ChatNode, NodeAttachment } from '../../models/chat';
 import { SettingsService } from '../../core/settings.service';
 import { ChatParametersService } from '../../core/chat-parameters.service';
 import { ChatParametersEditorComponent } from '../../components/chat-parameters-editor/chat-parameters-editor.component';
@@ -14,14 +14,13 @@ import {SideBarComponent} from '../../components/side-bar/side-bar.component';
 import {Router} from '@angular/router';
 import {ProjectService} from '../../core/project.service';
 import { I18nService } from '../../core/i18n/i18n.service';
-import { LlmService } from '../../core/llm/llm.service';
-import { nodeToMessageContent, isPromptRecordAttachment, isGeneratedImageAttachment } from '../../core/llm/llm-message';
 import { GenerationSettingsService } from '../../core/generation-settings.service';
 import { PromptDefaultsService } from '../../core/prompt-defaults.service';
 import { GenerationTaskKind } from '../../models/generation-task';
 import { ModelEntry, ProviderConfig } from '../../models/chat-config';
 import { ConfirmService } from '../../core/confirm.service';
 import { NodeClipboardService } from '../../core/node-clipboard.service';
+import { LlmUseCaseRunner } from '../../core/llm/orchestration';
 
 @Component({
   selector: 'app-chat',
@@ -39,7 +38,7 @@ export class ChatComponent implements OnInit {
   private readonly settings = inject(SettingsService);
   private readonly lastModelService = inject(LastModelService);
   private readonly parameters = inject(ChatParametersService);
-  private readonly llmService = inject(LlmService);
+  private readonly llmRunner = inject(LlmUseCaseRunner);
   private readonly generation = inject(GenerationSettingsService);
   private readonly promptDefaults = inject(PromptDefaultsService);
   private readonly confirm = inject(ConfirmService);
@@ -446,58 +445,6 @@ export class ChatComponent implements OnInit {
     return idx >= 0 ? idx + 1 : 1;
   }
 
-  /**
-   * Convert a single node into the content that goes into an OpenAI-style message.
-   * - No attachments  → plain string
-   * - With images     → array of {type:'text'} + {type:'image_url'} parts
-   * - Other files     → listed in the text part
-   */
-  private nodeToMessageContent(
-    node: ChatNode
-  ): string | Array<{ type: string; text?: string; image_url?: { url: string } }> {
-    // Internal illustration metadata is never story context: recorded prompt
-    // files and GENERATED illustrations (illustration-N.*) are excluded —
-    // their base64 payload would bloat every Elaborate call for no story
-    // value. Hand-attached images (any other name) are kept.
-    const isContextMeta = (a: NodeAttachment): boolean =>
-      isPromptRecordAttachment(a) || isGeneratedImageAttachment(a);
-    const attachments = (node.attachments || []).filter(a => !isContextMeta(a));
-    if (attachments.length === 0) {
-      return node.content || '';
-    }
-
-    const images = attachments.filter(a => a.mimeType?.startsWith('image/'));
-    const other  = attachments.filter(a => !a.mimeType?.startsWith('image/'));
-
-    const parts: Array<{ type: string; text?: string; image_url?: { url: string } }> = [];
-
-    // text part (original content + list of non-image files)
-    let text = node.content || '';
-    if (other.length) {
-      text +=
-        (text ? '\n\n' : '') +
-        '[Attached files]\n' +
-        other.map(a => `- ${a.name} (${a.mimeType})`).join('\n');
-    }
-    if (text.trim()) {
-      parts.push({ type: 'text', text });
-    }
-
-    // image parts
-    for (const img of images) {
-      parts.push({
-        type: 'image_url',
-        image_url: { url: img.dataUrl }
-      });
-    }
-
-    // if we only produced a single text part, keep the simple string form
-    if (parts.length === 1 && parts[0].type === 'text') {
-      return parts[0].text!;
-    }
-    return parts;
-  }
-
 
   @HostListener('window:keydown', ['$event'])
   onKey(event: KeyboardEvent) {
@@ -712,64 +659,21 @@ export class ChatComponent implements OnInit {
     // The whole process (LLM call + node wiring) is cancelled by one Stop press.
     const opSignal = this.chatService.beginOperation(task);
     try {
-      const resolved = await this.llmService.resolveForCurrentChat(model);
-      const config = this.generation.get(task);
-      const instruction = config.prompt.trim() || this.defaultStructurePrompt(task);
-
-      // Whole-story context: the text of every current assistant node.
-      const context = this.chatService.currentNodes()
-        .filter(n => n.isCurrent && n.role === 'assistant' && n.content?.trim())
-        .map(n => n.content)
-        .join('\n\n');
-
-      const result = await this.llmService.askLlm(
-        provider.baseUrl,
-        provider.apiKey,
-        model.modelId,
-        [{
-          role: 'user',
-          content: `${instruction}\n\nCurrent chat context:\n${context || '(empty chat)'}\n\nReturn only the resulting text.`
-        }],
-        resolved.stream,
-        undefined,
-        opSignal,
-        this.llmService.toLlmExtras(resolved),
-        model.providerId
-      );
+      const chat = this.chatService.chats().find(c => c.id === chatId) ?? null;
+      // Any anchor node works — the `structure-title` / `structure-overview`
+      // use case reads the whole chat state to build its own context.
+      const node = this.chatService.getActiveChild(null);
+      const usecase = task === 'title' ? 'structure-title' : 'structure-overview';
+      const slots = await this.llmRunner.run({
+        chat,
+        node,
+        usecase,
+        vars: { modelId: model.modelId, providerId: model.providerId }
+      }, { signal: opSignal });
       if (this.chatService.isOperationCancelled()) return;
-      const content = result.content.trim();
-      if (!content) throw new Error(this.i18n.t('node.structureEmpty'));
-
-      if (task === 'title') {
-        // The title wraps the whole story: insert at root above the first node.
-        const first = this.chatService.getActiveChild(null);
-        const created = await this.addStructureNode(chatId, null, content, model);
-        if (first) {
-          await this.chatService.reparentNodes(chatId, [first.id], created.id);
-          this.chatService.setActiveChild(null, created.id);
-          this.chatService.setActiveChild(created.id, first.id);
-        } else {
-          this.chatService.setActiveChild(null, created.id);
-        }
-        // The generated title also becomes the chat/story title.
-        await this.chatService.updateChatTitle(chatId, content);
-      } else {
-        // The introduction is a structure node that wraps the story and reads
-        // right after an existing structure node (e.g. a generated title), or
-        // becomes the very first node of the story when none exists yet.
-        const rootChildren = this.chatService.getChildren(null);
-        const existingStructure = rootChildren.find(n => n.role === 'structural');
-        const parentId = existingStructure?.id ?? null;
-        const first = this.chatService.getActiveChild(parentId);
-
-        const created = await this.addStructureNode(chatId, parentId, content, model);
-        if (first) {
-          await this.chatService.reparentNodes(chatId, [first.id], created.id);
-          this.chatService.setActiveChild(parentId, created.id);
-          this.chatService.setActiveChild(created.id, first.id);
-        } else {
-          this.chatService.setActiveChild(parentId, created.id);
-        }
+      if (slots.error?.status === 'error') {
+        const reason = (slots.error.reason ?? '').trim();
+        throw new Error(reason || this.i18n.t('node.structureEmpty'));
       }
     } catch (err: any) {
       if (this.chatService.isOperationCancelled()) return; // user stopped — not an error
@@ -799,66 +703,20 @@ export class ChatComponent implements OnInit {
     // The whole multi-call process is cancelled by one Stop press.
     const opSignal = this.chatService.beginOperation('headings');
     try {
-      const resolved = await this.llmService.resolveForCurrentChat(model);
-      const config = this.generation.get('headings');
-      const instruction = config.prompt.trim() || this.defaultStructurePrompt('headings');
-
-      // The active path is the linear reading order of the story.
-      const assistants = this.chatService.getActivePath()
-        .filter(n => n.role === 'assistant' && n.content?.trim());
-
-      const nodeById = new Map(this.chatService.currentNodes().map(n => [n.id, n]));
-      const previous: { node: ChatNode; heading: ChatNode }[] = [];
-      for (const assistant of assistants) {
-        // Bail out between chapters if the user pressed Stop.
-        if (this.chatService.isOperationCancelled()) return;
-        // A chapter counts as headed when its parent is a structural node.
-        // Already-headed chapters are kept in the context but not regenerated.
-        const parent = assistant.parentId ? nodeById.get(assistant.parentId) : undefined;
-        if (parent?.role === 'structural') {
-          previous.push({ node: assistant, heading: parent });
-          continue;
-        }
-
-        // Context = earlier chapters (incl. their generated headings) + the current one.
-        const blocks: string[] = previous.map(({ node, heading }) =>
-          `Chapter — heading: "${heading.content}"\n\nContent:\n${node.content}`);
-        blocks.push(`Chapter — heading: (to be created)\n\nContent:\n${assistant.content}`);
-
-        const result = await this.llmService.askLlm(
-          provider.baseUrl,
-          provider.apiKey,
-          model.modelId,
-          [{
-            role: 'user',
-            content: `${instruction}\n\nThe following chapters are listed in story order. Every chapter already has a heading EXCEPT the LAST one.\nGenerate the heading for the LAST chapter only; use the earlier chapters to match the style.\n\n${blocks.join('\n\n')}\n\nReturn only the heading text.`
-          }],
-          resolved.stream,
-          undefined,
-          opSignal,
-          this.llmService.toLlmExtras(resolved),
-          model.providerId
-        );
-        if (this.chatService.isOperationCancelled()) return;
-        const headingContent = result.content.trim();
-        if (!headingContent) throw new Error(this.i18n.t('node.structureEmpty'));
-
-        // Wrap this chapter under a new structural heading (same parent as the answer).
-        const heading = await this.chatService.addNode(chatId, {
-          parentId: assistant.parentId,
-          role: 'structural',
-          content: headingContent,
-          modelId: model.modelId,
-          providerId: model.providerId,
-          chatParametersId: this.chatService.chats().find(c => c.id === chatId)?.chatParametersId
-            || model.chatParametersId
-            || undefined
-        });
-        await this.chatService.reparentNodes(chatId, [assistant.id], heading.id);
-        this.chatService.setActiveChild(assistant.parentId, heading.id);
-        this.chatService.setActiveChild(heading.id, assistant.id);
-
-        previous.push({ node: assistant, heading });
+      const chat = this.chatService.chats().find(c => c.id === chatId) ?? null;
+      // Any anchor node works — the `structure-headings` use case walks the
+      // active path itself and stops between chapters when aborted.
+      const node = this.getCurrentLeaf() ?? this.chatService.getActiveChild(null);
+      const slots = await this.llmRunner.run({
+        chat,
+        node,
+        usecase: 'structure-headings',
+        vars: { modelId: model.modelId, providerId: model.providerId }
+      }, { signal: opSignal });
+      if (this.chatService.isOperationCancelled()) return;
+      if (slots.error?.status === 'error') {
+        const reason = (slots.error.reason ?? '').trim();
+        throw new Error(reason || this.i18n.t('node.structureEmpty'));
       }
     } catch (err: any) {
       if (this.chatService.isOperationCancelled()) return; // user stopped — not an error
@@ -1016,7 +874,22 @@ export class ChatComponent implements OnInit {
 
         for (const prompt of prompts) {
           if (this.chatService.isOperationCancelled()) break;
-          parentId = await this.elaborateOne(chatId, parentId, prompt, model, provider);
+          // The anchor for each step is the answer node of the previous one
+          // (the first anchor is the most recent assistant answer).
+          const parentNode = parentId
+            ? this.chatService.currentNodes().find(n => n.id === parentId) ?? anchor
+            : anchor;
+          const slots = await this.llmRunner.run({
+            chat: this.chatService.chats().find(c => c.id === chatId) ?? null,
+            node: parentNode,
+            usecase: 'send-elaborate',
+            vars: {
+              content: prompt,
+              modelId: model.modelId,
+              providerId: model.providerId
+            }
+          });
+          parentId = slots.flow?.value?.answerNodeId ?? parentId;
         }
       }
     } catch (err: any) {
@@ -1030,69 +903,6 @@ export class ChatComponent implements OnInit {
     }
   }
 
-  /** Persist one question at the leaf and stream an answer; returns the answer node id. */
-  private async elaborateOne(
-    chatId: string,
-    parentId: string | null,
-    content: string,
-    model: ModelEntry,
-    provider: { baseUrl: string; apiKey: string }
-  ): Promise<string> {
-    const question = await this.getOrCreateElaborateQuestion(chatId, parentId, content, model);
-    const messages = this.buildElaborateContext(parentId);
-    messages.push({ role: 'user', content });
-    const answer = await this.llmService.streamAnswer(
-      chatId,
-      question.id,
-      provider,
-      model,
-      messages
-    );
-    return answer.id;
-  }
-
-  /** Reuse an empty leaf draft under `parentId` if one exists, else create a fresh question. */
-  private async getOrCreateElaborateQuestion(
-    chatId: string,
-    parentId: string | null,
-    content: string,
-    model: ModelEntry
-  ): Promise<ChatNode> {
-    const draft = this.chatService.getChildren(parentId)
-      .find(n =>
-        n.role === 'user' &&
-        !n.content?.trim() &&
-        !(n.attachments?.length)
-      );
-    if (draft) {
-      const saved = await this.chatService.persistQuestion(
-        chatId, draft.id, content, undefined, model.modelId, model.providerId
-      );
-      this.chatService.setActiveChild(parentId, saved.id);
-      return saved;
-    }
-    const created = await this.chatService.addNode(chatId, {
-      parentId,
-      role: 'user',
-      content,
-      modelId: model.modelId,
-      providerId: model.providerId
-    });
-    this.chatService.setActiveChild(parentId, created.id);
-    return created;
-  }
-
-  /** Context = the linear path up to (incl.) the anchor, skipping structural wrappers. */
-  private buildElaborateContext(parentId: string | null): ChatMessage[] {
-    if (!parentId) return [];
-    return this.chatService.getPathToNode(parentId)
-      .filter(n => n.role !== 'structural')
-      .map(n => ({
-        role: n.role as 'system' | 'user' | 'assistant',
-        content: nodeToMessageContent(n)
-      }));
-  }
-
   /** Resolve the model+provider for an authoring task, or null if unset/unknown. */
   private resolveStructureModel(task: GenerationTaskKind): { model: ModelEntry; provider: ProviderConfig } | null {
     const configuredModel = this.generation.modelFor(task);
@@ -1104,25 +914,6 @@ export class ChatComponent implements OnInit {
     if (!model) return null;
     const provider = this.settings.providers().find(p => p.id === model.providerId);
     return provider ? { model, provider } : null;
-  }
-
-  private async addStructureNode(chatId: string, parentId: string | null, content: string, model: ModelEntry): Promise<ChatNode> {
-    return this.chatService.addNode(chatId, {
-      parentId,
-      role: 'structural',
-      content,
-      modelId: model.modelId,
-      providerId: model.providerId,
-      chatParametersId: this.chatService.chats().find(c => c.id === chatId)?.chatParametersId
-        || model.chatParametersId
-        || undefined
-    });
-  }
-
-  private defaultStructurePrompt(task: GenerationTaskKind): string {
-    if (task === 'title') return this.promptDefaults.effective('structure.title');
-    if (task === 'overview') return this.promptDefaults.effective('structure.overview');
-    return this.promptDefaults.effective('structure.headings');
   }
 
   async saveChatParams() {

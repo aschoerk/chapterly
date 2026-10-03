@@ -1,0 +1,56 @@
+@startuml usecase-12-send-prepend
+
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+skinparam maxMessageSize 200
+skinparam wrapWidth 170
+title Use case 12 — send-prepend (director)\n"insert a director (user) node + streamed result BEFORE the current direction, adopting the current node"
+
+actor User
+participant "PrependDialog" as DLG
+participant "ChatNodeComponent\nopenPrependDialog()" as UI
+participant "LlmFlowRunner\n(env)" as RUN
+participant "sendPrepend\n(controller)" as UC
+participant "buildSendMessagesEx\n(builder)" as BLDR
+participant "streamAnswerNode\n(shared)" as STRM
+participant "LlmOrchestratorService" as ORCH
+participant "LlmTransportService" as XPORT
+participant "LlmLogService" as LOG
+participant "ChatService" as SVC
+participant "Provider\n(proxy SSE)" as NET
+
+== 1. Dialog → flow runner ==
+User -> DLG : Prepend director text
+DLG --> UI : directorText
+UI -> UI : followingText = followingAssistantContent(node)\n(storyboard-assistant chapters after node ≤5000 tokens)
+UI -> RUN : runFlow('send-prepend', { directorText, followingText })\nstore flag already written (chat.prependByNodeId)
+RUN --> UC : sendPrepend(env)
+
+== 2. Create the director (user) node ==
+UC -> SVC : addNode(parentId = node.parentId,\nrole: user, content: directorText, model/provider)
+UC -> SVC : setActiveChild(parentId, directorNode.id)
+
+== 3. Build the prompt = directorText + following chapters ==
+UC -> BLDR : buildSendMessagesEx(chat, directorNode.id,\ncontentOverride: prompt)
+BLDR --> UC : messages = prior history (text-only) + final user prompt
+
+== 4. Stream result that ADOPTS the current node ==
+UC -> STRM : streamAnswerNode(env, chat, directorNode.id, messages,\n{ adoptNodeIds: [node.id] })
+STRM -> SVC : addNode(assistant under director) + startGeneration
+STRM -> ORCH : completion(stream) — SSE, live paint
+ORCH -> XPORT : complete()
+XPORT -> LOG : record/complete
+XPORT -> NET : POST SSE
+XPORT --> ORCH : final
+ORCH --> STRM : answerNodeId (versioned) + slots
+STRM --> UC : answerNodeId (versioned) + slots
+STRM -> SVC : reparent(currentDirection → answerNodeId)\n(setActiveChild so the current node stays the leaf)
+
+== 5. Result + chain ==
+UC -> SVC : setActiveChild(parentId, directorNode.id)
+UC -> UI : flow slot { directorNodeId, answerNodeId, activateId = answer }\nactivate(answerNodeId)
+note over UI
+  On failure: roll back chat.prependByNodeId flag\n(prependEnabled → false) — the director node may\nremain but no result was inserted.
+end note
+
+@enduml

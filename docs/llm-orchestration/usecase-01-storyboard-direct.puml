@@ -1,0 +1,58 @@
+@startuml usecase-01-storyboard-direct
+!theme plain
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+skinparam maxMessageSize 200
+skinparam wrapWidth 170
+title Use case 1 — storyboard-direct\n"use the chat as-is, ask the image model for N pictures in one go (no planning)"
+
+actor User
+participant "IllustrateDialog" as DLG
+participant "ChatNodeComponent\nillustrate()" as UI
+participant "LlmUseCaseRunner\n(env builder)" as RUN
+participant "storyboardDirect\n(controller)" as UC
+participant "LlmOrchestratorService\ncompleteImage()" as ORCH
+participant "LlmTransportService\ncompletion + images" as XPORT
+participant "Evaluators" as EVAL
+participant "LlmLogService" as LOG
+participant "LlmPostprocessorService\nplan() / apply()" as POST
+participant "ChatService" as SVC
+participant "Provider\n(proxy)" as NET
+
+== 1. Dialog picks the use case ==
+User -> DLG : count(>1), planDescriptions OFF, style, storyboard rules
+DLG --> UI : options
+UI -> UI : pickUsecase(vars) → 'storyboard-direct'
+note over UI, RUN
+  vars carry count, style, storyboardPrompt,\ncontent (scene text), modelId, providerId.
+end note
+
+== 2. Run: env built once per run ==
+UI -> RUN : runner.run(chat, node, usecase, vars)
+RUN -> RUN : resolveImageModel(modelId, providerId)\ninstruction = styled task prompt\ncontextMessages = text-only chat up to node\nanchor = instruction + node text\nimageExtras (stream:false)
+RUN --> UC : controllerFor('storyboard-direct')(env)
+
+== 3. Controller: one render request ==
+UC -> UC : oneShotStoryboardPrompt(anchor, [], count, storyboardPrompt)\n→ the full chat + "render N consistent scenes"
+UC -> ORCH : completeImage(cx, request, { expect:'images', prompt, signal })
+ORCH -> XPORT : completeImage(request) — rawCompletion with\nmodalities for image models + fallback tree
+XPORT -> LOG : record({ kind:'chat', body })
+XPORT -> NET : POST /chat/completions (stream:false)
+XPORT -> LOG : complete(entry, { response })
+XPORT --> ORCH : raw JSON
+
+== 4. Evaluate ==
+ORCH -> EVAL : evaluateImagesResponse(raw)
+EVAL --> ORCH : images slot (ok | partial | refused, reason)
+ORCH --> UC : EvalSlots
+
+== 5. Wrap + place ==
+UC -> POST : storyboard slot (1 scene = all N images,\nor N refused scenes on moderation)
+POST -> POST : plan(slots) → illustration-1..N + prompt-1.txt
+POST -> SVC : editAssistant(chapter, attachments)\n(versioned)
+POST --> UI : activate(chapter.id)
+note over UI, POST
+  count>1 && got<want → alert "only got X of Y scenes";\nzero images → alert empty with model reply.
+end note
+
+@enduml
