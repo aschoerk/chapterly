@@ -262,6 +262,71 @@ async function append(env: UsecaseEnv): Promise<EvalSlots> {
 }
 
 // ---------------------------------------------------------------------------
+// append-with-images — like append, but the current user node carries image
+// attachments. The images are FIRST described by the image-interpret model;
+// the description is then merged into the direction text of the final user
+// message (so the writing model sees the images' content, never the binary
+// payload). Falls back to a plain append when no image-interpret model is
+// available or the interpretation yields nothing.
+// ---------------------------------------------------------------------------
+async function appendWithImages(env: UsecaseEnv): Promise<EvalSlots> {
+  const write = env.write;
+  if (!write) {
+    return { error: makeSlot('error', 'http', 'No writing model is enabled.', {}) };
+  }
+  const interpret = env.factory.resolveInterpretModel();
+  const images = env.factory.imageAttachments(
+    env.cx.vars.attachments ?? env.cx.node.attachments
+  );
+
+  // No way to describe the images → plain append (drop the binaries).
+  if (!interpret || images.length === 0) {
+    return append(env);
+  }
+
+  // 1. Describe the images with the image-interpret model (text reply).
+  const interpretSlots = await env.orch.completion(env.cx, {
+    model: interpret.model,
+    provider: interpret.provider,
+    messages: env.factory.buildInterpretMessage(images),
+    extras: await env.factory.resolveTextExtras(interpret.model, env.cx.chat),
+    stream: false
+  }, { expect: 'text', signal: env.signal });
+  const description = interpretSlots.text?.value?.trim() ?? '';
+  if (!description) {
+    // Interpretation failed → plain append.
+    return append(env);
+  }
+
+  // 2. Merge the description into the direction text (a single final user
+  //    message). No UI prefix — the description text itself is appended.
+  const directionText = (env.cx.vars.content ?? env.cx.node.content ?? '').trim();
+  const merged = directionText
+    ? `${directionText}\n\n${description}`
+    : description;
+
+  const messages = env.factory.buildSendMessagesEx({
+    chatId: env.cx.chat.id,
+    nodeId: env.cx.node.id,
+    contentOverride: merged
+  });
+
+  // 3. Stream the answer exactly like append.
+  const slots = await env.orch.completion(env.cx, {
+    model: write.model,
+    provider: write.provider,
+    messages,
+    extras: env.textExtras,
+    stream: true
+  }, { expect: 'text', onChunk: env.onChunk, signal: env.signal });
+
+  // 4. Expose the MERGED user-node content so the caller can persist it for
+  //    real — the description then lives in the story history (and the
+  //    images themselves are never re-sent; history is text-only).
+  return { ...slots, direction: okSlot(merged, {}) };
+}
+
+// ---------------------------------------------------------------------------
 // Dispatch — a plain if-chain, not a table.
 // ---------------------------------------------------------------------------
 export function pickUsecase(vars: UsecaseVars): UsecaseKind {
@@ -279,7 +344,8 @@ const CONTROLLERS: Record<UsecaseKind, UsecaseController> = {
   'planned-scenes': plannedScenes,
   'render-full': renderFull,
   'render-node': renderNode,
-  'append': append
+  'append': append,
+  'append-with-images': appendWithImages
 };
 
 export function controllerFor(usecase: UsecaseKind): UsecaseController {
@@ -296,12 +362,14 @@ export class LlmUseCaseRunner {
     const usecase = build.usecase;
     const cx = this.factory.buildContext(build);
 
-    // append: a plain text send — no image model needed.
-    if (usecase === 'append') {
+    // append / append-with-images: a text send — no image model needed.
+    if (usecase === 'append' || usecase === 'append-with-images') {
       const write = this.factory.resolveWriteModel(cx.node);
       if (!write || !this.factory.providerFor(write.model)) {
         return { error: makeSlot('error', 'http', 'No writing model is enabled.', {}) };
       }
+      // For append-with-images the controller rebuilds the messages WITH the
+      // image interpretation; building a baseline here keeps the env valid.
       const sendMessages = this.factory.buildSendMessages(
         cx.chat.id,
         cx.node.id,
@@ -312,7 +380,7 @@ export class LlmUseCaseRunner {
         cx,
         factory: this.factory,
         orch: this.orch,
-        render: write,   // unused for append but required by the type
+        render: write,   // unused for append* but required by the type
         plan: write,
         instruction: '',
         contextMessages: sendMessages,

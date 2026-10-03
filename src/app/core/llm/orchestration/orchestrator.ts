@@ -82,7 +82,10 @@ export class LlmOrchestratorService {
 
     const result = await this.transport.complete(runReq);
     if (opts.expect === 'text') {
-      return finalizeStream({}, { raw: result.raw, prompt: opts.prompt, scene: opts.scene });
+      // Non-streaming text completion (e.g. the image-interpret step): the
+      // response body already holds the full text — evaluate it directly
+      // (finalizeStream only settles an already-folded partial stream).
+      return evaluateCompletion({ raw: result.raw, prompt: opts.prompt, scene: opts.scene });
     }
     if (opts.expect === 'descriptions') {
       return evaluateDescriptions({ raw: result.raw, prompt: opts.prompt, scene: opts.scene });

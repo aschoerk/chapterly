@@ -19,6 +19,7 @@ import { LightboxService } from '../../core/lightbox.service';
 import { decodeDataUrlToText } from '../../core/llm/llm-message';
 import { IllustrateDialogService } from '../../core/illustrate-dialog.service';
 import { PrependDialogService } from '../../core/prepend-dialog.service';
+import { LlmUseCaseRunner } from '../../core/llm/orchestration';
 
 /** Thin aliases over the shared test-helpers factories. */
 const node = makeNode;
@@ -47,6 +48,7 @@ describe('ChatNodeComponent', () => {
   };
   let illustrateDialog: { open: ReturnType<typeof vi.fn>; current: ReturnType<typeof vi.fn> };
   let prependDialog: { open: ReturnType<typeof vi.fn>; current: ReturnType<typeof vi.fn> };
+  let runner: { run: ReturnType<typeof vi.fn> };
   let emitted: string[];
 
   beforeEach(async () => {
@@ -121,12 +123,38 @@ describe('ChatNodeComponent', () => {
             ),
           },
         },
+        {
+          provide: LlmUseCaseRunner,
+          useValue: {
+            // Default: a successful streamed answer "Generated". Mirrors the
+            // legacy streamAnswer mock so send tests keep their expectations.
+            // For append-with-images it also returns the merged direction so
+            // the chat-node can persist it onto the user node.
+            run: vi.fn(async (
+              build: { usecase?: string; vars?: { content?: string } },
+              opts?: { onChunk?: (c: unknown) => void },
+            ) => {
+              opts?.onChunk?.({ content: 'Generated' });
+              const slots: Record<string, unknown> = { text: { status: 'ok', value: 'Generated' } };
+              if (build?.usecase === 'append-with-images' && build.vars?.content) {
+                slots['direction'] = {
+                  status: 'ok',
+                  value: `${build.vars.content}\n\nAttached image (interpreted automatically):\n\na red ball.`,
+                };
+              }
+              return slots;
+            })
+          }
+        },
       ],
     }).compileComponents();
 
     chatService = TestBed.inject(ChatService);
     settings = TestBed.inject(SettingsService);
     confirm = TestBed.inject(ConfirmService);
+    runner = TestBed.inject(LlmUseCaseRunner) as unknown as {
+      run: ReturnType<typeof vi.fn>;
+    };
     llm = TestBed.inject(LlmService) as unknown as {
       streamAnswer: ReturnType<typeof vi.fn>;
       askLlm: ReturnType<typeof vi.fn>;
@@ -733,7 +761,15 @@ describe('ChatNodeComponent', () => {
 
       expect(chatService.nodes().find((n) => n.id === 'q1')?.content).toBe('Tell me a story');
       expect(emitted).toContain('q1');
-      expect(llm.streamAnswer).toHaveBeenCalled();
+      // Text-only send routes through the orchestration `append` use case.
+      expect(runner.run).toHaveBeenCalled();
+      const build = runner.run.mock.calls[0][0] as { usecase?: string; vars?: { content?: string } };
+      expect(build.usecase).toBe('append');
+      expect(build.vars?.content).toBe('Tell me a story');
+      // A new assistant answer node was created + streamed live.
+      const answers = chatService.nodes().filter((n) => n.role === 'assistant' && n.parentId === 'q1');
+      expect(answers.length).toBeGreaterThanOrEqual(1);
+      expect(answers[0].content).toBe('Generated');
       expect(component.isEditing()).toBe(false);
     });
 
@@ -749,7 +785,7 @@ describe('ChatNodeComponent', () => {
       expect(chatService.chats().find((c) => c.id === 'chat-1')?.title).toBe('My brand new story');
     });
 
-    it('automatically interprets attached images with the configured image-interpret model', async () => {
+    it('routes image-bearing directions through the append-with-images use case', async () => {
       const q1 = node({ id: 'q1', content: '' });
       await openChat([q1]);
       createFixture(q1);
@@ -757,8 +793,6 @@ describe('ChatNodeComponent', () => {
       // Configure the image-interpret task to a (vision-capable) model.
       const generation = TestBed.inject(GenerationSettingsService);
       generation.update('image-interpret', { providerId: 'prov-1', modelId: 'alpha/model' });
-
-      llm.askLlm.mockResolvedValueOnce({ content: 'Interpreted: a red ball.', thinking: '' });
 
       const img = attachment({
         id: 'img',
@@ -773,24 +807,35 @@ describe('ChatNodeComponent', () => {
       await component.sendDraft();
       fixture.detectChanges();
 
-      // The interpretation askLlm call must have used the configured model.
-      expect(llm.askLlm).toHaveBeenCalledTimes(1);
-      const askArgs = llm.askLlm.mock.calls[0];
-      expect(askArgs[2]).toBe('alpha/model');
-      // The message content is parts incl. an image_url.
-      const content = askArgs[3][0].content;
-      expect(Array.isArray(content)).toBe(true);
-      expect((content as { type: string }[]).some((p) => p.type === 'image_url')).toBe(true);
+      // The send routes through the orchestration `append-with-images` use
+      // case: the runner gets the attachments + the localized prefix so the
+      // image-interpret step happens inside the orchestration layer.
+      expect(runner.run).toHaveBeenCalled();
+      const build = runner.run.mock.calls[0][0] as {
+        usecase?: string;
+        vars?: { content?: string; attachments?: unknown[]; interpretPrefix?: string };
+      };
+      expect(build.usecase).toBe('append-with-images');
+      expect(build.vars?.content).toBe('Continue from this picture');
+      expect((build.vars?.attachments ?? []).length).toBe(1);
+      expect(build.vars?.interpretPrefix).toContain('interpreted automatically');
 
-      // The streamed answer must NOT re-send the binary image.
-      expect(llm.streamAnswer).toHaveBeenCalled();
-      const streamMessages = llm.streamAnswer.mock.calls[0][4] as {
-        role: string;
-        content: unknown;
-      }[];
-      const serialized = JSON.stringify(streamMessages);
-      expect(serialized).not.toContain('image_url');
-      expect(serialized).toContain('Interpreted: a red ball.');
+      // The answer was streamed through the orchestration runner (not the
+      // legacy streamAnswer path).
+      expect(llm.streamAnswer).not.toHaveBeenCalled();
+      expect(llm.askLlm).not.toHaveBeenCalled();
+      const answers = chatService.nodes().filter((n) => n.role === 'assistant' && n.parentId === 'q1');
+      expect(answers[0].content).toBe('Generated');
+
+      // The merged description was persisted onto the USER node content for
+      // real, so it is available in the history (the image itself stays an
+      // attachment but is never sent to the LLM).
+      const q1node = chatService.nodes().find((n) => n.id === 'q1')!;
+      expect(q1node.content).toBe(
+        'Continue from this picture\n\nAttached image (interpreted automatically):\n\na red ball.'
+      );
+      // The image attachment is preserved on the node (for display).
+      expect(q1node.attachments?.length).toBe(1);
     });
 
     it('the send button is disabled for an empty draft', async () => {

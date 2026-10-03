@@ -8,7 +8,7 @@
  * generation tasks / prompt defaults) so it can later be wired into the
  * modal dialogs without changing the existing code.
  */
-import { ChatMessage, ChatNode, Chat } from '../../../models/chat';
+import { ChatMessage, ChatNode, NodeAttachment, Chat } from '../../../models/chat';
 import { ModelEntry, ProviderConfig } from '../../../models/chat-config';
 
 // ---------------------------------------------------------------------------
@@ -32,6 +32,12 @@ import { ModelEntry, ProviderConfig } from '../../../models/chat-config';
  *  append               — normal send: a user/director node at the end of the
  *                          chat + the FULL history as context; stream a text
  *                          answer back (used by sendDraft-like flows).
+ *  append-with-images   — like `append`, but the current user node carries
+ *                          image attachments: describe them with the
+ *                          image-interpret model FIRST, then inject the
+ *                          description into the direction text (no binary
+ *                          images are re-sent to the writing model) and
+ *                          stream the answer.
  */
 export type UsecaseKind =
   | 'storyboard-direct'
@@ -39,7 +45,8 @@ export type UsecaseKind =
   | 'planned-scenes'
   | 'render-full'
   | 'render-node'
-  | 'append';
+  | 'append'
+  | 'append-with-images';
 
 /** Which provider endpoint a request intent targets. */
 export type LlmEndpoint = 'completion' | 'images';
@@ -106,6 +113,13 @@ export interface EvalSlots {
   /** Per-scene records (aggregated storyboard result). */
   storyboard?: Slot<ImageScene[]>;
   /**
+   * The MERGED user-node content a text-send use case should persist
+   * (`append-with-images`): the direction text + the auto-generated image
+   * description. The image itself is never stored as content — only its
+   * description — so the history stays usable and images are never re-sent.
+   */
+  direction?: Slot<string>;
+  /**
    * Overall error slot, set when the whole use case could not complete
    * (timeout, caller abort, hard failure). A use case may end with BOTH
    * partial scenes and an error — never throws.
@@ -167,6 +181,9 @@ export interface UsecaseVars {
   /** For `append`: the text to send as the final user message. When omitted
    *  the current node's saved content is used. */
   content?: string;
+  /** For `append-with-images`: the user node's attachments (the images to
+   *  interpret). The current node's own attachments are used when absent. */
+  attachments?: NodeAttachment[];
 }
 
 /** The full static run context handed to every use case. */

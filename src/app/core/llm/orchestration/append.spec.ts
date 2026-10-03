@@ -6,6 +6,7 @@ import { CHAT_API } from '../../../api/chat-api.token';
 import { InMemoryChatApi } from '../../../../../test-helpers/in-memory-chat-api';
 import { seedApi, makeNode, makeModel, makeChat } from '../../../../../test-helpers/factories';
 import { SettingsService } from '../../settings.service';
+import { GenerationSettingsService } from '../../generation-settings.service';
 import { ChatService } from '../../chat.service';
 import { I18nService } from '../../i18n/i18n.service';
 import { LlmUseCaseRunner } from './usecases';
@@ -84,6 +85,16 @@ describe('LLM orchestration — append (normal send: user/director at the end + 
   });
 
   afterEach(() => vi.unstubAllGlobals());
+
+  /** A non-streaming JSON text reply (used by the image-interpret step). */
+  function textResponse(text: string): Response {
+    return {
+      ok: true,
+      status: 200,
+      headers: { get: () => 'application/json' },
+      json: async () => ({ choices: [{ message: { role: 'assistant', content: text } }] })
+    } as unknown as Response;
+  }
 
   it('streams the answer with full history as context, then appends an assistant node', async () => {
     fetchMock.mockResolvedValueOnce(sseResponse(['The ', 'night ', 'train ', 'arrives.']));
@@ -191,5 +202,100 @@ describe('LLM orchestration — append (normal send: user/director at the end + 
       vars: {}
     }, { modelId: 'alpha/model', providerId: 'prov-1' });
     expect(plan.empty).toBe(true);
+  });
+
+  it('append-with-images: interprets the attached images, merges the description into the direction text, then streams', async () => {
+    // 1 = image-interpret reply (non-stream), 2 = the streamed answer.
+    fetchMock.mockResolvedValueOnce(textResponse('A red ball on green grass.'));
+    fetchMock.mockResolvedValueOnce(sseResponse(['The ', 'ball ', 'rolls.']));
+
+    const { runner, post, chatService } = await setup();
+    // Configure the image-interpret task to a vision model.
+    const generation = TestBed.inject(GenerationSettingsService);
+    generation.update('image-interpret', { providerId: 'prov-1', modelId: 'beta/model' });
+
+    const img = { id: 'img1', name: 'pic.png', mimeType: 'image/png', size: 4, dataUrl: 'data:image/png;base64,AAAA' };
+    const slots = await runner.run({
+      chat: api.chats[0],
+      node: chatService.nodes().find(n => n.id === Q_ID)!,
+      usecase: 'append-with-images',
+      vars: {
+        content: 'Continue from this picture',
+        attachments: [img],
+        interpretPrefix: 'Attached image (interpreted automatically):'
+      }
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    // Call 1 — the image-interpret step: the message carries the interpret
+    // prompt as text + the image as an image_url part.
+    const interpretBody = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(interpretBody.model).toBe('beta/model');
+    const interpretContent = interpretBody.messages[0].content as Array<{ type: string; text?: string; image_url?: { url: string } }>;
+    expect(Array.isArray(interpretContent)).toBe(true);
+    expect(interpretContent.some(p => p.type === 'text' && /Describe every attached image/i.test(p.text ?? ''))).toBe(true);
+    expect(interpretContent.some(p => p.type === 'image_url' && p.image_url?.url === img.dataUrl)).toBe(true);
+
+    // Call 2 — the write/send step: full history + the final user message is
+    // the DIRECTION TEXT with the description merged in (prefix + description),
+    // and NO binary image is re-sent.
+    const sendBody = JSON.parse(fetchMock.mock.calls[1][1].body);
+    expect(sendBody.messages).toHaveLength(3); // opening, chapter, merged direction
+    expect(sendBody.messages[0].role).toBe('user');
+    expect(sendBody.messages[0].content).toBe('Opening direction.');
+    const finalContent = String(sendBody.messages[2].content);
+    expect(finalContent).toContain('Continue from this picture');
+    expect(finalContent).toContain('Attached image (interpreted automatically):');
+    expect(finalContent).toContain('A red ball on green grass.');
+    const serialized = JSON.stringify(sendBody.messages);
+    expect(serialized).not.toContain('image_url');
+
+    // The answer streamed through the text slot like a normal append.
+    expect(slots.text?.status).toBe('ok');
+    expect(slots.text?.value).toBe('The ball rolls.');
+
+    // The direction slot exposes the MERGED user-node content so the caller
+    // can persist it for real → the description is in the history.
+    expect(slots.direction?.status).toBe('ok');
+    expect(slots.direction?.value).toContain('Continue from this picture');
+    expect(slots.direction?.value).toContain('Attached image (interpreted automatically):');
+    expect(slots.direction?.value).toContain('A red ball on green grass.');
+
+    // Placement is identical to append.
+    const plan = post.planAppend(slots, {
+      chat: api.chats[0],
+      node: chatService.nodes().find(n => n.id === Q_ID)!,
+      usecase: 'append-with-images',
+      vars: {}
+    }, { modelId: 'alpha/model', providerId: 'prov-1' });
+    expect(plan.empty).toBe(false);
+    const answer = await post.applyAppend(plan, {
+      chat: api.chats[0],
+      node: chatService.nodes().find(n => n.id === Q_ID)!,
+      usecase: 'append-with-images',
+      vars: {}
+    }, 'Continue from this picture');
+    expect(answer.content).toBe('The ball rolls.');
+    expect(answer.parentId).toBe(Q_ID);
+  });
+
+  it('append-with-images falls back to a plain append when no image-interpret model is configured', async () => {
+    // Only ONE fetch — no interpret step, just the streamed answer.
+    fetchMock.mockResolvedValueOnce(sseResponse(['Plain ', 'answer.']));
+
+    const { runner, chatService } = await setup();
+    // No generation image-interpret task configured and no model can
+    // interpret images → the controller falls back to `append`.
+    const img = { id: 'img1', name: 'pic.png', mimeType: 'image/png', size: 4, dataUrl: 'data:image/png;base64,AAAA' };
+    const slots = await runner.run({
+      chat: api.chats[0],
+      node: chatService.nodes().find(n => n.id === Q_ID)!,
+      usecase: 'append-with-images',
+      vars: { content: 'Continue', attachments: [img] }
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(slots.text?.value).toBe('Plain answer.');
   });
 });

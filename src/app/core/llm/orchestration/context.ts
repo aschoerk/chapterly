@@ -146,6 +146,52 @@ export class UsecaseContextFactory {
     return this.toLlmExtras(resolved);
   }
 
+  /**
+   * Resolve the IMAGE-INTERPRET model (describes attached images before a
+   * send): the configured "image-interpret" task model, falling back to the
+   * first enabled model that can take image input. Null when none exists.
+   */
+  resolveInterpretModel(): ModelRef | null {
+    let model = this.generation.modelFor('image-interpret');
+    let provider = this.generation.providerFor('image-interpret');
+    if (!model || !provider) {
+      const fallback = this.settings.enabledModels().find(canInterpretImages) ?? null;
+      model = fallback;
+      provider = fallback ? this.providerFor(fallback) : null;
+    }
+    return model && provider ? { model, provider } : null;
+  }
+
+  /** The image-interpret prompt template (image.interpret default/override). */
+  imageInterpretPrompt(): string {
+    return this.promptDefaults.effective('image.interpret');
+  }
+
+  /**
+   * The image attachments of a node/draft that should be interpreted:
+   * data-URL images only (the only ones the client can send to a model).
+   */
+  imageAttachments(attachments: NodeAttachmentLike[] | undefined | null): NodeAttachmentLike[] {
+    return (attachments ?? []).filter(
+      a => isImageMime(resolvedMime(a)) && a.dataUrl?.startsWith('data:')
+    );
+  }
+
+  /**
+   * Build the message for the image-interpret call: the interpret prompt as
+   * text + every attached image as an image_url part — the writing model
+   * never sees the raw binaries.
+   */
+  buildInterpretMessage(images: NodeAttachmentLike[]): ChatMessage[] {
+    // nodeToMessageContent only needs content + attachments; hand-attached
+    // images become image_url parts (prompt-record meta is filtered out).
+    const content = nodeToMessageContent({
+      content: this.imageInterpretPrompt(),
+      attachments: images as ChatNode['attachments']
+    } as Pick<ChatNode, 'content' | 'attachments'>);
+    return [{ role: 'user', content }];
+  }
+
   private async resolveForChat(model: ModelEntry, chat: Chat | null): Promise<ResolvedChatParameters> {
     const project = chat?.projectId ? this.projectService.getProject(chat.projectId) ?? null : null;
     const topic = this.projectService.topicForProject(project?.id, this.projectService.topics()) ?? null;
@@ -263,18 +309,47 @@ export class UsecaseContextFactory {
    * empty user turn is still the question being answered).
    */
   buildSendMessages(chatId: string, nodeId: string | null, contentOverride?: string): ChatMessage[] {
+    return this.buildSendMessagesEx({ chatId, nodeId, contentOverride });
+  }
+
+  /**
+   * Extended variant of {@link buildSendMessages}: supports injecting extra
+   * user message(s) immediately BEFORE the final question. The topic system
+   * prompt is only injected once when the thread has none.
+   *
+   * HISTORY IS ALWAYS TEXT-ONLY: images/files attached to past nodes are never
+   * sent to the LLM. They are only ever visible as their auto-generated
+   * textual description inside the node content (see `append-with-images`),
+   * so the binaries never leak into a request.
+   */
+  buildSendMessagesEx(opts: {
+    chatId: string;
+    nodeId: string | null;
+    contentOverride?: string;
+    /** Extra messages inserted right before the final user question. */
+    beforeFinal?: ChatMessage[];
+  }): ChatMessage[] {
+    const { chatId, nodeId, contentOverride, beforeFinal } = opts;
     if (!nodeId) return [];
     const path = this.chatService.getPathToNode(nodeId);
     const out: ChatMessage[] = [];
-    // All nodes EXCEPT the final one — Empties are dropped (they add no
-    // signal to the LLM context), mirroring nodeToMessageContent's pruning.
+    // All nodes EXCEPT the final one — Empties are dropped. History nodes are
+    // reduced to TEXT (image_url/file parts stripped) so attached images are
+    // never re-sent; the content that carries their description survives.
     for (let i = 0; i < path.length - 1; i++) {
       const n = path[i];
       if (n.chatId !== chatId) continue;
       if (n.role !== 'system' && n.role !== 'user' && n.role !== 'assistant') continue;
-      const content = nodeToMessageContent(n);
-      if (!content) continue;
-      out.push({ role: n.role, content });
+      const text = messageText({ role: n.role, content: nodeToMessageContent(n) }).trim();
+      if (!text) continue;
+      out.push({ role: n.role, content: text });
+    }
+    // Optional in-between context (e.g. the auto-generated image description).
+    if (beforeFinal) {
+      for (const m of beforeFinal) {
+        const text = typeof m.content === 'string' ? m.content.trim() : '';
+        if (text) out.push({ role: 'user', content: text });
+      }
     }
     // The final node is the question — always included.
     const last = path[path.length - 1];
@@ -284,6 +359,15 @@ export class UsecaseContextFactory {
       // answers from history), but as a bare user message.
       const user: ChatMessage = { role: 'user', content: finalText || '(no text)' };
       out.push(user);
+    }
+    // Topic system-prompt parity (legacy streamAnswer.withTopicSystemPrompt):
+    // inject the topic's defaultSystemPrompt when the thread has none. Done at
+    // the REQUEST BUILDER so every text use case gets the topic voice, not
+    // just `append`.
+    if (!out.some(m => m.role === 'system')) {
+      const chat = this.chatService.chats().find(c => c.id === chatId) ?? null;
+      const sys = this.topicSystemPrompt(chat);
+      if (sys) out.unshift({ role: 'system', content: sys });
     }
     return out;
   }

@@ -38,6 +38,7 @@ import { IllustrateDialogService } from '../../core/illustrate-dialog.service';
 import { PrependDialogService } from '../../core/prepend-dialog.service';
 import { IllustrateOptions } from '../../models/illustrate-options';
 import { LightboxService } from '../../core/lightbox.service';
+import { LlmUseCaseRunner } from '../../core/llm/orchestration';
 
 @Component({
   selector: 'app-chat-node',
@@ -52,6 +53,7 @@ export class ChatNodeComponent {
   readonly chatService = inject(ChatService);
   readonly projectService = inject(ProjectService);
   readonly llmService = inject(LlmService);
+  private readonly runner = inject(LlmUseCaseRunner);
   private readonly parameters = inject(ChatParametersService);
   private readonly generation = inject(GenerationSettingsService);
   private readonly promptDefaults = inject(PromptDefaultsService);
@@ -1247,6 +1249,13 @@ export class ChatNodeComponent {
   /**
    * Send an unsent question (the in-thread composer).
    * Writes the draft onto this same node, then streams the answer.
+   *
+   * Text-only sends go through the LLM-orchestration `append` use case (full
+   * chat history + topic system prompt via the request builder). Directions
+   * carrying image attachments use `append-with-images`: the images are
+   * described first by the image-interpret model and the description is
+   * merged into the direction text (no binary images reach the writing
+   * model).
    */
   async sendDraft(): Promise<void> {
     const target = await this.resolveSendTarget();
@@ -1273,11 +1282,109 @@ export class ChatNodeComponent {
         }
       }
 
-      await this.streamForQuestion(chatId, saved, saved.parentId, provider, model, {
-        content,
-        attachments
-      });
+      const hasImages = attachments.some(
+        a => isImageMime(resolvedMime(a)) && a.dataUrl?.startsWith('data:')
+      );
+      if (hasImages) {
+        await this.streamAppendOrchestrated(chatId, saved, content, model, provider, {
+          usecase: 'append-with-images',
+          attachments
+        });
+        return;
+      }
+
+      await this.streamAppendOrchestrated(chatId, saved, content, model, provider);
     });
+  }
+
+  /**
+   * Stream one answer through the LLM-orchestration text-send use cases:
+   * the request builder sends the FULL chat up to this node (+ topic system
+   * prompt), the transport streams, and the evaluator folds the chunks into
+   * the text slot — while `onChunk` paints the answer node LIVE during the
+   * SSE stream. Placement (versioned editAssistant) goes through ChatService
+   * so the chat stays consistent with the rest of the app.
+   */
+  private async streamAppendOrchestrated(
+    chatId: string,
+    question: ChatNode,
+    content: string,
+    model: ModelEntry,
+    provider: { baseUrl: string; apiKey: string },
+    opts: { usecase?: 'append' | 'append-with-images'; attachments?: NodeAttachment[] } = {}
+  ): Promise<void> {
+    // Close the inline editor NOW (commit the session + clear the draft),
+    // mirroring the legacy streamForQuestion timing — the editor does not
+    // stay in edit mode after Send.
+    this.closeEditor();
+
+    // Placeholder answer bubble so the user sees it (and can Stop) streaming.
+    const answerNode = await this.chatService.addNode(chatId, {
+      parentId: question.id,
+      role: 'assistant',
+      content: '',
+      thinking: '',
+      modelId: model.modelId,
+      providerId: model.providerId
+    });
+    this.chatService.setActiveChild(question.id, answerNode.id);
+    const signal = this.chatService.startGeneration(answerNode.id);
+    const chat = this.chatService.chats().find(c => c.id === chatId) ?? null;
+
+    const usecase = opts.usecase ?? 'append';
+    const vars = {
+      content,
+      ...(usecase === 'append-with-images'
+        ? { attachments: opts.attachments }
+        : {})
+    };
+
+    let accContent = '';
+    let accThinking = '';
+    try {
+      const slots = await this.runner.run(
+        { chat, node: question, usecase, vars },
+        {
+          signal,
+          onChunk: chunk => {
+            if (chunk.content) accContent += chunk.content;
+            if (chunk.thinking) accThinking += chunk.thinking;
+            this.paintAnswer(answerNode.id, accContent, accThinking);
+          }
+        }
+      );
+
+      // append-with-images: persist the merged direction text (direction +
+      // image description) ONTO the user node for real, so the description
+      // stays available in the history. The attachments themselves remain on
+      // the node but are never sent to the LLM (history is text-only).
+      const mergedDirection = slots.direction?.value?.trim();
+      if (mergedDirection && mergedDirection !== question.content?.trim()) {
+        await this.chatService.patchNode(chatId, question.id, { content: mergedDirection });
+      }
+
+      // Prefer the evaluator's settled slots.
+      const finalContent = slots.text?.value ?? accContent;
+      const finalThinking = slots.thinking?.value ?? accThinking;
+      this.paintAnswer(answerNode.id, finalContent, finalThinking);
+
+      if (finalContent.trim() || finalThinking.trim()) {
+        const versioned = await this.chatService.editAssistant(
+          chatId, answerNode.id, finalContent, undefined, finalThinking
+        );
+        this.chatService.setActiveChild(question.id, versioned.id);
+        this.activate.emit(versioned.id);
+      }
+    } finally {
+      this.chatService.clearGeneration();
+    }
+  }
+
+  /** Paint streamed text incrementally onto the in-flux assistant node. */
+  private paintAnswer(nodeId: string, content: string, thinking: string): void {
+    this.chatService.updateNodes(list =>
+      list.map(n => (n.id === nodeId ? { ...n, content, thinking } : n))
+    );
   }
 
   /**
