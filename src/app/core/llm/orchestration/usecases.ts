@@ -49,6 +49,141 @@ function renderMessages(env: UsecaseEnv, prompt: string): ChatMessage[] {
   return [{ role: 'user', content: prompt }];
 }
 
+/**
+ * One image-model request. The prompt is sent as a plain single user message
+ * (TEXT ONLY — no reference/attachment images ever reach the generation
+ * model); optionally a text-only `prefix` (chat context) is prepended.
+ */
+async function renderImage(
+  env: UsecaseEnv,
+  prompt: string,
+  opts: { prefix?: ChatMessage[]; scene?: number } = {}
+): Promise<EvalSlots> {
+  return env.orch.completeImage(env.cx, {
+    model: env.render.model,
+    provider: env.render.provider,
+    messages: [...(opts.prefix ?? []), { role: 'user', content: prompt }],
+    extras: env.imageExtras
+  }, { expect: 'images', prompt, scene: opts.scene, signal: env.signal });
+}
+
+/** Complete batch result: ONE scene record holding ALL images under the batch prompt. */
+function completeStoryboard(batchPrompt: string, images: LlmImagePart[]): ImageScene[] {
+  return [{ scene: 1, prompt: batchPrompt, images, refused: false }];
+}
+
+/** Aggregated outcome of a multi-picture render attempt. */
+interface StoryboardRender {
+  images: LlmImagePart[];
+  scenes: ImageScene[];
+  /** First refusal / failure reason (kept findable on refused scenes). */
+  content: string;
+}
+
+/**
+ * Multi-picture render with PER-PICTURE FALLBACK + REPRISE. Used by the three
+ * use cases that can produce several pictures from ONE image-model call
+ * (`storyboard-direct`, `planned-enblock`, `planned-scenes`):
+ *
+ *  1. Try the BATCH call for all `count` pictures — text only.
+ *  2. If it returns fewer than `count`, render each MISSING picture
+ *     individually (per-scene prompts, text only — each sends ONLY that
+ *     scene's own description).
+ *  3. If a picture is STILL missing, run ONE final "consistency" batch
+ *     attempt — but ONLY when MORE THAN ONE picture was already rendered
+ *     (a single image gives too little style context to re-render against).
+ *     Its prompt is built by `reprisePromptFor(successful, missing)` with the
+ *     DEFAULT render prompt builder, embedding ONLY the successfully rendered
+ *     descriptions and using their REAL count as `total`. A `null` return
+ *     skips the reprise entirely. When it yields `>= count` pictures the
+ *     whole set is replaced; otherwise each returned image is merged into a
+ *     still-missing slot.
+ */
+async function renderBatchWithFallback(
+  env: UsecaseEnv,
+  count: number,
+  batchPrompt: string,
+  scenePrompt: (i: number) => string,
+  prefix: ChatMessage[] = [],
+  reprisePromptFor?: (successful: number[], missing: number[]) => string | null
+): Promise<StoryboardRender> {
+  // 1. Batch attempt (text only).
+  const first = await renderImage(env, batchPrompt, { prefix });
+  const firstImages = first.images?.value ?? [];
+  let content = first.images?.reason ?? '';
+  if (env.signal?.aborted) {
+    return {
+      images: firstImages,
+      content,
+      scenes: firstImages.length ? completeStoryboard(batchPrompt, firstImages) : []
+    };
+  }
+  if (firstImages.length > 0) {
+    return { images: firstImages, content, scenes: completeStoryboard(batchPrompt, firstImages) };
+  }
+
+  // 2. Per-picture fallback: render each MISSING scene individually, sending
+  //    ONLY that scene's own description (never the whole list again).
+  const perScene: (LlmImagePart | null)[] = [];
+  for (let i = 0; i < count; i++) {
+    if (i < firstImages.length) { perScene.push(firstImages[i]); continue; }
+    const slots = await renderImage(env, scenePrompt(i), { prefix, scene: i + 1 });
+    if (slots.images?.reason && !content) content = slots.images.reason;
+    perScene.push((slots.images?.value ?? [])[0] ?? null);
+    if (env.signal?.aborted) break;
+  }
+
+  const successful: number[] = [];
+  const missing: number[] = [];
+  for (let i = 0; i < perScene.length; i++) {
+    (perScene[i] ? successful : missing).push(i);
+  }
+
+  // 3. Final "consistency" batch: it embeds ONLY the SUCCESSFULLY rendered
+  //    descriptions and re-renders the FULL `count` set, so the missing
+  //    pictures are completed consistently with the ones that worked.
+  if (missing.length > 0 && !env.signal?.aborted) {
+    // Decide the reprise prompt. A `null` from the builder means "skip the
+    // reprise entirely" (e.g. not enough successful pictures); without a
+    // builder (storyboard-direct) the original batch prompt is re-run.
+    const reprisePrompt = reprisePromptFor
+      ? reprisePromptFor(successful, missing)
+      : batchPrompt;
+    if (reprisePrompt) {
+      const reprise = await renderImage(env, reprisePrompt, { prefix });
+      if (reprise.images?.reason && !content) content = reprise.images.reason;
+      const repriseImages = reprise.images?.value ?? [];
+      if (repriseImages.length >= count) {
+        // The re-rendered whole set is consistent → replace everything.
+        return { images: repriseImages, content, scenes: completeStoryboard(reprisePrompt, repriseImages) };
+      }
+      if (repriseImages.length > 0) {
+        // Partial reprise → merge into the still-missing slots.
+        let j = 0;
+        for (const idx of missing) {
+          if (j >= repriseImages.length) break;
+          perScene[idx] = repriseImages[j++];
+        }
+      }
+    }
+  }
+
+  const scenes: ImageScene[] = [];
+  const finalCollected: LlmImagePart[] = [];
+  for (let i = 0; i < count; i++) {
+    const img = perScene[i];
+    if (img) finalCollected.push(img);
+    scenes.push({
+      scene: i + 1,
+      prompt: scenePrompt(i),
+      images: img ? [img] : [],
+      content: img ? undefined : (content || undefined),
+      refused: !img
+    });
+  }
+  return { images: finalCollected, content, scenes };
+}
+
 /** Wrap a single/en-block image result as a one-scene storyboard slot. */
 function wrapImagesAsStoryboard(
   slots: EvalSlots,
@@ -84,82 +219,126 @@ function wrapImagesAsStoryboard(
 // ---------------------------------------------------------------------------
 async function storyboardDirect(env: UsecaseEnv): Promise<EvalSlots> {
   const count = env.cx.vars.count ?? 1;
-  // One-shot storyboard prompt heads the call; the chat's TEXT is sent as
-  // context. The image model only ever receives the prompt + story text — NO
-  // attachments: prior illustrations / hand-attached images are never
-  // forwarded as reference here (the image model must not see binaries).
-  const prompt = env.factory.oneShotStoryboardPrompt(
+  // One-shot storyboard prompt heads the call; the chat's TEXT is the context.
+  // The image model only ever receives the prompt + story text — NO
+  // attachments (prior illustrations / hand-attached images never reach it).
+  const batchPrompt = env.factory.oneShotStoryboardPrompt(
     env.anchor, [], count, env.cx.vars.storyboardPrompt
   );
   const contextText = env.factory.textOnlyMessages(env.contextMessages);
-  const messages = [...contextText, ...renderMessages(env, prompt)];
-  const slots = await env.orch.completeImage(env.cx, {
-    model: env.render.model,
-    provider: env.render.provider,
-    messages,
-    extras: env.imageExtras
-  }, { expect: 'images', prompt, signal: env.signal });
-  return wrapImagesAsStoryboard(slots, prompt, count);
+  const scenePrompt = (i: number) =>
+    env.anchor + (count > 1
+      ? `\n\n${env.factory.storyboardInstruction(i, count, env.cx.vars.storyboardPrompt)}`
+      : '');
+  // The final "consistency" attempt re-runs the anchor one-shot (there are no
+  // per-scene descriptions in storyboard-direct — the model picks the scenes
+  // from the anchor itself).
+  const batch = await renderBatchWithFallback(
+    env, count, batchPrompt, scenePrompt, contextText
+  );
+  return {
+    images: okSlot(batch.images, {}),
+    storyboard: makeSlot('ok', batch.scenes, undefined, {})
+  };
+}
+
+/**
+ * The per-scene render prompt for a PLANNED description. The base is the
+ * drawing INSTRUCTION (`env.instruction`, the "how to draw" task prompt) —
+ * NOT the raw anchor/prose, so the last assistant node's chapter text NEVER
+ * reaches the image model (that was the legacy behavior too: the description
+ * IS the scene). Only when NO description is available (planning degraded)
+ * does the prompt fall back to the raw anchor as the story cue.
+ */
+function plannedScenePrompt(
+  env: UsecaseEnv,
+  desc: string | undefined,
+  i: number,
+  count: number,
+  extra?: string
+): string {
+  if (desc) {
+    const base = env.instruction.trim();
+    return base
+      ? `${base}\n\nRender exactly this picture description (it overrides any scene cue above):\n${desc}`
+      : desc;
+  }
+  // No description → the anchor (instruction + the beat to depict) is the
+  // only story cue; append the per-scene storyboard instruction when >1.
+  return env.anchor + (count > 1
+    ? `\n\n${env.factory.storyboardInstruction(i, count, extra)}`
+    : '');
 }
 
 // ---------------------------------------------------------------------------
-// 2. planned-enblock — plan → ONE en-block render
+// 2. planned-enblock — plan → ONE en-block render (+ fallback + reprise)
 // ---------------------------------------------------------------------------
 async function plannedEnblock(env: UsecaseEnv): Promise<EvalSlots> {
   const count = env.cx.vars.count ?? 1;
   const planSlots = await runPlanning(env);
   const descriptions = planSlots.descriptions?.value ?? [];
-  const prompt = env.cx.vars.purePictures
-    ? env.factory.purePicturesPrompt(
-        env.instruction,
-        descriptions.map(d => d.text),
-        count,
-        env.cx.vars.storyboardPrompt)
-    : env.factory.oneShotStoryboardPrompt(
-        env.anchor,
-        descriptions.map(d => d.text),
-        count,
-        env.cx.vars.storyboardPrompt);
 
-  const slots = await env.orch.completeImage(env.cx, {
-    model: env.render.model,
-    provider: env.render.provider,
-    messages: renderMessages(env, prompt),
-    extras: env.imageExtras
-  }, { expect: 'images', prompt, signal: env.signal });
+  // The DEFAULT render prompt builder — the SAME one that renders all
+  // pictures in one go (image.one-shot, or image.pure in pure picture mode).
+  // It is used for the initial batch AND for the fallback reprise, so the
+  // reprise always uses the identical default prompt, just combined with a
+  // DIFFERENT description list (the successfully rendered ones).
+  const buildRenderPrompt = (descs: string[], total: number): string =>
+    env.cx.vars.purePictures
+      ? env.factory.purePicturesPrompt(
+          env.instruction, descs, total, env.cx.vars.storyboardPrompt)
+      : env.factory.oneShotStoryboardPrompt(
+          env.instruction, descs, total, env.cx.vars.storyboardPrompt);
+
+  const batchPrompt = buildRenderPrompt(descriptions.map(d => d.text), count);
+
+  const scenePrompt = (i: number) =>
+    plannedScenePrompt(env, descriptions[i]?.text, i, count, env.cx.vars.storyboardPrompt);
+
+  // The final "consistency" attempt uses the SAME DEFAULT prompt builder as
+  // the initial one-shot, but embeds ONLY the descriptions of the pictures
+  // that were successfully rendered and adapts `total` to their REAL count
+  // (never the missing/failed ones, never the whole list). It runs ONLY when
+  // MORE THAN ONE picture succeeded — a single description gives too little
+  // style context to re-render against — otherwise it is skipped entirely.
+  const batch = await renderBatchWithFallback(
+    env, count, batchPrompt, scenePrompt, [],
+    (successful) => {
+      const successTexts = successful
+        .map(i => descriptions[i]?.text)
+        .map(t => (t ?? '').trim())
+        .filter(t => t.length > 0);
+      if (successTexts.length <= 1) return null;
+      return buildRenderPrompt(successTexts, successTexts.length);
+    }
+  );
   return {
     ...planSlots,
-    ...wrapImagesAsStoryboard(slots, prompt, count)
+    images: okSlot(batch.images, {}),
+    storyboard: makeSlot('ok', batch.scenes, undefined, {})
   };
 }
 
 // ---------------------------------------------------------------------------
-// 3. planned-scenes — plan → per-scene LOOP
+// 3. planned-scenes — plan → per-scene LOOP, then a unifying REPRISE when a
+// scene was missing (the freshly rendered pictures are fed back into one final
+// batch call so the model can complete a consistent storyboard).
 // ---------------------------------------------------------------------------
 async function plannedScenes(env: UsecaseEnv): Promise<EvalSlots> {
   const count = env.cx.vars.count ?? 1;
   const planSlots = await runPlanning(env);
   const descriptions = planSlots.descriptions?.value ?? [];
 
+  const scenePrompt = (i: number) =>
+    plannedScenePrompt(env, descriptions[i]?.text, i, count, env.cx.vars.storyboardPrompt);
+
   const scenes: ImageScene[] = [];
   const collected: LlmImagePart[] = [];
   let firstContent = '';
 
   for (let i = 0; i < count; i++) {
-    const desc = descriptions[i]?.text;
-    const prompt = desc
-      ? `${env.anchor}\n\nRender exactly this picture description (it overrides any scene cue above):\n${desc}`
-      : env.anchor + (count > 1
-        ? `\n\n${env.factory.storyboardInstruction(i, count, env.cx.vars.storyboardPrompt)}`
-        : '');
-
-    const slots = await env.orch.completeImage(env.cx, {
-      model: env.render.model,
-      provider: env.render.provider,
-      messages: renderMessages(env, prompt),
-      extras: env.imageExtras
-    }, { expect: 'images', prompt, scene: i + 1, signal: env.signal });
-
+    const prompt = scenePrompt(i);
+    const slots = await renderImage(env, prompt, { scene: i + 1 });
     const images = slots.images?.value ?? [];
     const refused = slots.images?.status === 'refused' || images.length === 0;
     if (!firstContent && slots.images?.reason) firstContent = slots.images.reason;
@@ -172,6 +351,54 @@ async function plannedScenes(env: UsecaseEnv): Promise<EvalSlots> {
       refused
     });
     if (env.signal?.aborted) break; // abort → stop the whole tree
+  }
+
+  // Unifying reprise: run ONLY while a picture is genuinely still missing AND
+  // MORE THAN ONE picture was rendered so far (a single image gives too little
+  // style context to re-render against). Its prompt embeds ONLY the
+  // descriptions of the pictures that WERE successfully rendered and adapts
+  // `total` to their REAL count — so the whole storyboard is re-rendered with
+  // the default prompt, consistently. When it yields `>= count` the complete
+  // set replaces everything; otherwise each returned image is merged into a
+  // still-missing scene slot.
+  const missingIndices: number[] = [];
+  for (let i = 0; i < scenes.length; i++) {
+    if (scenes[i].refused) missingIndices.push(i);
+  }
+  const successful: number[] = [];
+  for (let i = 0; i < scenes.length; i++) {
+    if (!scenes[i].refused) successful.push(i);
+  }
+  if (missingIndices.length > 0 && successful.length > 1 && !env.signal?.aborted) {
+    const successTexts = successful
+      .map(i => descriptions[i]?.text)
+      .map(t => (t ?? '').trim())
+      .filter(t => t.length > 0);
+    if (successTexts.length > 1) {
+      const reprisePrompt = env.factory.oneShotStoryboardPrompt(
+        env.instruction, successTexts, successTexts.length, env.cx.vars.storyboardPrompt);
+      const reprise = await renderImage(env, reprisePrompt);
+      if (reprise.images?.reason && !firstContent) firstContent = reprise.images.reason;
+      const repriseImages = reprise.images?.value ?? [];
+      if (repriseImages.length >= count) {
+        // The re-rendered whole set is consistent → replace everything.
+        return {
+          ...planSlots,
+          images: okSlot(repriseImages, {}),
+          storyboard: makeSlot('ok', completeStoryboard(reprisePrompt, repriseImages), undefined, {})
+        };
+      }
+      if (repriseImages.length > 0) {
+        // Partial reprise → merge into the still-missing slots.
+        let j = 0;
+        for (const idx of missingIndices) {
+          if (j >= repriseImages.length) break;
+          const img = repriseImages[j++];
+          collected.push(img);
+          scenes[idx] = { ...scenes[idx], images: [img], refused: false, content: undefined };
+        }
+      }
+    }
   }
 
   return {

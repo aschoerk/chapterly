@@ -335,9 +335,11 @@ describe('LLM orchestration — planned-scenes pipeline (use case 3)', () => {
     const storyboard = slots.storyboard?.value ?? [];
     expect(storyboard).toHaveLength(2);
     expect(slots.images?.value).toHaveLength(2);
-    // Every scene prompt starts with the drawing instruction (anchor base).
+    // Every scene prompt starts with the drawing instruction, NOT the raw
+    // assistant chapter text ('A chapter.' is the node being illustrated).
     for (const scene of storyboard) {
       expect(scene.prompt).toContain('Illustrate this beat');
+      expect(scene.prompt).not.toContain('A chapter.');
     }
     // The exact description drove scene 2.
     expect(storyboard[1].prompt).toContain('lantern');
@@ -548,6 +550,289 @@ describe('LLM orchestration — planned-scenes pipeline (use case 3)', () => {
     expect(serialized).not.toContain('HANDIMAGE');
   });
 
+  it('storyboard-direct: when the one-shot comes up short, the per-scene fallback fills the gap and NO reprise runs once every picture exists', async () => {
+    // one-shot → 1/2; the per-scene fallback renders the missing scene 2.
+    // After that every picture exists → the batch is NOT re-run.
+    fetchMock.mockResolvedValueOnce(completionImage(1));
+    fetchMock.mockResolvedValueOnce(completionImage(1));
+
+    await TestBed.configureTestingModule({
+      providers: [
+        provideZonelessChangeDetection(),
+        provideHttpClient(),
+        { provide: CHAT_API, useValue: api }
+      ]
+    }).compileComponents();
+    TestBed.inject(I18nService).setLocale('en');
+    const settings = TestBed.inject(SettingsService);
+    await settings.loadAll();
+    const generation = TestBed.inject(GenerationSettingsService);
+    generation.update('image-create', { providerId: 'prov-1', modelId: 'vendor/image' });
+    generation.update('image-interpret', { providerId: 'prov-1', modelId: 'vendor/text' });
+
+    const chatService = TestBed.inject(ChatService);
+    const uid = 'u1';
+    const aid = 'a1';
+    const now = new Date().toISOString();
+    api.chats.push({ id: 'chat-1', title: 'Story', projectId: null, node_number: 2, created_at: now, updated_at: now });
+    api.nodes = [
+      makeNode({ id: uid, chatId: 'chat-1', parentId: null, role: 'user', content: 'A direction.' }),
+      makeNode({ id: aid, chatId: 'chat-1', parentId: uid, role: 'assistant', content: 'A chapter.', isCurrent: true })
+    ];
+    await chatService.loadChats();
+    await chatService.selectChat('chat-1');
+
+    const runner = TestBed.inject(LlmUseCaseRunner);
+    const slots = await runner.run({
+      chat: { id: 'chat-1', title: 'Story', projectId: null, node_number: 2, created_at: now, updated_at: now },
+      node: makeNode({ id: aid, chatId: 'chat-1', parentId: uid, role: 'assistant', content: 'A chapter.', isCurrent: true }),
+      usecase: 'storyboard-direct',
+      vars: { count: 2, planDescriptions: false }
+    });
+
+    // 1 one-shot + 1 per-scene fallback. The reprise is NOT called because
+    // the fallback already produced every requested picture.
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(slots.images?.value).toHaveLength(2);
+    const storyboard = slots.storyboard?.value ?? [];
+    // Per-scene records: scene 1 (from the one-shot) + scene 2 (from fallback).
+    expect(storyboard).toHaveLength(2);
+    expect(storyboard[0].images).toHaveLength(1);
+    expect(storyboard[1].images).toHaveLength(1);
+    expect(storyboard[0].refused).toBe(false);
+    expect(storyboard[1].refused).toBe(false);
+  });
+
+  it('storyboard-direct: a one-shot that returns every picture performs NO fallback at all', async () => {
+    fetchMock.mockResolvedValueOnce(completionImage(2)); // one-shot → 2/2
+
+    await TestBed.configureTestingModule({
+      providers: [
+        provideZonelessChangeDetection(),
+        provideHttpClient(),
+        { provide: CHAT_API, useValue: api }
+      ]
+    }).compileComponents();
+    TestBed.inject(I18nService).setLocale('en');
+    const settings = TestBed.inject(SettingsService);
+    await settings.loadAll();
+    const generation = TestBed.inject(GenerationSettingsService);
+    generation.update('image-create', { providerId: 'prov-1', modelId: 'vendor/image' });
+    generation.update('image-interpret', { providerId: 'prov-1', modelId: 'vendor/text' });
+
+    const chatService = TestBed.inject(ChatService);
+    const uid = 'u1';
+    const aid = 'a1';
+    const now = new Date().toISOString();
+    api.chats.push({ id: 'chat-1', title: 'Story', projectId: null, node_number: 2, created_at: now, updated_at: now });
+    api.nodes = [
+      makeNode({ id: uid, chatId: 'chat-1', parentId: null, role: 'user', content: 'A direction.' }),
+      makeNode({ id: aid, chatId: 'chat-1', parentId: uid, role: 'assistant', content: 'A chapter.', isCurrent: true })
+    ];
+    await chatService.loadChats();
+    await chatService.selectChat('chat-1');
+
+    const runner = TestBed.inject(LlmUseCaseRunner);
+    const slots = await runner.run({
+      chat: { id: 'chat-1', title: 'Story', projectId: null, node_number: 2, created_at: now, updated_at: now },
+      node: makeNode({ id: aid, chatId: 'chat-1', parentId: uid, role: 'assistant', content: 'A chapter.', isCurrent: true }),
+      usecase: 'storyboard-direct',
+      vars: { count: 2, planDescriptions: false }
+    });
+
+    // A single one-shot call — no per-scene fallback, no reprise.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(slots.images?.value).toHaveLength(2);
+    const storyboard = slots.storyboard?.value ?? [];
+    expect(storyboard).toHaveLength(1);
+    expect(storyboard[0].images).toHaveLength(2);
+    expect(storyboard[0].refused).toBe(false);
+  });
+
+  it('planned-enblock: reprise embeds ONLY the successful descriptions and adapts total to their count; skipped when ≤1 success', async () => {
+    fetchMock.mockResolvedValueOnce(textResponse('{"pictures":["A bridge.","A lantern.","A castle."]}')); // planning → 3 descriptions
+    fetchMock.mockResolvedValueOnce(completionImage(2)); // one-shot → scenes 0,1 succeed (2/3)
+    // per-scene fallback for scene 2 (the last) is REFUSED → still missing
+    fetchMock.mockResolvedValueOnce(
+      { ok: true, status: 200, json: async () => ({ choices: [{ message: { refusal: 'still nothing' } }] }) } as unknown as Response
+    );
+    fetchMock.mockResolvedValueOnce(completionImage(3)); // reprise → full consistent set
+
+    await TestBed.configureTestingModule({
+      providers: [
+        provideZonelessChangeDetection(),
+        provideHttpClient(),
+        { provide: CHAT_API, useValue: api }
+      ]
+    }).compileComponents();
+    TestBed.inject(I18nService).setLocale('en');
+    const settings = TestBed.inject(SettingsService);
+    await settings.loadAll();
+    const generation = TestBed.inject(GenerationSettingsService);
+    generation.update('image-create', { providerId: 'prov-1', modelId: 'vendor/image' });
+    generation.update('image-interpret', { providerId: 'prov-1', modelId: 'vendor/text' });
+
+    const chatService = TestBed.inject(ChatService);
+    const uid = 'u1';
+    const aid = 'a1';
+    const now = new Date().toISOString();
+    api.chats.push({ id: 'chat-1', title: 'Story', projectId: null, node_number: 2, created_at: now, updated_at: now });
+    api.nodes = [
+      makeNode({ id: uid, chatId: 'chat-1', parentId: null, role: 'user', content: 'A direction.' }),
+      makeNode({ id: aid, chatId: 'chat-1', parentId: uid, role: 'assistant', content: 'A chapter.', isCurrent: true })
+    ];
+    await chatService.loadChats();
+    await chatService.selectChat('chat-1');
+
+    const runner = TestBed.inject(LlmUseCaseRunner);
+    const slots = await runner.run({
+      chat: { id: 'chat-1', title: 'Story', projectId: null, node_number: 2, created_at: now, updated_at: now },
+      node: makeNode({ id: aid, chatId: 'chat-1', parentId: uid, role: 'assistant', content: 'A chapter.', isCurrent: true }),
+      usecase: 'planned-enblock',
+      vars: { count: 3, singleCall: true, planDescriptions: true }
+    });
+
+    // 1 planning + 1 one-shot + 1 (refused) per-scene + 1 reprise.
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    // The one-shot + per-scene render requests must NOT carry the raw
+    // assistant chapter text ('A chapter.' = the node being illustrated);
+    // the descriptions drive the scenes.
+    for (const i of [0, 1, 2]) {
+      const body = JSON.parse((fetchMock.mock.calls[i][1] as { body: string }).body) as {
+        messages: { role: string; content: unknown }[];
+      };
+      expect(JSON.stringify(body.messages)).not.toContain('A chapter.');
+    }
+    // The reprise uses the SAME DEFAULT render prompt (image.one-shot) as the
+    // initial single-call batch — NOT the planning prompt — embeds ONLY the
+    // SUCCESSFUL descriptions ('bridge' + 'lantern') and adapts `total` to
+    // their REAL count (2), NOT the full 3.
+    const repriseBody = JSON.parse((fetchMock.mock.calls[3][1] as { body: string }).body) as {
+      messages: { role: string; content: unknown }[];
+    };
+    const repriseSerialized = JSON.stringify(repriseBody.messages);
+    expect(repriseSerialized).not.toContain('image_url');
+    expect(repriseSerialized).not.toContain('IMG');
+    expect(repriseSerialized).toContain('create EXACTLY 2 pictures'); // total = successful count
+    expect(repriseSerialized).not.toContain('storyboard artist'); // NOT the planning prompt
+    expect(repriseSerialized).toContain('bridge'); // successful description
+    expect(repriseSerialized).toContain('lantern'); // successful description
+    expect(repriseSerialized).not.toContain('castle'); // never the missing/failed one
+    // The reprise re-rendered the FULL set → a single scene record with 3 images.
+    expect(slots.images?.value).toHaveLength(3);
+    const storyboard = slots.storyboard?.value ?? [];
+    expect(storyboard).toHaveLength(1);
+    expect(storyboard[0].images).toHaveLength(3);
+    expect(storyboard[0].refused).toBe(false);
+  });
+
+  it('planned-enblock: NO reprise runs when only ONE picture succeeded', async () => {
+    fetchMock.mockResolvedValueOnce(textResponse('{"pictures":["A bridge.","A lantern.","A castle."]}')); // planning → 3 descriptions
+    fetchMock.mockResolvedValueOnce(completionImage(1)); // one-shot → scene 0 only (1/3)
+    // per-scene fallback for scenes 1,2 also REFUSED → only ONE success
+    fetchMock.mockResolvedValueOnce(
+      { ok: true, status: 200, json: async () => ({ choices: [{ message: { refusal: 'no' } }] }) } as unknown as Response
+    );
+    fetchMock.mockResolvedValueOnce(
+      { ok: true, status: 200, json: async () => ({ choices: [{ message: { refusal: 'no' } }] }) } as unknown as Response
+    );
+
+    await TestBed.configureTestingModule({
+      providers: [
+        provideZonelessChangeDetection(),
+        provideHttpClient(),
+        { provide: CHAT_API, useValue: api }
+      ]
+    }).compileComponents();
+    TestBed.inject(I18nService).setLocale('en');
+    const settings = TestBed.inject(SettingsService);
+    await settings.loadAll();
+    const generation = TestBed.inject(GenerationSettingsService);
+    generation.update('image-create', { providerId: 'prov-1', modelId: 'vendor/image' });
+    generation.update('image-interpret', { providerId: 'prov-1', modelId: 'vendor/text' });
+
+    const chatService = TestBed.inject(ChatService);
+    const uid = 'u1';
+    const aid = 'a1';
+    const now = new Date().toISOString();
+    api.chats.push({ id: 'chat-1', title: 'Story', projectId: null, node_number: 2, created_at: now, updated_at: now });
+    api.nodes = [
+      makeNode({ id: uid, chatId: 'chat-1', parentId: null, role: 'user', content: 'A direction.' }),
+      makeNode({ id: aid, chatId: 'chat-1', parentId: uid, role: 'assistant', content: 'A chapter.', isCurrent: true })
+    ];
+    await chatService.loadChats();
+    await chatService.selectChat('chat-1');
+
+    const runner = TestBed.inject(LlmUseCaseRunner);
+    const slots = await runner.run({
+      chat: { id: 'chat-1', title: 'Story', projectId: null, node_number: 2, created_at: now, updated_at: now },
+      node: makeNode({ id: aid, chatId: 'chat-1', parentId: uid, role: 'assistant', content: 'A chapter.', isCurrent: true }),
+      usecase: 'planned-enblock',
+      vars: { count: 3, singleCall: true, planDescriptions: true }
+    });
+
+    // 1 planning + 1 one-shot + 2 per-scene fallbacks — NO reprise (≤1 success).
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    const storyboard = slots.storyboard?.value ?? [];
+    // Only the single success survives; the rest stay refused.
+    expect(slots.images?.value).toHaveLength(1);
+    expect(storyboard.filter(s => s.refused)).toHaveLength(2);
+  });
+
+  it('ATTACHES the fallback + reprise images to the chapter via the postprocessor', async () => {
+    // planning → 3 descriptions; one-shot returns 2; per-scene fallback for
+    // the LAST scene is refused → reprise (2 successes) returns the full set.
+    fetchMock.mockResolvedValueOnce(textResponse('{"pictures":["A bridge.","A lantern.","A castle."]}')); // planning
+    fetchMock.mockResolvedValueOnce(completionImage(2)); // one-shot → scenes 0,1 (2/3)
+    fetchMock.mockResolvedValueOnce(
+      { ok: true, status: 200, json: async () => ({ choices: [{ message: { refusal: 'still nothing' } }] }) } as unknown as Response
+    );
+    fetchMock.mockResolvedValueOnce(completionImage(3)); // reprise → full consistent set
+
+    await TestBed.configureTestingModule({
+      providers: [
+        provideZonelessChangeDetection(),
+        provideHttpClient(),
+        { provide: CHAT_API, useValue: api }
+      ]
+    }).compileComponents();
+    TestBed.inject(I18nService).setLocale('en');
+    const settings = TestBed.inject(SettingsService);
+    await settings.loadAll();
+    const generation = TestBed.inject(GenerationSettingsService);
+    generation.update('image-create', { providerId: 'prov-1', modelId: 'vendor/image' });
+    generation.update('image-interpret', { providerId: 'prov-1', modelId: 'vendor/text' });
+
+    const chatService = TestBed.inject(ChatService);
+    const aid = 'a1';
+    const now = new Date().toISOString();
+    api.chats.push({ id: 'chat-1', title: 'Story', projectId: null, node_number: 2, created_at: now, updated_at: now });
+    api.nodes = [
+      makeNode({ id: 'u1', chatId: 'chat-1', parentId: null, role: 'user', content: 'A direction.' }),
+      makeNode({ id: aid, chatId: 'chat-1', parentId: 'u1', role: 'assistant', content: 'A chapter.', isCurrent: true })
+    ];
+    await chatService.loadChats();
+    await chatService.selectChat('chat-1');
+
+    const runner = TestBed.inject(LlmUseCaseRunner);
+    const cx = {
+      chat: { id: 'chat-1', title: 'Story', projectId: null, node_number: 2, created_at: now, updated_at: now },
+      node: makeNode({ id: aid, chatId: 'chat-1', parentId: 'u1', role: 'assistant', content: 'A chapter.', isCurrent: true }),
+      usecase: 'planned-enblock',
+      vars: { count: 3, singleCall: true, planDescriptions: true }
+    } as never;
+    const slots = await runner.run(cx);
+
+    // The postprocessor must attach ALL images the fallback + reprise produced
+    // (scene records carry the images → buildIllustrationAttachments).
+    const post = TestBed.inject(LlmPostprocessorService);
+    const plan = post.plan(slots, cx);
+    expect(plan).not.toBeNull();
+    expect(plan!.summary.imagesTotal).toBe(3);
+    const illustrations = (plan!.attachments || []).filter(a => a.name.startsWith('illustration-'));
+    expect(illustrations).toHaveLength(3);
+  });
+
   it('render-full does NOT send attachments to the image model either', async () => {
     // Full-chat context: the render model can read images and the path carries
     // both a prior illustration and a hand-attached image — but render-full
@@ -697,10 +982,18 @@ describe('LLM orchestration — planned-scenes pipeline (use case 3)', () => {
   });
 
   it('keeps previously collected images when one scene is refused (partial survival)', async () => {
-    fetchMock.mockResolvedValueOnce(textResponse('{"pictures":["A bridge.","A lantern."]}'));
+    // 3 descriptions; scenes 1+2 succeed, the LAST (scene 3) is refused →
+    // with 2 successes (>1) the unifying reprise runs with those 2 successful
+    // descriptions and total = 2. It is refused too → partial result kept.
+    fetchMock.mockResolvedValueOnce(textResponse('{"pictures":["A bridge.","A lantern.","A castle."]}'));
+    fetchMock.mockResolvedValueOnce(completionImage(1));
     fetchMock.mockResolvedValueOnce(completionImage(1));
     fetchMock.mockResolvedValueOnce(
       { ok: true, status: 200, json: async () => ({ choices: [{ message: { refusal: 'I cannot draw that' } }] }) } as unknown as Response
+    );
+    // Unifying reprise — refused again, so the per-scene collection is kept.
+    fetchMock.mockResolvedValueOnce(
+      { ok: true, status: 200, json: async () => ({ choices: [{ message: { refusal: 'still nothing' } }] }) } as unknown as Response
     );
 
     await TestBed.configureTestingModule({
@@ -730,18 +1023,34 @@ describe('LLM orchestration — planned-scenes pipeline (use case 3)', () => {
       chat: { id: 'chat-1', title: 'Story', projectId: null, node_number: 2, created_at: now, updated_at: now },
       node: makeNode({ id: aid, chatId: 'chat-1', parentId: uid, role: 'assistant', content: 'A chapter.', isCurrent: true }),
       usecase: 'planned-scenes',
-      vars: { count: 2 }
+      vars: { count: 3 }
     });
 
-    // Scene 1 collected, scene 2 refused → 1 image survives.
-    expect(slots.images?.value).toHaveLength(1);
+    // 1 planning + 3 scenes + 1 unifying reprise.
+    expect(fetchMock).toHaveBeenCalledTimes(5);
+    const repriseBody = JSON.parse((fetchMock.mock.calls[4][1] as { body: string }).body) as {
+      messages: { role: string; content: unknown }[];
+    };
+    const repriseSerialized = JSON.stringify(repriseBody.messages);
+    // The reprise uses the default one-shot with ONLY the successful
+    // descriptions ('bridge' + 'lantern'), total adapted to their count (2),
+    // NOT the missing 'castle', and no image URLs.
+    expect(repriseSerialized).not.toContain('image_url');
+    expect(repriseSerialized).not.toContain('IMG');
+    expect(repriseSerialized).toContain('create EXACTLY 2 pictures'); // total = successful count
+    expect(repriseSerialized).toContain('bridge');
+    expect(repriseSerialized).toContain('lantern');
+    expect(repriseSerialized).not.toContain('castle'); // never the missing/failed one
+    // The reprise is refused again → scenes 1+2 collected, scene 3 refused.
+    expect(slots.images?.value).toHaveLength(2);
     const storyboard = slots.storyboard?.value ?? [];
     expect(storyboard[0].refused).toBe(false);
-    expect(storyboard[1].refused).toBe(true);
+    expect(storyboard[1].refused).toBe(false);
+    expect(storyboard[2].refused).toBe(true);
     // The refused prompt stays findable via the postprocessor.
     const post = TestBed.inject(LlmPostprocessorService);
     const plan = post.plan(slots, { chat: { id: 'chat-1' } as never, node: makeNode({ id: aid, role: 'assistant' }) as never, usecase: 'planned-scenes', vars: {} });
-    expect(plan?.attachments.some(a => a.name === 'refused-prompt-2.txt')).toBe(true);
+    expect(plan?.attachments.some(a => a.name === 'refused-prompt-3.txt')).toBe(true);
     expect(plan?.summary.partial).toBe(true);
   });
 });

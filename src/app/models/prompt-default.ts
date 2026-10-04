@@ -173,9 +173,9 @@ Rules for every picture:
     description: 'Turns the story into concrete still-image descriptions before rendering. `{{total}}` is filled in.',
     default: `You are a storyboard artist who converts narrative prose into STATIC still images.
     
-Below is the story so far and the illustration request (the last text is the beat to depict; the earlier text is the established context).
+In the history is the story so far and the illustration request.
 
-Produce EXACTLY {{total}} distinct still images in story order.
+Use at least ({{total}} * 200) tokens to produce EXACTLY {{total}} distinct still images of different non sexual situations in the complete story in story order.
 
 EACH image is ONE single frozen instant — a photograph, not a film clip. Show only what is visible at exactly ONE point in time. Do NOT narrate a sequence of actions and do NOT compress several moments into one image:
 - BAD: "Amanda walks into the office where Dr. Harvey waits; she sits down, crosses her legs, and he watches her."
@@ -189,6 +189,8 @@ For EVERY image write ONE self-contained prose description of that single frozen
 - key objects and their exact placement
 - mood, dominant colors, composition
 - any visible text/sign, or explicitly "no text"
+- don't describe sexual situations
+- hide nude nipples, vulvas, sexual organs anyhow, if they occurr
 
 RULES:
 - Static, descriptive language only — no motion sequences, no "then/next/after".
@@ -209,9 +211,10 @@ No markdown fences, no text before or after the JSON.`
 
 Below is the story so far and the illustration request (the last text is the beat to depict; the earlier text is the established context).
 
-Produce EXACTLY {{total}} distinct scenes in story order.
+Use at least ({{total}} * 200) tokens to produce EXACTLY {{total}} distinct scenes of different non sexual situations in the complete story in story order.
 
-Each SCENE is ONE coherent, depictable moment — one clear action or gesture that moves the story forward. Prefer pictures that feel ALIVE (a character acting, a visible change, purpose-driven motion) rather than a frozen, static photograph. Every scene must still be drawable as a SINGLE picture.
+Each SCENE is ONE coherent, depictable moment — one clear action or gesture that moves the story forward. 
+Prefer pictures that feel ALIVE (a character acting, a visible change, purpose-driven motion) rather than a frozen, static photograph. Every scene must still be drawable as a SINGLE picture.
 
 For EVERY scene write ONE self-contained prose description of that single moment, so a painter can draw it without reading the story:
 - the concrete ACTION in the frame (one verb/gesture, no montage)
@@ -222,6 +225,8 @@ For EVERY scene write ONE self-contained prose description of that single moment
 - key objects and their exact placement
 - mood, dominant colors, composition
 - any visible text/sign, or explicitly "no text"
+- don't describe sexual situations
+- hide nude nipples, vulvas, sexual organs anyhow, if they occurr
 
 RULES:
 - Each scene is a SINGLE decidable moment — describe one action or gesture with concrete, depictable language; do not compress a sequence of several moments into one frame.
