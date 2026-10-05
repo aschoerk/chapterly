@@ -1,10 +1,12 @@
 import { inject, Injectable } from '@angular/core';
-import { ChatMessage, ChatNode } from '../../../models/chat';
+import { ChatMessage, ChatNode, NodeAttachment } from '../../../models/chat';
 import { ChatService } from '../../chat.service';
 import { UsecaseContextFactory, type BuildContext, type ModelRef } from './context';
 import { LlmOrchestratorService, type PrimitiveOptions } from './orchestrator';
 import type { EvalSlots, FlowResult, UsecaseContext, UsecaseKind, UsecaseVars } from './types';
 import { makeSlot, okSlot } from './slots';
+import { imagePartToAttachment, type LlmImagePart } from '../llm-message';
+import { newId } from '../../common/helpers';
 
 /**
  * Structural text-send flows.
@@ -122,7 +124,29 @@ async function persistInterpretation(
 /** True when a flow's answer produced nothing (refused/empty). */
 function flowEmpty(slots: EvalSlots): boolean {
   const text = (slots.text?.value ?? '').trim();
-  return !text && slots.text?.status !== 'ok';
+  // Images count as content — an image-capable model returning ONLY pictures
+  // is a successful (non-empty) answer, not a refused/empty one.
+  if (!text && slots.text?.status !== 'ok') {
+    return (slots.images?.value ?? []).length === 0;
+  }
+  return false;
+}
+
+/**
+ * Convert generated image parts into persisted node attachments (ids assigned,
+ * deduped by URL — a stream may resend the same part in delta + final message).
+ */
+export function generatedImageAttachments(images: LlmImagePart[]): NodeAttachment[] {
+  const seen = new Set<string>();
+  const out: NodeAttachment[] = [];
+  let idx = 0;
+  for (const img of images ?? []) {
+    if (!img?.url || seen.has(img.url)) continue;
+    seen.add(img.url);
+    out.push({ ...imagePartToAttachment(img, idx), id: newId() });
+    idx++;
+  }
+  return out;
 }
 
 /**
@@ -153,6 +177,7 @@ async function streamAnswerNode(
 
   let accContent = '';
   let accThinking = '';
+  let accImages: LlmImagePart[] = [];
   try {
     const slots = await env.orch.completion(env.cx, {
       model: write.model,
@@ -165,6 +190,7 @@ async function streamAnswerNode(
       onChunk: chunk => {
         if (chunk.content) accContent += chunk.content;
         if (chunk.thinking) accThinking += chunk.thinking;
+        if (chunk.images?.length) accImages.push(...chunk.images);
         chatService.updateNodes(list =>
           list.map(n => (n.id === answerNode.id ? { ...n, content: accContent, thinking: accThinking } : n))
         );
@@ -174,14 +200,19 @@ async function streamAnswerNode(
 
     const finalContent = slots.text?.value ?? accContent;
     const finalThinking = slots.thinking?.value ?? accThinking;
+    const finalImages = slots.images?.value ?? accImages;
     chatService.updateNodes(list =>
       list.map(n => (n.id === answerNode.id ? { ...n, content: finalContent, thinking: finalThinking } : n))
     );
 
     let answerId = answerNode.id;
-    if (finalContent.trim() || finalThinking.trim()) {
+    // An image-only answer (image-capable model streamed pictures, no text)
+    // must STILL be finalized — otherwise it stays an empty placeholder that
+    // renders as "Generation stopped" and the images are never attached.
+    if (finalContent.trim() || finalThinking.trim() || finalImages.length > 0) {
+      const attachments = finalImages.length ? generatedImageAttachments(finalImages) : undefined;
       const versioned = await chatService.editAssistant(
-        chatId, answerNode.id, finalContent, undefined, finalThinking
+        chatId, answerNode.id, finalContent, attachments, finalThinking
       );
       answerId = versioned.id;
       chatService.setActiveChild(questionNodeId, answerId);

@@ -3,7 +3,7 @@ import { ChatMessage } from '../../../models/chat';
 import { canGenerateImages, ModelEntry } from '../../../models/chat-config';
 import { getServerConfig } from '../../common/server-config';
 import { LlmLogService } from '../llm-log.service';
-import { normalizeChatMessages, type MessagePart } from '../llm-message';
+import { normalizeChatMessages, type MessagePart, type LlmImagePart } from '../llm-message';
 import { readSseStream, type LlmChunk } from '../llm-sse';
 
 /**
@@ -52,6 +52,8 @@ export interface CompletionResult {
   /** Assembled text for streaming calls ('' when non-stream). */
   content: string;
   thinking: string;
+  /** Generated images assembled from the stream (''/[] when none). */
+  images?: LlmImagePart[];
 }
 
 export interface ImagesResult {
@@ -148,11 +150,28 @@ export class LlmTransportService {
         }
         const assembled = await readSseStream(response.body, req.onChunk).then(r => ({
           content: r.content.trim(),
-          thinking: r.thinking.trim()
+          thinking: r.thinking.trim(),
+          images: r.images
         }));
-        this.llmLog.complete(logEntry, { response: assembled });
-        const raw = { choices: [{ message: { role: 'assistant', content: assembled.content } }] };
-        return { content: assembled.content, thinking: assembled.thinking, raw };
+        // The log must show what the model actually returned — including any
+        // generated images an image-capable model streamed back.
+        this.llmLog.complete(logEntry, {
+          response: {
+            content: assembled.content,
+            thinking: assembled.thinking,
+            ...(assembled.images.length ? { images: assembled.images } : {})
+          }
+        });
+        const raw = {
+          choices: [{
+            message: {
+              role: 'assistant',
+              content: assembled.content,
+              ...(assembled.images.length ? { images: assembled.images } : {})
+            }
+          }]
+        };
+        return { content: assembled.content, thinking: assembled.thinking, images: assembled.images, raw };
       }
 
       const raw = await response.json();

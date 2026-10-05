@@ -37,6 +37,22 @@ function textResponse(text: string): Response {
   } as unknown as Response;
 }
 
+/** Streaming SSE body delivering ONLY image_url parts (no text) + [DONE]. */
+function sseImagesResponse(urls: string[]): Response {
+  const enc = new TextEncoder();
+  const lines = urls.map(u => `data: ${JSON.stringify({
+    choices: [{ delta: { content: [{ type: 'image_url', image_url: { url: u } }] } }]
+  })}\n\n`);
+  lines.push('data: [DONE]\n\n');
+  return {
+    ok: true, status: 200,
+    headers: { get: () => 'text/event-stream' },
+    body: new ReadableStream<Uint8Array>({
+      start(controller) { for (const l of lines) controller.enqueue(enc.encode(l)); controller.close(); }
+    })
+  } as unknown as Response;
+}
+
 const CHAT_ID = 'chat-1';
 const IMG = { id: 'img', name: 'pic.png', mimeType: 'image/png', size: 4, dataUrl: 'data:image/png;base64,AAAA' };
 
@@ -113,6 +129,38 @@ describe('LLM orchestration — structural flows (branch / insert / regenerate /
     expect(chatService.getActiveChild(branch!.parentId)?.id).toBe(branch!.id);
     expect(slots.flow?.value?.activateId).toBe(branch!.id);
     expect(slots.text?.value).toBe('Branch answer.');
+  });
+
+  it('send-branch: an IMAGE-ONLY answer (no text) is finalized with its attachments, not left empty', async () => {
+    // The stream delivers only image_url parts — the model returned no text.
+    const url = 'data:image/png;base64,AAAA';
+    fetchMock.mockResolvedValueOnce(sseImagesResponse([url]));
+    const chatService = await openChat([
+      makeNode({ id: 'q1', role: 'user', content: 'Question' }),
+      makeNode({ id: 'a1', parentId: 'q1', role: 'assistant', content: 'Answer', isCurrent: true })
+    ]);
+    const current = chatService.nodes().find(n => n.id === 'q1')!;
+
+    const runner = TestBed.inject(LlmFlowRunner);
+    const slots = await runner.run({
+      chat: api.chats[0],
+      node: current,
+      usecase: 'send-branch',
+      vars: { content: 'Render the scene' }
+    });
+
+    // The branch answer was finalized (versioned) — NOT an empty placeholder.
+    const answerId = slots.flow!.value!.answerNodeId;
+    const answerNode = chatService.nodes().find(n => n.id === answerId)!;
+    expect(answerNode.content).toBe('');
+    expect(answerNode.attachments?.length).toBe(1);
+    expect(answerNode.attachments![0].name).toMatch(/^illustration-1\./);
+    expect(answerNode.attachments![0].dataUrl).toBe(url);
+    expect(answerNode.parentId).toBe(chatService.nodes().find(n => n.role === 'user' && n.content === 'Render the scene')!.id);
+    // The flow is NOT reported as empty (an image IS content).
+    expect(slots.flow?.value?.empty).toBe(false);
+    // The images also surface in the slots.
+    expect(slots.images?.value).toHaveLength(1);
   });
 
   it('send-insert: creates a sibling + answer and hangs the old siblings under the new answer', async () => {

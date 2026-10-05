@@ -22,7 +22,7 @@ participant "Provider\n(proxy)" as NET
 == 1. Dialog picks the use case ==
 User -> DLG : count(>1), planDescriptions OFF, style, storyboard rules
 DLG --> UI : options
-UI -> UI : pickUsecase(vars) → 'storyboard-direct'
+UI -> UI : pickUsecase(vars) → 'storyboard-direct'\nbeginOperation('illustrate') → Stop ends the use case
 note over UI, RUN
   vars carry count, style, storyboardPrompt,\ncontent (scene text), modelId, providerId.
 end note
@@ -46,13 +46,13 @@ ORCH -> EVAL : evaluateImagesResponse(raw)
 EVAL --> ORCH : images slot (ok | partial | refused, reason)
 ORCH --> UC : EvalSlots
 
-== 5. Wrap + place ==
+== 5. Wrap + place — IMMEDIATELY as pictures arrive ==
 UC -> POST : storyboard slot (1 scene = all N images,\nor N refused scenes on moderation)
-POST -> POST : plan(slots) → illustration-1..N + prompt-1.txt
-POST -> SVC : editAssistant(chapter, attachments)\n(versioned)
+POST -> POST : plan(slots) → illustration-1..N + prompt-1.txt\n(every picture is attached to the chapter node as\nsoon as it is created — not after the whole generation)
+POST -> SVC : editAssistant(chapter, attachments)\n(versioned) — on the node illustrate was called for
 POST --> UI : activate(chapter.id)
 note over UI, POST
-  count>1 && got<want → alert "only got X of Y scenes";\nzero images → alert empty with model reply.
+  count>1 && got<want → alert "only got X of Y scenes";\nzero images → alert empty with model reply.\nOne Stop press ends the use case (isOperationCancelled)\n— pictures already attached stay on the node.
 end note
 
 @enduml

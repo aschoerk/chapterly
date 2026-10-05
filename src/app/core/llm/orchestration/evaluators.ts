@@ -425,6 +425,12 @@ export function finalizeStream(running: EvalSlots, args: EvaluateArgs): EvalSlot
   if (out.thinking?.value) {
     out.thinking = makeSlot('ok', out.thinking.value, undefined, {});
   }
+  // An image-capable model may stream generated images back even in a text
+  // use case (e.g. append). Surface them so they reach the caller + log.
+  const images = extractLlmImages(args.raw);
+  if (images.length > 0) {
+    out.images = makeSlot('ok', images, undefined, { prompt: args.prompt, scene: args.scene });
+  }
   return out;
 }
 

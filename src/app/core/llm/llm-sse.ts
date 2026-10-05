@@ -6,14 +6,19 @@
  * split lines itself. All of the "missing letter" edge cases live here.
  */
 
+import { extractLlmImages, type LlmImagePart } from './llm-message';
+
 export interface LlmChunk {
   content?: string;
   thinking?: string;
+  /** Generated image parts delivered in this SSE event (deduped). */
+  images?: LlmImagePart[];
 }
 
 export interface LlmSseResult {
   content: string;
   thinking: string;
+  images: LlmImagePart[];
   skippedEvents: number;
   parseErrors: number;
 }
@@ -30,6 +35,7 @@ export class LlmSseParser {
   private readonly decoder = new TextDecoder('utf-8', { fatal: false });
   private content = '';
   private thinking = '';
+  private images: LlmImagePart[] = [];
   private skippedEvents = 0;
   private parseErrors = 0;
   private lastSnapshotContent = '';
@@ -65,9 +71,18 @@ export class LlmSseParser {
     return {
       content: this.content,
       thinking: this.thinking,
+      images: this.images,
       skippedEvents: this.skippedEvents,
       parseErrors: this.parseErrors
     };
+  }
+
+  /** Append a set of image parts, deduped by URL (streams may resend parts). */
+  private pushImages(images: LlmImagePart[]): void {
+    for (const im of images) {
+      if (!im?.url) continue;
+      if (!this.images.some(x => x.url === im.url)) this.images.push(im);
+    }
   }
 
   private drain(endOfStream: boolean): LlmChunk[] {
@@ -126,14 +141,21 @@ export class LlmSseParser {
     const extracted = extractLlmDelta(json);
     const contentBit = this.normalizePiece(extracted.content, 'content');
     const thinkingBit = this.normalizePiece(extracted.thinking, 'thinking');
-    if (!contentBit && !thinkingBit) return null;
+    const images = extractStreamImages(json);
+    if (!contentBit && !thinkingBit && images.length === 0) {
+      this.skippedEvents += 1;
+      return null;
+    }
 
     if (contentBit) this.content += contentBit;
     if (thinkingBit) this.thinking += thinkingBit;
-    return {
-      content: contentBit || undefined,
-      thinking: thinkingBit || undefined
-    };
+    if (images.length) this.pushImages(images);
+
+    const chunk: LlmChunk = {};
+    if (contentBit) chunk.content = contentBit;
+    if (thinkingBit) chunk.thinking = thinkingBit;
+    if (images.length) chunk.images = images;
+    return chunk;
   }
 
   private normalizePiece(piece: string, kind: 'content' | 'thinking'): string {
@@ -209,6 +231,38 @@ export function extractThinking(source: Record<string, unknown> | undefined): st
     source['thinking'] ??
     source['reasoning_text']
   );
+}
+
+/**
+ * Pull generated image parts out of one SSE event JSON. Streaming deltas put
+ * the parts in `choices[].delta.content` (array), `choices[].delta.images` or
+ * — on the final chunk — `choices[].message.images`/`content`; the event may
+ * also use root data/output shapes. To reuse the established non-stream
+ * scanner we merge `delta` into `message` and feed it to `extractLlmImages`.
+ */
+export function extractStreamImages(json: unknown): LlmImagePart[] {
+  if (!json || typeof json !== 'object') return [];
+  const root = json as Record<string, unknown>;
+  const choices = root['choices'];
+  if (!Array.isArray(choices)) return extractLlmImages(json);
+
+  const mergedChoices = choices.map(choice => {
+    if (!choice || typeof choice !== 'object') return choice;
+    const c = choice as Record<string, unknown>;
+    const delta = (c['delta'] && typeof c['delta'] === 'object')
+      ? (c['delta'] as Record<string, unknown>)
+      : {};
+    const message = (c['message'] && typeof c['message'] === 'object')
+      ? { ...(c['message'] as Record<string, unknown>) }
+      : {};
+    // Prefer delta content/images when the final message does not carry them.
+    for (const k of ['content', 'images']) {
+      if (delta[k] !== undefined && message[k] === undefined) message[k] = delta[k];
+    }
+    return { ...c, message };
+  });
+
+  return extractLlmImages({ ...root, choices: mergedChoices });
 }
 
 /**

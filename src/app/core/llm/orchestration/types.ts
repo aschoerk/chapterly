@@ -25,7 +25,10 @@ import { ModelEntry, ProviderConfig } from '../../../models/chat-config';
  *                          then all of them go as ONE block to the image
  *                          model (completion, or /images with n — per model).
  *  3. planned-scenes     — text model derives PICTURE DESCRIPTIONS ONLY,
- *                          then they are rendered ONE PER SCENE in a loop.
+ *                          then they are rendered as ONE consistent block —
+ *                          identical to planned-enblock, but with the
+ *                          SCENE-oriented planning + render templates
+ *                          (image.planning-scenes / image.one-shot-scenes).
  *  4. render-full        — no storyboard: render the current node while
  *                          knowing the COMPLETE chat up to now.
  *  5. render-node        — no storyboard: render the CURRENT NODE only.

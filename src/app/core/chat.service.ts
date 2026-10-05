@@ -471,8 +471,13 @@ export class ChatService {
   readonly generatingNodeId = signal<string | null>(null);
 
   /** Label of a running multi-call operation
-   *  ('title' | 'overview' | 'headings' | 'elaborate'), or null. */
+   *  ('title' | 'overview' | 'headings' | 'elaborate' | 'illustrate'), or null. */
   readonly operationLabel = signal<string | null>(null);
+
+  /** True while an illustration STORYBOARD use case (planned-enblock /
+   *  planned-scenes / storyboard-direct) is running — surfaces the Stop
+   *  button in the chat toolbar, mirroring the elaborate flow. */
+  readonly isIllustrating = signal(false);
 
   private currentAbortController: AbortController | null = null;
   private operationAbort: AbortController | null = null;

@@ -5,6 +5,7 @@
   "main": "electron/main.js",
   "scripts": {
     "electron:dev": "npm run build:server && concurrently -k \"ng serve\" \"wait-on http://localhost:4200 && electron .\"",
+    "test": "ng test",
     "docker:dev:build": "docker build -f Dockerfile.dev -t chapterly-dev .",
     "docker:sqlite:up": "docker compose -f docker-compose.chapterly-sqlite.yml up -d",
     "docker:sqlite:down": "docker compose -f docker-compose.chapterly-sqlite.yml down",
@@ -13,7 +14,6 @@
     "build:server": "npm run build --prefix chapterly-api-server",
     "electron:build": "npm run build:server && npm run build && electron-builder",
     "electron": "npm run build:server && electron .",
-    "test": "ng test",
     "test:server": "npm test --prefix chapterly-api-server",
     "docker:prod": "docker build -t chapterly . && docker run --env-file .env --rm -p 8080:8080 chapterly",
     "docker:dev": "docker build -f Dockerfile.dev -t chapterly-dev . && docker run -v ./chapterly-api-server/data:/app/data -e CHAPTERLY_DOCKER=1 -e CHAPTERLY_RUNTIME=docker-dev -e CHAPTERLY_STORAGE=chats-idb --env-file .env --rm --name chapterly-dev -p 8080:8080 -p 9229:9229 chapterly-dev",

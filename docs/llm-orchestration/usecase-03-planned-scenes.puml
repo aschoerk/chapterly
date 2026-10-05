@@ -4,62 +4,80 @@ skinparam sequenceMessageAlign center
 skinparam responseMessageBelowArrow true
 skinparam maxMessageSize 200
 skinparam wrapWidth 170
-title Use case 3 — planned-scenes\n"text model derives PICTURE DESCRIPTIONS ONLY,\nthen render them ONE PER SCENE in a loop"
+title Use case 3 — planned-scenes\n"text model derives PICTURE DESCRIPTIONS ONLY,\nthen ALL of them go as ONE block to the image model\n(IDENTICAL to planned-enblock, different prompt templates)"
 
 actor User
-participant "IllustrateDialog" as DLG
-participant "ChatNodeComponent\nillustrate()" as UI
 participant "LlmUseCaseRunner\n(env)" as RUN
 participant "plannedScenes\n(controller)" as UC
-participant "planStoryboardDescriptions\n(shared)" as PLAN
+participant "plannedStoryboard\n(shared pipeline)" as PIPE
 participant "LlmOrchestratorService" as ORCH
 participant "LlmTransportService" as XPORT
 participant "Evaluators" as EVAL
-participant "LlmLogService" as LOG
 participant "LlmPostprocessorService" as POST
 participant "ChatService" as SVC
 participant "Provider\n(proxy)" as NET
 
 == 1. Dialog picks the use case ==
-User -> DLG : count(>1), planning ON, NOT singleCall/enblock\n+ style, storyboard rules
-DLG --> UI : options
-UI -> UI : pickUsecase(vars) → 'planned-scenes'
+User -> RUN : count(>1), planning ON,\nNOT singleCall/pure\n+ style, storyboard rules
+RUN -> RUN : pickUsecase(vars) → 'planned-scenes'
 
 == 2. Run: env ==
-UI -> RUN : runner.run(chat, node, 'planned-scenes', vars)
-RUN -> RUN : render + plan model resolution\n(contextMessages, anchor, imageExtras)
+RUN -> RUN : beginOperation('illustrate') → Stop ends the use case
+render + plan model resolution\n(contextMessages, anchor, imageExtras)
 RUN --> UC : controllerFor('planned-scenes')(env)
 
-== 3. Step 1 — planning (IDENTICAL to use case 2) ==
-UC -> PLAN : runPlanning(env)
-PLAN -> ORCH : completion(plan model, expect:'descriptions')
+== 3. Step 1 — planning (SCENE template) ==
+UC -> PIPE : plannedStoryboard(env, templates)\ntemplates = { planning: pictureScenePlanningInstruction,\nrender: oneShotScenesPrompt }
+PIPE -> ORCH : completion(plan model, expect:'descriptions')
 ORCH -> XPORT : complete()
 XPORT -> NET : POST /chat/completions (text)
 XPORT --> ORCH : raw
 ORCH -> EVAL : evaluateDescriptions(raw)
-EVAL --> ORCH : descriptions slot
-ORCH --> PLAN : descriptions[]
-PLAN --> UC : descriptions[]
+EVAL --> ORCH : descriptions slot (ok | refused, reason)
+ORCH --> PIPE : descriptions[]
 
-== 4. Step 2 — per-scene LOOP (independent slots) ==
-loop i in 0..count-1  (stop when signal aborted)
-  UC -> UC : prompt = anchor + "Render exactly: desc[i]"\n(or storyboardInstruction fallback)\nscene = i+1
-  UC -> ORCH : completeImage(request, expect:'images', scene:i+1, signal)
-  ORCH -> XPORT : completeImage()
-  XPORT -> NET : POST /chat/completions (per scene)
-  XPORT --> ORCH : raw (or thrown TransportError)
-  ORCH -> EVAL : evaluateImagesResponse({raw} or {error, aborted})
-  EVAL --> ORCH : scene[i] slot (ok | refused | error, reason)
-  ORCH --> UC : scene[i]
-  note over UC, EVAL
-    A refused/moderated scene records as refused and\nNEVER discards previously collected images —\nthe loop continues with the next scene.\nAbort/timeout in a child stops the whole tree.
-  end note
-  UC -> UC : collected += images; scenes.push({scene, prompt, images, refused})
+== 4. Step 2 — ONE en-block render (scene template) ==
+PIPE -> PIPE : prompt = oneShotScenesPrompt(instruction,\ndescriptions, count, storyboardRules)
+PIPE -> ORCH : completeImage(request, expect:'images')
+ORCH -> XPORT : completeImage()
+XPORT -> NET : POST /chat/completions (or /images for image-only models)
+XPORT --> ORCH : raw (or thrown TransportError)
+ORCH -> EVAL : evaluateImagesResponse(raw)
+EVAL --> ORCH : images slot (ok | partial | refused, reason)
+ORCH --> PIPE : EvalSlots
+note over PIPE, ORCH
+  An LLM called to render several pictures returns\nONE picture or NONE (e.g. when it moderates one of\nthem). So a NON-EMPTY batch STOPS the use case\nhere — no per-scene fallback, no reprise.\nThe fallback + reprise below run ONLY when the\nbatch returns NOTHING.
+end note
+
+== 5. Step 3 — fallback (only when the batch returned 0) ==
+alt batch returned 0 pictures
+  PIPE -> PIPE : loop scenes 0..count-1 → renderImage(\nscenePrompt(i)) — each sends ONLY its own\ndescription
+  loop i in 0..count-1
+    PIPE -> ORCH : completeImage(scene i)
+    ORCH --> XPORT : completeImage()
+    XPORT -> NET : POST /chat/completions (per scene)
+    XPORT --> ORCH : raw
+    ORCH -> EVAL : evaluateImagesResponse({raw} or {error, aborted})
+    EVAL --> ORCH : scene[i] slot (ok | refused, reason)
+    ORCH --> PIPE : scene[i]
+  end
+  alt a scene is still missing AND >1 succeeded
+    PIPE -> PIPE : reprisePrompt = oneShotScenesPrompt(\ninstruction, successfulTexts, realCount)
+    PIPE -> ORCH : completeImage(reprise)
+    ORCH --> PIPE : reprise images
+    note over PIPE
+      When the reprise yields >= count the whole set is\nreplaced; otherwise each returned image is merged\ninto a still-missing scene slot.
+    end note
+  end
 end
 
-== 5. Place (partial results preserved) ==
-UC -> POST : storyboard slot = all scenes (some may be refused)\nimages slot = collected images
-POST -> SVC : editAssistant(chapter,\nillustration-N + prompt-N / refused-prompt-N)
-POST --> UI : activate(chapter.id)\nalert if partial/empty
+== 6. Place — IMMEDIATELY as each picture is created ==
+PIPE -> POST : storyboard = scenes + images — every picture is
+placed on the chapter node AS SOON as it is created\nduring the use case, not only after the whole run
+POST -> SVC : editAssistant(chapter, illustration-N + prompt-N /\nrefused-prompt-N) — versioned, on the very node\nillustrate was called for
+POST --> RUN : activate(chapter.id)\nalert if partial/empty
+note over RUN, POST
+  One Stop press ends the use case (isOperationCancelled)\n  — pictures already attached stay on the node, so\n  stopping never loses images created so far.
+end note
 
 @enduml

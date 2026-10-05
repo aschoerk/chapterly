@@ -22,7 +22,7 @@ participant "Provider\n(proxy)" as NET
 == 1. Dialog picks the use case ==
 User -> DLG : count(=1), historyMode 'single'\n+ style, planning any
 DLG --> UI : options
-UI -> UI : pickUsecase(vars) → 'render-node'
+UI -> UI : pickUsecase(vars) → 'render-node'\nbeginOperation('illustrate') → Stop ends the use case
 
 == 2. Run: env ==
 UI -> RUN : runner.run(chat, node, 'render-node', vars)
@@ -40,9 +40,12 @@ ORCH -> EVAL : evaluateImagesResponse(raw)
 EVAL --> ORCH : images slot (ok | refused, reason)
 ORCH --> UC : EvalSlots
 
-== 4. Place ==
+== 4. Place — IMMEDIATELY when the picture is created ==
 UC -> POST : wrapImagesAsStoryboard(1 scene)
-POST -> SVC : editAssistant(chapter, illustration-1 + prompt-1.txt)
+POST -> SVC : editAssistant(chapter, illustration-1 + prompt-1.txt)\n(versioned) — attached on the node illustrate was called for
 POST --> UI : activate(chapter.id)
+note over UI
+  One Stop press ends the use case via isOperationCancelled()\n— pictures already attached stay on the node.
+end note
 
 @enduml

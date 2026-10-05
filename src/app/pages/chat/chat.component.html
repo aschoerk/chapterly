@@ -122,7 +122,7 @@
               {{ i18n.t('chat.trash') }}@if (trashCount() > 0) { ({{ trashCount() }}) }
             </button>
 
-            @if (isGeneratingStructure() || isElaborating() || chatService.generatingNodeId()) {
+            @if (isGeneratingStructure() || isElaborating() || chatService.generatingNodeId() || chatService.isIllustrating()) {
               <button class="btn small danger" type="button"
                       (click)="stopGeneration()"
                       [title]="i18n.t('node.stopTitle')">

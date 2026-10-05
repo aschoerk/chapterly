@@ -153,6 +153,22 @@ Rules:
 - Return all {{total}} images now.`
   },
   {
+    id: 'image.one-shot-scenes',
+    category: 'image',
+    label: 'Storyboard — scene one-shot prompt',
+    description: 'The render prompt for planned-scenes: requests ALL derived scene descriptions in ONE completion (like image.one-shot) but keeps the SCENE intent — each picture shows the action of the scene, not a frozen still. `{{total}}` is filled in.',
+    default: `Scene one-shot: create EXACTLY {{total}} pictures in ONE single response — all {{total}} images together in this same completion.
+
+The scenes below are concrete, action-bearing moments. Render each scene as ONE coherent, vivid picture that shows the action of that moment.
+
+Rules:
+- One DIFFERENT scene per image, covering the key moments of the story beat above, in story order.
+- For each scene capture the concrete action or gesture — keep it alive, do not flatten it into a frozen, static photograph.
+- The SAME characters (identical face, build, costume), the SAME setting/environment and the SAME style in every image — never change appearance or environment between images.
+- Stay consistent with characters, setting and style established earlier.
+- Return all {{total}} images now.`
+  },
+  {
     id: 'image.pure',
     category: 'image',
     label: 'Pure picture mode — en-block prompt',
@@ -206,7 +222,7 @@ No markdown fences, no text before or after the JSON.`
     id: 'image.planning-scenes',
     category: 'image',
     label: 'Picture-description planning — scenes (per-scene render)',
-    description: 'Used by the per-scene storyboard path (planned-scenes). Like image.planning but scene-oriented: fewer static still photographs, more alive, action-bearing scenes. `{{total}}` is filled in.',
+    description: 'The planning prompt for planned-scenes. Like image.planning but scene-oriented: fewer static still photographs, more alive, action-bearing scenes. `{{total}}` is filled in.',
     default: `You are a storyboard artist who breaks narrative prose into CONCRETE SCENES.
 
 Below is the story so far and the illustration request (the last text is the beat to depict; the earlier text is the established context).

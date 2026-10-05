@@ -22,6 +22,7 @@ import { pickUsecase, LlmUseCaseRunner } from './usecases';
 import { LlmOrchestratorService } from './orchestrator';
 import { LlmTransportService } from './transport';
 import { LlmPostprocessorService } from './postprocessor';
+import { LlmLogService, type LlmLogEntry } from '../llm-log.service';
 import type { EvalSlots, UsecaseVars } from './types';
 import { I18nService } from '../../i18n/i18n.service';
 
@@ -160,6 +161,17 @@ describe('LLM orchestration — evaluators (pure, never throw)', () => {
       expect(done.error?.value).toBe('aborted');
       expect(done.text?.value).toBe('Half'); // partial data is never lost
     });
+
+    it('surfaces generated images streamed back by an image-capable model', () => {
+      // An image-capable text use case (e.g. append) can stream images but no
+      // text — the raw carries the images so finalize surfaces them.
+      const done = finalizeStream({}, {
+        raw: { choices: [{ message: { images: [{ type: 'image_url', image_url: { url: 'data:image/png;base64,QQ==' } }] } }] }
+      });
+      expect(done.text?.status).toBe('refused'); // no text, but that's fine
+      expect(done.images?.status).toBe('ok');
+      expect(done.images?.value).toHaveLength(1);
+    });
   });
 });
 
@@ -257,6 +269,43 @@ describe('LLM orchestration — transport fallbacks (the retries stay in transpo
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect((raw as { choices: unknown[] }).choices).toHaveLength(1);
   });
+
+  it('keeps images streamed back in the log response and the returned raw (image-capable text use case)', async () => {
+    const enc = new TextEncoder();
+    const frame = (o: unknown) => `data: ${JSON.stringify(o)}\n\n`;
+    const imageUrl = 'data:image/png;base64,AAAA';
+    const body = frame({ choices: [{ delta: { content: 'A picture: ' } }] })
+      + frame({ choices: [{ delta: { content: [{ type: 'image_url', image_url: { url: imageUrl } }] } }] })
+      + 'data: [DONE]\n\n';
+    fetchMock.mockResolvedValueOnce({
+      ok: true, status: 200,
+      headers: { get: () => 'text/event-stream' },
+      body: new ReadableStream<Uint8Array>({
+        start(controller) { controller.enqueue(enc.encode(body)); controller.close(); }
+      })
+    } as unknown as Response);
+
+    const textModel = makeModel({ modelId: 'alpha/model' }); // non-image-capable → no modalities
+    const logRecordSpy = vi.spyOn(TestBed.inject(LlmLogService), 'record');
+    const completion = await transport.complete({
+      provider, model: textModel,
+      messages: [{ role: 'user', content: 'render the scene' }],
+      extras: { stream: true },
+      chat: { id: 'c', title: 't', usecase: 'append' }
+    });
+
+    // The assembled result + raw carry the streamed image.
+    expect(completion.images).toHaveLength(1);
+    expect(completion.images![0].url).toBe(imageUrl);
+    const rawMsg = ((completion.raw as { choices: { message: Record<string, unknown> }[] }).choices[0].message);
+    expect(rawMsg['images']).toHaveLength(1);
+    // The persisted log entry's response ALSO carries the image (so the user
+    // sees it on the /logs page instead of only { content, thinking }).
+    const entry = logRecordSpy.mock.results[0].value as LlmLogEntry;
+    const response = (entry.response as { images?: unknown[] });
+    expect(response?.images).toHaveLength(1);
+    logRecordSpy.mockRestore();
+  });
 });
 
 describe('LLM orchestration — planned-scenes pipeline (use case 3)', () => {
@@ -290,10 +339,11 @@ describe('LLM orchestration — planned-scenes pipeline (use case 3)', () => {
     } as unknown as Response;
   }
 
-  it('plans then renders each scene, collecting every image into storyboard', async () => {
-    // 1 planning + 2 render calls.
+  it('plans then renders ALL scenes in ONE en-block call; a batch that returns anything stops immediately (one picture or none)', async () => {
+    // 1 planning + 1 scene one-shot. The batch returns just 1 picture even
+    // though 2 were requested — per the "one picture or none" model the whole
+    // use case STOPS here (no per-scene fallback, no reprise).
     fetchMock.mockResolvedValueOnce(textResponse('{"pictures":["A bridge.","A lantern."]}'));
-    fetchMock.mockResolvedValueOnce(completionImage(1));
     fetchMock.mockResolvedValueOnce(completionImage(1));
 
     await TestBed.configureTestingModule({
@@ -330,32 +380,34 @@ describe('LLM orchestration — planned-scenes pipeline (use case 3)', () => {
       vars: { count: 2 }
     });
 
-    // 3 network calls total: 1 planning + 2 scenes.
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    // 2 network calls total: 1 planning + 1 en-block render.
+    expect(fetchMock).toHaveBeenCalledTimes(2);
     const storyboard = slots.storyboard?.value ?? [];
-    expect(storyboard).toHaveLength(2);
-    expect(slots.images?.value).toHaveLength(2);
-    // Every scene prompt starts with the drawing instruction, NOT the raw
-    // assistant chapter text ('A chapter.' is the node being illustrated).
-    for (const scene of storyboard) {
-      expect(scene.prompt).toContain('Illustrate this beat');
-      expect(scene.prompt).not.toContain('A chapter.');
-    }
-    // The exact description drove scene 2.
-    expect(storyboard[1].prompt).toContain('lantern');
+    // One scene record holding the single produced image.
+    expect(storyboard).toHaveLength(1);
+    expect(slots.images?.value).toHaveLength(1);
+    expect(storyboard[0].images).toHaveLength(1);
+    // The batch prompt uses the SCENE render template (image.one-shot-scenes),
+    // heads with the drawing instruction, embeds the derived scene
+    // descriptions, and never carries the raw assistant chapter text
+    // ('A chapter.' is the node being illustrated).
+    expect(storyboard[0].prompt).toContain('Scene one-shot');
+    expect(storyboard[0].prompt).toContain('Illustrate this beat');
+    expect(storyboard[0].prompt).toContain('bridge');
+    expect(storyboard[0].prompt).toContain('lantern');
+    expect(storyboard[0].prompt).not.toContain('A chapter.');
 
     // Postprocess → placement plan with prompt files.
     const post = TestBed.inject(LlmPostprocessorService);
     const plan = post.plan(slots, { chat: { id: 'chat-1' } as never, node: makeNode({ id: aid, role: 'assistant' }) as never, usecase: 'planned-scenes', vars: {} });
     expect(plan).not.toBeNull();
     expect(plan?.attachments.some(a => a.name.startsWith('illustration-'))).toBe(true);
-    expect(plan?.attachments.some(a => a.name === 'prompt-2.txt')).toBe(true);
+    expect(plan?.attachments.some(a => a.name === 'prompt-1.txt')).toBe(true);
   });
 
   it('uses the SCENE-oriented planning prompt for planned-scenes (fewer stills, more scenes)', async () => {
-    // 1 planning + 2 render calls.
+    // 1 planning + 1 scene one-shot render.
     fetchMock.mockResolvedValueOnce(textResponse('{"pictures":["A bridge.","A lantern."]}'));
-    fetchMock.mockResolvedValueOnce(completionImage(1));
     fetchMock.mockResolvedValueOnce(completionImage(1));
 
     await TestBed.configureTestingModule({
@@ -415,9 +467,8 @@ describe('LLM orchestration — planned-scenes pipeline (use case 3)', () => {
       }),
       makeModel({ id: 'txt', displayName: 'Texter', modelId: 'vendor/text' })
     ];
-    // 1 planning + 2 render calls.
+    // 1 planning + 1 scene one-shot render.
     fetchMock.mockResolvedValueOnce(textResponse('{"pictures":["A bridge.","A lantern."]}'));
-    fetchMock.mockResolvedValueOnce(completionImage(1));
     fetchMock.mockResolvedValueOnce(completionImage(1));
 
     await TestBed.configureTestingModule({
@@ -462,9 +513,9 @@ describe('LLM orchestration — planned-scenes pipeline (use case 3)', () => {
       vars: { count: 2 }
     });
 
-    // 3 network calls: 1 planning + 2 scene renders.
-    expect(fetchMock).toHaveBeenCalledTimes(3);
-    for (const i of [1, 2]) {
+    // 2 network calls: 1 planning + 1 scene one-shot render.
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    for (const i of [1]) {
       const body = JSON.parse((fetchMock.mock.calls[i][1] as { body: string }).body) as {
         messages: { role: string; content: unknown }[];
       };
@@ -474,6 +525,81 @@ describe('LLM orchestration — planned-scenes pipeline (use case 3)', () => {
       expect(JSON.stringify(body.messages)).not.toContain('image_url');
       expect(JSON.stringify(body.messages)).not.toContain('REFIMAGE');
     }
+  });
+
+  it('planned-scenes: when the scene one-shot returns NOTHING, the per-scene fallback + reprise behave exactly like planned-enblock (scene template)', async () => {
+    // planning → 3 scene descriptions; the scene one-shot batch → 0 (moderated).
+    // The per-scene fallback then renders scenes 1 + 2 individually; scene 3 is
+    // refused → the reprise (2 successes) re-renders the full set.
+    fetchMock.mockResolvedValueOnce(textResponse('{"pictures":["A bridge.","A lantern.","A castle."]}')); // planning
+    fetchMock.mockResolvedValueOnce(
+      { ok: true, status: 200, json: async () => ({ choices: [{ message: { refusal: 'moderated' } }] }) } as unknown as Response
+    ); // scene one-shot → 0/3
+    fetchMock.mockResolvedValueOnce(completionImage(1)); // per-scene scene 1
+    fetchMock.mockResolvedValueOnce(completionImage(1)); // per-scene scene 2
+    fetchMock.mockResolvedValueOnce(
+      { ok: true, status: 200, json: async () => ({ choices: [{ message: { refusal: 'still nothing' } }] }) } as unknown as Response
+    ); // per-scene scene 3 → refused
+    fetchMock.mockResolvedValueOnce(completionImage(3)); // reprise → full consistent set
+
+    await TestBed.configureTestingModule({
+      providers: [
+        provideZonelessChangeDetection(),
+        provideHttpClient(),
+        { provide: CHAT_API, useValue: api }
+      ]
+    }).compileComponents();
+    TestBed.inject(I18nService).setLocale('en');
+    const settings = TestBed.inject(SettingsService);
+    await settings.loadAll();
+    const generation = TestBed.inject(GenerationSettingsService);
+    generation.update('image-create', { providerId: 'prov-1', modelId: 'vendor/image' });
+    generation.update('image-interpret', { providerId: 'prov-1', modelId: 'vendor/text' });
+
+    const chatService = TestBed.inject(ChatService);
+    const uid = 'u1';
+    const aid = 'a1';
+    const now = new Date().toISOString();
+    api.chats.push({ id: 'chat-1', title: 'Story', projectId: null, node_number: 2, created_at: now, updated_at: now });
+    api.nodes = [
+      makeNode({ id: uid, chatId: 'chat-1', parentId: null, role: 'user', content: 'A direction.' }),
+      makeNode({ id: aid, chatId: 'chat-1', parentId: uid, role: 'assistant', content: 'A chapter.', isCurrent: true })
+    ];
+    await chatService.loadChats();
+    await chatService.selectChat('chat-1');
+
+    const runner = TestBed.inject(LlmUseCaseRunner);
+    const slots = await runner.run({
+      chat: { id: 'chat-1', title: 'Story', projectId: null, node_number: 2, created_at: now, updated_at: now },
+      node: makeNode({ id: aid, chatId: 'chat-1', parentId: uid, role: 'assistant', content: 'A chapter.', isCurrent: true }),
+      usecase: 'planned-scenes',
+      vars: { count: 3 }
+    });
+
+    // 1 planning + 1 empty scene one-shot + 3 per-scene fallbacks + 1 reprise.
+    expect(fetchMock).toHaveBeenCalledTimes(6);
+    // The reprise reuses the SAME SCENE render template (image.one-shot-scenes)
+    // as the initial batch, embeds ONLY the successful scene descriptions and
+    // adapts `total` to their REAL count (2) — identical to planned-enblock's
+    // reprise rule, just with the scene template.
+    const repriseBody = JSON.parse((fetchMock.mock.calls[5][1] as { body: string }).body) as {
+      messages: { role: string; content: string }[];
+    };
+    const repriseSerialized = JSON.stringify(repriseBody.messages);
+    expect(repriseSerialized).not.toContain('image_url');
+    expect(repriseSerialized).not.toContain('IMG');
+    expect(repriseSerialized).toContain('Scene one-shot'); // the scene render template
+    expect(repriseSerialized).toContain('create EXACTLY 2 pictures'); // total = successful count
+    expect(repriseSerialized).not.toContain('storyboard artist'); // NOT the planning prompt
+    expect(repriseSerialized).toContain('bridge'); // successful scene description
+    expect(repriseSerialized).toContain('lantern'); // successful scene description
+    expect(repriseSerialized).not.toContain('castle'); // never the missing one
+    // The reprise re-rendered the FULL set → a single scene record with 3 images.
+    expect(slots.images?.value).toHaveLength(3);
+    const storyboard = slots.storyboard?.value ?? [];
+    expect(storyboard).toHaveLength(1);
+    expect(storyboard[0].images).toHaveLength(3);
+    expect(storyboard[0].refused).toBe(false);
   });
 
   it('storyboard-direct does NOT send attachments to the image model either', async () => {
@@ -550,11 +676,14 @@ describe('LLM orchestration — planned-scenes pipeline (use case 3)', () => {
     expect(serialized).not.toContain('HANDIMAGE');
   });
 
-  it('storyboard-direct: when the one-shot comes up short, the per-scene fallback fills the gap and NO reprise runs once every picture exists', async () => {
-    // one-shot → 1/2; the per-scene fallback renders the missing scene 2.
-    // After that every picture exists → the batch is NOT re-run.
-    fetchMock.mockResolvedValueOnce(completionImage(1));
-    fetchMock.mockResolvedValueOnce(completionImage(1));
+  it('storyboard-direct: when the one-shot returns NOTHING, the per-scene fallback fills every picture and NO reprise runs', async () => {
+    // one-shot → 0 (moderated/refused); the per-scene fallback renders scenes
+    // 1 + 2 individually. After that every picture exists → no reprise.
+    fetchMock.mockResolvedValueOnce(
+      { ok: true, status: 200, json: async () => ({ choices: [{ message: { refusal: 'moderated' } }] }) } as unknown as Response
+    ); // one-shot → 0/2
+    fetchMock.mockResolvedValueOnce(completionImage(1)); // per-scene scene 1
+    fetchMock.mockResolvedValueOnce(completionImage(1)); // per-scene scene 2
 
     await TestBed.configureTestingModule({
       providers: [
@@ -590,17 +719,80 @@ describe('LLM orchestration — planned-scenes pipeline (use case 3)', () => {
       vars: { count: 2, planDescriptions: false }
     });
 
-    // 1 one-shot + 1 per-scene fallback. The reprise is NOT called because
+    // 1 one-shot + 2 per-scene fallbacks. The reprise is NOT called because
     // the fallback already produced every requested picture.
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
     expect(slots.images?.value).toHaveLength(2);
     const storyboard = slots.storyboard?.value ?? [];
-    // Per-scene records: scene 1 (from the one-shot) + scene 2 (from fallback).
+    // Per-scene records: scene 1 (from the fallback) + scene 2 (from fallback).
     expect(storyboard).toHaveLength(2);
     expect(storyboard[0].images).toHaveLength(1);
     expect(storyboard[1].images).toHaveLength(1);
     expect(storyboard[0].refused).toBe(false);
     expect(storyboard[1].refused).toBe(false);
+  });
+
+  it('storyboard-direct: fires onImages progressively as each per-scene fallback picture is ready', async () => {
+    // one-shot → 0 (moderated/refused); the per-scene fallback then renders
+    // scenes 1 + 2 individually. onImages must fire after EACH scene with the
+    // growing snapshot so a caller can attach pictures the moment they exist.
+    const onImages = vi.fn();
+    fetchMock.mockResolvedValueOnce(
+      { ok: true, status: 200, json: async () => ({ choices: [{ message: { refusal: 'moderated' } }] }) } as unknown as Response
+    ); // one-shot → 0/2
+    fetchMock.mockResolvedValueOnce(completionImage(1)); // per-scene scene 1
+    fetchMock.mockResolvedValueOnce(completionImage(1)); // per-scene scene 2
+
+    await TestBed.configureTestingModule({
+      providers: [
+        provideZonelessChangeDetection(),
+        provideHttpClient(),
+        { provide: CHAT_API, useValue: api }
+      ]
+    }).compileComponents();
+    TestBed.inject(I18nService).setLocale('en');
+    const settings = TestBed.inject(SettingsService);
+    await settings.loadAll();
+    const generation = TestBed.inject(GenerationSettingsService);
+    generation.update('image-create', { providerId: 'prov-1', modelId: 'vendor/image' });
+    generation.update('image-interpret', { providerId: 'prov-1', modelId: 'vendor/text' });
+
+    const chatService = TestBed.inject(ChatService);
+    const uid = 'u1';
+    const aid = 'a1';
+    const now = new Date().toISOString();
+    api.chats.push({ id: 'chat-1', title: 'Story', projectId: null, node_number: 2, created_at: now, updated_at: now });
+    api.nodes = [
+      makeNode({ id: uid, chatId: 'chat-1', parentId: null, role: 'user', content: 'A direction.' }),
+      makeNode({ id: aid, chatId: 'chat-1', parentId: uid, role: 'assistant', content: 'A chapter.', isCurrent: true })
+    ];
+    await chatService.loadChats();
+    await chatService.selectChat('chat-1');
+
+    const runner = TestBed.inject(LlmUseCaseRunner);
+    await runner.run({
+      chat: { id: 'chat-1', title: 'Story', projectId: null, node_number: 2, created_at: now, updated_at: now },
+      node: makeNode({ id: aid, chatId: 'chat-1', parentId: uid, role: 'assistant', content: 'A chapter.', isCurrent: true }),
+      usecase: 'storyboard-direct',
+      vars: { count: 2, planDescriptions: false }
+    }, { onImages });
+
+    // 1 one-shot + 2 per-scene fallbacks; no reprise (every picture filled).
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(onImages).toHaveBeenCalledTimes(2);
+    // First snapshot: scene 1 came back (1 image).
+    const first = onImages.mock.calls[0][0] as import('./types').ImageScene[];
+    expect(first).toHaveLength(1);
+    expect(first[0].scene).toBe(1);
+    expect(first[0].images).toHaveLength(1);
+    expect(first[0].refused).toBe(false);
+    // Second snapshot: scenes 1 + 2 are both ready (the snapshot grows).
+    const second = onImages.mock.calls[1][0] as import('./types').ImageScene[];
+    expect(second).toHaveLength(2);
+    expect(second[0].scene).toBe(1);
+    expect(second[1].scene).toBe(2);
+    expect(second[1].images).toHaveLength(1);
+    expect(second[1].refused).toBe(false);
   });
 
   it('storyboard-direct: a one-shot that returns every picture performs NO fallback at all', async () => {
@@ -651,11 +843,16 @@ describe('LLM orchestration — planned-scenes pipeline (use case 3)', () => {
 
   it('planned-enblock: reprise embeds ONLY the successful descriptions and adapts total to their count; skipped when ≤1 success', async () => {
     fetchMock.mockResolvedValueOnce(textResponse('{"pictures":["A bridge.","A lantern.","A castle."]}')); // planning → 3 descriptions
-    fetchMock.mockResolvedValueOnce(completionImage(2)); // one-shot → scenes 0,1 succeed (2/3)
-    // per-scene fallback for scene 2 (the last) is REFUSED → still missing
+    // one-shot batch → 0 (moderated) → the per-scene fallback renders each
+    // scene individually: scenes 1+2 succeed, scene 3 is refused → reprise.
+    fetchMock.mockResolvedValueOnce(
+      { ok: true, status: 200, json: async () => ({ choices: [{ message: { refusal: 'moderated' } }] }) } as unknown as Response
+    ); // one-shot → 0/3
+    fetchMock.mockResolvedValueOnce(completionImage(1)); // per-scene scene 1
+    fetchMock.mockResolvedValueOnce(completionImage(1)); // per-scene scene 2
     fetchMock.mockResolvedValueOnce(
       { ok: true, status: 200, json: async () => ({ choices: [{ message: { refusal: 'still nothing' } }] }) } as unknown as Response
-    );
+    ); // per-scene scene 3 → refused
     fetchMock.mockResolvedValueOnce(completionImage(3)); // reprise → full consistent set
 
     await TestBed.configureTestingModule({
@@ -692,22 +889,22 @@ describe('LLM orchestration — planned-scenes pipeline (use case 3)', () => {
       vars: { count: 3, singleCall: true, planDescriptions: true }
     });
 
-    // 1 planning + 1 one-shot + 1 (refused) per-scene + 1 reprise.
-    expect(fetchMock).toHaveBeenCalledTimes(4);
+    // 1 planning + 1 empty one-shot + 3 per-scene fallbacks + 1 reprise.
+    expect(fetchMock).toHaveBeenCalledTimes(6);
     // The one-shot + per-scene render requests must NOT carry the raw
     // assistant chapter text ('A chapter.' = the node being illustrated);
     // the descriptions drive the scenes.
-    for (const i of [0, 1, 2]) {
+    for (const i of [0, 1, 2, 3, 4]) {
       const body = JSON.parse((fetchMock.mock.calls[i][1] as { body: string }).body) as {
         messages: { role: string; content: unknown }[];
       };
       expect(JSON.stringify(body.messages)).not.toContain('A chapter.');
     }
     // The reprise uses the SAME DEFAULT render prompt (image.one-shot) as the
-    // initial single-call batch — NOT the planning prompt — embeds ONLY the
-    // SUCCESSFUL descriptions ('bridge' + 'lantern') and adapts `total` to
-    // their REAL count (2), NOT the full 3.
-    const repriseBody = JSON.parse((fetchMock.mock.calls[3][1] as { body: string }).body) as {
+    // initial batch — NOT the planning prompt — embeds ONLY the SUCCESSFUL
+    // descriptions ('bridge' + 'lantern') and adapts `total` to their REAL
+    // count (2), NOT the full 3.
+    const repriseBody = JSON.parse((fetchMock.mock.calls[5][1] as { body: string }).body) as {
       messages: { role: string; content: unknown }[];
     };
     const repriseSerialized = JSON.stringify(repriseBody.messages);
@@ -728,14 +925,18 @@ describe('LLM orchestration — planned-scenes pipeline (use case 3)', () => {
 
   it('planned-enblock: NO reprise runs when only ONE picture succeeded', async () => {
     fetchMock.mockResolvedValueOnce(textResponse('{"pictures":["A bridge.","A lantern.","A castle."]}')); // planning → 3 descriptions
-    fetchMock.mockResolvedValueOnce(completionImage(1)); // one-shot → scene 0 only (1/3)
-    // per-scene fallback for scenes 1,2 also REFUSED → only ONE success
+    // one-shot batch → 0 (moderated) → per-scene fallback: scene 1 succeeds,
+    // scenes 2 + 3 are refused → only ONE success → no reprise.
+    fetchMock.mockResolvedValueOnce(
+      { ok: true, status: 200, json: async () => ({ choices: [{ message: { refusal: 'moderated' } }] }) } as unknown as Response
+    ); // one-shot → 0/3
+    fetchMock.mockResolvedValueOnce(completionImage(1)); // per-scene scene 1 (success)
     fetchMock.mockResolvedValueOnce(
       { ok: true, status: 200, json: async () => ({ choices: [{ message: { refusal: 'no' } }] }) } as unknown as Response
-    );
+    ); // per-scene scene 2 → refused
     fetchMock.mockResolvedValueOnce(
       { ok: true, status: 200, json: async () => ({ choices: [{ message: { refusal: 'no' } }] }) } as unknown as Response
-    );
+    ); // per-scene scene 3 → refused
 
     await TestBed.configureTestingModule({
       providers: [
@@ -771,8 +972,8 @@ describe('LLM orchestration — planned-scenes pipeline (use case 3)', () => {
       vars: { count: 3, singleCall: true, planDescriptions: true }
     });
 
-    // 1 planning + 1 one-shot + 2 per-scene fallbacks — NO reprise (≤1 success).
-    expect(fetchMock).toHaveBeenCalledTimes(4);
+    // 1 planning + 1 empty one-shot + 3 per-scene fallbacks — NO reprise (≤1 success).
+    expect(fetchMock).toHaveBeenCalledTimes(5);
     const storyboard = slots.storyboard?.value ?? [];
     // Only the single success survives; the rest stay refused.
     expect(slots.images?.value).toHaveLength(1);
@@ -780,13 +981,18 @@ describe('LLM orchestration — planned-scenes pipeline (use case 3)', () => {
   });
 
   it('ATTACHES the fallback + reprise images to the chapter via the postprocessor', async () => {
-    // planning → 3 descriptions; one-shot returns 2; per-scene fallback for
-    // the LAST scene is refused → reprise (2 successes) returns the full set.
+    // planning → 3 descriptions; the one-shot batch returns 0 (moderated);
+    // the per-scene fallback renders scenes 1+2, scene 3 is refused; the
+    // reprise (2 successes) returns the full set.
     fetchMock.mockResolvedValueOnce(textResponse('{"pictures":["A bridge.","A lantern.","A castle."]}')); // planning
-    fetchMock.mockResolvedValueOnce(completionImage(2)); // one-shot → scenes 0,1 (2/3)
+    fetchMock.mockResolvedValueOnce(
+      { ok: true, status: 200, json: async () => ({ choices: [{ message: { refusal: 'moderated' } }] }) } as unknown as Response
+    ); // one-shot → 0/3
+    fetchMock.mockResolvedValueOnce(completionImage(1)); // per-scene scene 1
+    fetchMock.mockResolvedValueOnce(completionImage(1)); // per-scene scene 2
     fetchMock.mockResolvedValueOnce(
       { ok: true, status: 200, json: async () => ({ choices: [{ message: { refusal: 'still nothing' } }] }) } as unknown as Response
-    );
+    ); // per-scene scene 3 → refused
     fetchMock.mockResolvedValueOnce(completionImage(3)); // reprise → full consistent set
 
     await TestBed.configureTestingModule({
@@ -982,15 +1188,19 @@ describe('LLM orchestration — planned-scenes pipeline (use case 3)', () => {
   });
 
   it('keeps previously collected images when one scene is refused (partial survival)', async () => {
-    // 3 descriptions; scenes 1+2 succeed, the LAST (scene 3) is refused →
-    // with 2 successes (>1) the unifying reprise runs with those 2 successful
-    // descriptions and total = 2. It is refused too → partial result kept.
+    // The scene one-shot batch → 0 (moderated); the per-scene fallback renders
+    // scenes 1+2, scene 3 is refused → with 2 successes (>1) the unifying
+    // reprise runs with those 2 successful descriptions and total = 2. It is
+    // refused too → partial result kept.
     fetchMock.mockResolvedValueOnce(textResponse('{"pictures":["A bridge.","A lantern.","A castle."]}'));
-    fetchMock.mockResolvedValueOnce(completionImage(1));
-    fetchMock.mockResolvedValueOnce(completionImage(1));
+    fetchMock.mockResolvedValueOnce(
+      { ok: true, status: 200, json: async () => ({ choices: [{ message: { refusal: 'moderated' } }] }) } as unknown as Response
+    ); // scene one-shot → 0/3
+    fetchMock.mockResolvedValueOnce(completionImage(1)); // per-scene scene 1
+    fetchMock.mockResolvedValueOnce(completionImage(1)); // per-scene scene 2
     fetchMock.mockResolvedValueOnce(
       { ok: true, status: 200, json: async () => ({ choices: [{ message: { refusal: 'I cannot draw that' } }] }) } as unknown as Response
-    );
+    ); // per-scene scene 3 → refused
     // Unifying reprise — refused again, so the per-scene collection is kept.
     fetchMock.mockResolvedValueOnce(
       { ok: true, status: 200, json: async () => ({ choices: [{ message: { refusal: 'still nothing' } }] }) } as unknown as Response
@@ -1026,13 +1236,13 @@ describe('LLM orchestration — planned-scenes pipeline (use case 3)', () => {
       vars: { count: 3 }
     });
 
-    // 1 planning + 3 scenes + 1 unifying reprise.
-    expect(fetchMock).toHaveBeenCalledTimes(5);
-    const repriseBody = JSON.parse((fetchMock.mock.calls[4][1] as { body: string }).body) as {
+    // 1 planning + 1 empty scene one-shot + 3 per-scene fallbacks + 1 reprise.
+    expect(fetchMock).toHaveBeenCalledTimes(6);
+    const repriseBody = JSON.parse((fetchMock.mock.calls[5][1] as { body: string }).body) as {
       messages: { role: string; content: unknown }[];
     };
     const repriseSerialized = JSON.stringify(repriseBody.messages);
-    // The reprise uses the default one-shot with ONLY the successful
+    // The reprise uses the SCENE one-shot template with ONLY the successful
     // descriptions ('bridge' + 'lantern'), total adapted to their count (2),
     // NOT the missing 'castle', and no image URLs.
     expect(repriseSerialized).not.toContain('image_url');

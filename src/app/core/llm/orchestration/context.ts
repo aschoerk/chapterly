@@ -450,8 +450,8 @@ export class UsecaseContextFactory {
 
   /**
    * The SCENE-oriented planner instruction (from the image.planning-scenes
-   * template). Used by the per-scene render path (`planned-scenes`): it
-   * derives fewer static stills and more alive, action-bearing scenes.
+   * template). Used by `planned-scenes` as its planning prefix: it derives
+   * fewer static stills and more alive, action-bearing scenes.
    */
   pictureScenePlanningInstruction(total: number, extra?: string): string {
     const base = this.promptDefaults.render('image.planning-scenes', { total });
@@ -534,6 +534,24 @@ export class UsecaseContextFactory {
   oneShotStoryboardPrompt(basePrompt: string, descriptions: string[], total: number, extra?: string): string {
     let text = basePrompt ? `${basePrompt}\n\n` : '';
     text += this.promptDefaults.render('image.one-shot', { total });
+    if (descriptions.length > 0) {
+      text += `\n\nThe exact scenes to render (one image per scene, in this order):\n`;
+      descriptions.forEach((p, i) => { text += `${i + 1}. ${p}\n`; });
+    }
+    if (extra?.trim()) text += `\n\nAdditional storyboard rules for every picture:\n${extra.trim()}`;
+    return text;
+  }
+
+  /**
+   * The SCENE-oriented one-shot storyboard prompt (from the
+   * image.one-shot-scenes template). Used by `planned-scenes` as its render
+   * template: the derived scenes are action-bearing, so the en-block request
+   * tells the model to capture each scene's action rather than flattening it
+   * into a frozen, static photograph.
+   */
+  oneShotScenesPrompt(basePrompt: string, descriptions: string[], total: number, extra?: string): string {
+    let text = basePrompt ? `${basePrompt}\n\n` : '';
+    text += this.promptDefaults.render('image.one-shot-scenes', { total });
     if (descriptions.length > 0) {
       text += `\n\nThe exact scenes to render (one image per scene, in this order):\n`;
       descriptions.forEach((p, i) => { text += `${i + 1}. ${p}\n`; });

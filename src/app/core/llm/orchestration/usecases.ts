@@ -34,6 +34,13 @@ export interface UsecaseEnv {
   /** Signals/callbacks forwarded from the caller. */
   readonly signal?: AbortSignal;
   readonly onChunk?: PrimitiveOptions['onChunk'];
+  /** Progressive callback — fired as soon as scenes are ready while a
+   *  storyboard use case (planned-enblock / planned-scenes / storyboard-
+   *  direct) renders them one at a time, so a caller can paint the pictures
+   *  on the chapter IMMEDIATELY instead of waiting for the whole run. Each
+   *  call delivers the scenes rendered SO FAR (grows monotonically; scenes
+   *  not yet attempted are omitted). */
+  readonly onImages?: (scenes: ImageScene[]) => void;
 }
 
 /** Shared primitives a controller is allowed to call. */
@@ -78,6 +85,31 @@ interface StoryboardRender {
   scenes: ImageScene[];
   /** First refusal / failure reason (kept findable on refused scenes). */
   content: string;
+}
+
+/** Progressive snapshot of the per-scene fallback: the scenes 1..attempted
+ *  (each with its own prompt + the image produced so far, or a refused record
+ *  when the model returned none). Scenes that were not attempted yet are NOT
+ *  included, so a caller can attach each picture the moment it is ready. */
+function fallbackSceneSnapshot(
+  perScene: (LlmImagePart | null)[],
+  count: number,
+  attempted: number,
+  scenePrompt: (i: number) => string,
+  content: string
+): ImageScene[] {
+  const out: ImageScene[] = [];
+  for (let i = 0; i < Math.min(attempted, count); i++) {
+    const img = perScene[i];
+    out.push({
+      scene: i + 1,
+      prompt: scenePrompt(i),
+      images: img ? [img] : [],
+      content: img ? undefined : (content || undefined),
+      refused: !img
+    });
+  }
+  return out;
 }
 
 /**
@@ -130,6 +162,9 @@ async function renderBatchWithFallback(
     const slots = await renderImage(env, scenePrompt(i), { prefix, scene: i + 1 });
     if (slots.images?.reason && !content) content = slots.images.reason;
     perScene.push((slots.images?.value ?? [])[0] ?? null);
+    // The scene is ready the moment its render call resolves (image or
+    // refused) — surface it immediately so a caller can attach it now.
+    env.onImages?.(fallbackSceneSnapshot(perScene, count, i + 1, scenePrompt, content));
     if (env.signal?.aborted) break;
   }
 
@@ -270,33 +305,41 @@ function plannedScenePrompt(
     : '');
 }
 
-// ---------------------------------------------------------------------------
-// 2. planned-enblock — plan → ONE en-block render (+ fallback + reprise)
-// ---------------------------------------------------------------------------
-async function plannedEnblock(env: UsecaseEnv): Promise<EvalSlots> {
+/** The prompt templates that distinguish the two planned storyboard use cases. */
+interface PlannedStoryboardTemplates {
+  /** Build the planning instruction (the prompt prefix for the planning pass). */
+  planning: (count: number) => string;
+  /** Build the DEFAULT en-block render prompt — used for the initial batch AND
+   *  the reprise (enblock: image.pure / image.one-shot; scenes: image.one-shot-scenes). */
+  render: (descs: string[], total: number) => string;
+}
+
+/**
+ * Shared "plan → ONE en-block render (+ per-picture fallback + reprise)"
+ * pipeline used by `planned-enblock` and `planned-scenes`. The two use cases
+ * are IDENTICAL except for the prompt TEMPLATES passed in (the planning
+ * prefix and the render prefix); the call flow, the batch early-return, the
+ * per-scene fallback and the consistency reprise are the same code.
+ */
+async function plannedStoryboard(env: UsecaseEnv, tpl: PlannedStoryboardTemplates): Promise<EvalSlots> {
   const count = env.cx.vars.count ?? 1;
-  const planSlots = await runPlanning(env);
+  const planSlots = await runPlanning(env, tpl.planning);
   const descriptions = planSlots.descriptions?.value ?? [];
 
   // The DEFAULT render prompt builder — the SAME one that renders all
-  // pictures in one go (image.one-shot, or image.pure in pure picture mode).
-  // It is used for the initial batch AND for the fallback reprise, so the
-  // reprise always uses the identical default prompt, just combined with a
-  // DIFFERENT description list (the successfully rendered ones).
-  const buildRenderPrompt = (descs: string[], total: number): string =>
-    env.cx.vars.purePictures
-      ? env.factory.purePicturesPrompt(
-          env.instruction, descs, total, env.cx.vars.storyboardPrompt)
-      : env.factory.oneShotStoryboardPrompt(
-          env.instruction, descs, total, env.cx.vars.storyboardPrompt);
+  // pictures in one go. It is used for the initial batch AND for the fallback
+  // reprise, so the reprise always uses the identical default prompt, just
+  // combined with a DIFFERENT description list (the successfully rendered
+  // ones), keeping the template consistent with the initial batch.
+  const buildRenderPrompt = tpl.render;
 
   const batchPrompt = buildRenderPrompt(descriptions.map(d => d.text), count);
 
   const scenePrompt = (i: number) =>
     plannedScenePrompt(env, descriptions[i]?.text, i, count, env.cx.vars.storyboardPrompt);
 
-  // The final "consistency" attempt uses the SAME DEFAULT prompt builder as
-  // the initial one-shot, but embeds ONLY the descriptions of the pictures
+  // The final "consistency" attempt uses the SAME DEFAULT render prompt builder
+  // as the initial one-shot, but embeds ONLY the descriptions of the pictures
   // that were successfully rendered and adapts `total` to their REAL count
   // (never the missing/failed ones, never the whole list). It runs ONLY when
   // MORE THAN ONE picture succeeded — a single description gives too little
@@ -320,92 +363,37 @@ async function plannedEnblock(env: UsecaseEnv): Promise<EvalSlots> {
 }
 
 // ---------------------------------------------------------------------------
-// 3. planned-scenes — plan → per-scene LOOP, then a unifying REPRISE when a
-// scene was missing (the freshly rendered pictures are fed back into one final
-// batch call so the model can complete a consistent storyboard).
+// 2. planned-enblock — plan → ONE en-block render (+ fallback + reprise)
+//    with the STATIC-STILL planning template and the default render prompts
+//    (image.pure in pure picture mode, image.one-shot otherwise).
+// ---------------------------------------------------------------------------
+async function plannedEnblock(env: UsecaseEnv): Promise<EvalSlots> {
+  return plannedStoryboard(env, {
+    planning: (count) =>
+      env.factory.picturePlanningInstruction(count, env.cx.vars.storyboardPrompt),
+    render: (descs, total) =>
+      env.cx.vars.purePictures
+        ? env.factory.purePicturesPrompt(
+            env.instruction, descs, total, env.cx.vars.storyboardPrompt)
+        : env.factory.oneShotStoryboardPrompt(
+            env.instruction, descs, total, env.cx.vars.storyboardPrompt)
+  });
+}
+
+// ---------------------------------------------------------------------------
+// 3. planned-scenes — IDENTICAL to `planned-enblock`, only the prompt
+//    TEMPLATES differ: the SCENE-oriented planning prefix (image.planning-
+//    scenes) and the scene one-shot render template (image.one-shot-scenes) —
+//    fewer static stills, more alive, action-bearing scenes.
 // ---------------------------------------------------------------------------
 async function plannedScenes(env: UsecaseEnv): Promise<EvalSlots> {
-  const count = env.cx.vars.count ?? 1;
-  const planSlots = await runPlanning(env);
-  const descriptions = planSlots.descriptions?.value ?? [];
-
-  const scenePrompt = (i: number) =>
-    plannedScenePrompt(env, descriptions[i]?.text, i, count, env.cx.vars.storyboardPrompt);
-
-  const scenes: ImageScene[] = [];
-  const collected: LlmImagePart[] = [];
-  let firstContent = '';
-
-  for (let i = 0; i < count; i++) {
-    const prompt = scenePrompt(i);
-    const slots = await renderImage(env, prompt, { scene: i + 1 });
-    const images = slots.images?.value ?? [];
-    const refused = slots.images?.status === 'refused' || images.length === 0;
-    if (!firstContent && slots.images?.reason) firstContent = slots.images.reason;
-    collected.push(...images);
-    scenes.push({
-      scene: i + 1,
-      prompt,
-      images,
-      content: refused ? (slots.images?.reason) : undefined,
-      refused
-    });
-    if (env.signal?.aborted) break; // abort → stop the whole tree
-  }
-
-  // Unifying reprise: run ONLY while a picture is genuinely still missing AND
-  // MORE THAN ONE picture was rendered so far (a single image gives too little
-  // style context to re-render against). Its prompt embeds ONLY the
-  // descriptions of the pictures that WERE successfully rendered and adapts
-  // `total` to their REAL count — so the whole storyboard is re-rendered with
-  // the default prompt, consistently. When it yields `>= count` the complete
-  // set replaces everything; otherwise each returned image is merged into a
-  // still-missing scene slot.
-  const missingIndices: number[] = [];
-  for (let i = 0; i < scenes.length; i++) {
-    if (scenes[i].refused) missingIndices.push(i);
-  }
-  const successful: number[] = [];
-  for (let i = 0; i < scenes.length; i++) {
-    if (!scenes[i].refused) successful.push(i);
-  }
-  if (missingIndices.length > 0 && successful.length > 1 && !env.signal?.aborted) {
-    const successTexts = successful
-      .map(i => descriptions[i]?.text)
-      .map(t => (t ?? '').trim())
-      .filter(t => t.length > 0);
-    if (successTexts.length > 1) {
-      const reprisePrompt = env.factory.oneShotStoryboardPrompt(
-        env.instruction, successTexts, successTexts.length, env.cx.vars.storyboardPrompt);
-      const reprise = await renderImage(env, reprisePrompt);
-      if (reprise.images?.reason && !firstContent) firstContent = reprise.images.reason;
-      const repriseImages = reprise.images?.value ?? [];
-      if (repriseImages.length >= count) {
-        // The re-rendered whole set is consistent → replace everything.
-        return {
-          ...planSlots,
-          images: okSlot(repriseImages, {}),
-          storyboard: makeSlot('ok', completeStoryboard(reprisePrompt, repriseImages), undefined, {})
-        };
-      }
-      if (repriseImages.length > 0) {
-        // Partial reprise → merge into the still-missing slots.
-        let j = 0;
-        for (const idx of missingIndices) {
-          if (j >= repriseImages.length) break;
-          const img = repriseImages[j++];
-          collected.push(img);
-          scenes[idx] = { ...scenes[idx], images: [img], refused: false, content: undefined };
-        }
-      }
-    }
-  }
-
-  return {
-    ...planSlots,
-    images: okSlot(collected, {}),
-    storyboard: makeSlot('ok', scenes, undefined, {})
-  };
+  return plannedStoryboard(env, {
+    planning: (count) =>
+      env.factory.pictureScenePlanningInstruction(count, env.cx.vars.storyboardPrompt),
+    render: (descs, total) =>
+      env.factory.oneShotScenesPrompt(
+        env.instruction, descs, total, env.cx.vars.storyboardPrompt)
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -457,17 +445,16 @@ async function imageGeneration(env: UsecaseEnv): Promise<EvalSlots> {
 }
 
 // ---------------------------------------------------------------------------
-// Shared planning step (IDENTICAL code for use cases 2 and 3)
+// Shared planning step (IDENTICAL code for the two planned use cases; the
+// planning prompt/prefix is passed in by the caller).
 // ---------------------------------------------------------------------------
-async function runPlanning(env: UsecaseEnv): Promise<EvalSlots> {
+async function runPlanning(
+  env: UsecaseEnv,
+  planningPrompt: (count: number) => string
+): Promise<EvalSlots> {
   const count = env.cx.vars.count ?? 1;
   const textOnly = env.factory.textOnlyMessages(env.contextMessages);
-  // planned-scenes renders each derived description as its OWN picture, so it
-  // uses the SCENE-oriented template (fewer static stills, more alive scenes);
-  // planned-enblock (all pictures in one response) keeps the static stills.
-  const planPrompt = env.cx.usecase === 'planned-scenes'
-    ? env.factory.pictureScenePlanningInstruction(count, env.cx.vars.storyboardPrompt)
-    : env.factory.picturePlanningInstruction(count, env.cx.vars.storyboardPrompt);
+  const planPrompt = planningPrompt(count);
   return env.orch.completion(env.cx, {
     model: env.plan.model,
     provider: env.plan.provider,
@@ -570,7 +557,7 @@ export class LlmUseCaseRunner {
   private readonly orch = inject(LlmOrchestratorService);
   private readonly flowRunner = inject(LlmFlowRunner);
 
-  async run(build: BuildContext, opts: { signal?: AbortSignal; onChunk?: PrimitiveOptions['onChunk'] } = {}): Promise<EvalSlots> {
+  async run(build: BuildContext, opts: { signal?: AbortSignal; onChunk?: PrimitiveOptions['onChunk']; onImages?: (scenes: ImageScene[]) => void } = {}): Promise<EvalSlots> {
     const usecase = build.usecase;
     const cx = this.factory.buildContext(build);
 
@@ -609,7 +596,8 @@ export class LlmUseCaseRunner {
         textExtras,
         sendMessages,
         signal: opts.signal,
-        onChunk: opts.onChunk
+        onChunk: opts.onChunk,
+        onImages: opts.onImages
       };
       return controllerFor(usecase)(env);
     }
@@ -645,7 +633,8 @@ export class LlmUseCaseRunner {
       anchor,
       imageExtras,
       signal: opts.signal,
-      onChunk: opts.onChunk
+      onChunk: opts.onChunk,
+      onImages: opts.onImages
     };
     return controllerFor(usecase)(env);
   }

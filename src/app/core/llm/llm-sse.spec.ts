@@ -279,3 +279,40 @@ describe('naive parser vs robust parser — the missing-letter demo', () => {
     );
   });
 });
+
+describe('LlmSseParser — generated images from a stream', () => {
+  function imageEvent(url: string): string {
+    return `data: ${JSON.stringify({
+      choices: [{
+        delta: { content: [{ type: 'image_url', image_url: { url } }] }
+      }]
+    })}`;
+  }
+
+  it('captures image_url parts from delta.content arrays', () => {
+    const parser = new LlmSseParser();
+    const stream = [
+      openaiData('Here it is: '),
+      imageEvent('data:image/png;base64,AAAA')
+    ].join('\n\n') + '\n\n';
+    const pieces = parser.pushText(stream);
+    parser.flush();
+    const result = parser.result();
+    // text is still streamed alongside the image
+    expect(result.content).toBe('Here it is: ');
+    expect(result.images).toHaveLength(1);
+    expect(result.images[0].url).toBe('data:image/png;base64,AAAA');
+    // The first chunk carries the text, the last one carries the image part.
+    expect(pieces.some(c => c.images?.length)).toBe(true);
+  });
+
+  it('captures images from a final message.images chunk and dedupes repeated parts', () => {
+    const parser = new LlmSseParser();
+    const stream = [
+      `data: ${JSON.stringify({ choices: [{ message: { images: [{ type: 'image_url', image_url: { url: 'data:image/png;base64,BBBB' } }] } }] })}`,
+      imageEvent('data:image/png;base64,BBBB')
+    ].join('\n\n') + '\n\n';
+    feed(parser, [stream]);
+    expect(parser.result().images).toHaveLength(1);
+  });
+});

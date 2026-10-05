@@ -34,7 +34,9 @@ import { IllustrateOptions } from '../../models/illustrate-options';
 import { LightboxService } from '../../core/lightbox.service';
 import { LlmUseCaseRunner } from '../../core/llm/orchestration';
 import { LlmFlowRunner } from '../../core/llm/orchestration';
-import { LlmPostprocessorService, pickUsecase, buildIllustrationAttachments } from '../../core/llm/orchestration';
+import { LlmPostprocessorService, pickUsecase, buildIllustrationAttachments, generatedImageAttachments } from '../../core/llm/orchestration';
+import { type ImageScene } from '../../core/llm/orchestration';
+import { type LlmImagePart } from '../../core/llm/llm-message';
 
 @Component({
   selector: 'app-chat-node',
@@ -296,6 +298,9 @@ export class ChatNodeComponent {
   /**
    * OK — persist as a new version of this node. Does not call the LLM.
    * Answers use /edit-assistant. Questions use /edit-question (see patches).
+   * For a question the model selected in the editor is ALSO persisted onto the
+   * new version, so the model choice sticks to the node (Send / Branch /
+   * Insert read it from there the next time).
    */
   async saveAsVersion(): Promise<void> {
     const node = this.node();
@@ -332,6 +337,20 @@ export class ChatNodeComponent {
           newContent,
           attachments
         );
+      }
+      // The model selector is only shown while editing a user node. Versioning
+      // copies the OLD model, so persist the freshly selected model (when it
+      // actually changed) onto the new version.
+      if (node.role === 'user' && this.branchModelId()) {
+        const selected = this.enabledModels().find(
+          m => m.modelId === this.branchModelId() || m.id === this.branchModelId()
+        );
+        if (selected && selected.modelId !== node.modelId && selected.providerId) {
+          saved = await this.chatService.patchNode(chatId, saved.id, {
+            modelId: selected.modelId,
+            providerId: selected.providerId
+          });
+        }
       }
       this.activate.emit(saved.id);
       this.closeEditor();
@@ -837,13 +856,68 @@ export class ChatNodeComponent {
     };
     const usecase = pickUsecase(vars);
 
+    // Storyboard use cases (count > 1, the user-choice driving the planner)
+    // render several pictures in stages: they take long enough to warrant a
+    // Stop button, and each picture can be attached to the chapter AS SOON AS
+    // it is ready (instead of waiting for the whole use case to finish).
+    const isStoryboard =
+      usecase === 'planned-enblock' || usecase === 'planned-scenes' || usecase === 'storyboard-direct';
+
     this.isLoading.set(true);
     this.pendingAction.set('image');
     this.imageProgress.set(null);
+
+    // Where the pictures live DURING a storyboard run. Progressive writes
+    // version the chapter node, so every write re-targets the LATEST version
+    // and the final write replaces the interim attachments with the
+    // authoritative placement plan (base attachments are captured once, at
+    // start, and authoritative end state = base + final plan).
+    let currentTargetId = chapter.id;
+    const baseAttachments = [...(chapter.attachments ?? [])];
+    const baseThinking = chapter.thinking ?? undefined;
+    let interimChain: Promise<void> = Promise.resolve();
+    let applySignal: AbortSignal | null = null;
+    const onImages = isStoryboard
+      ? (scenes: ImageScene[]): void => {
+          const interim = buildIllustrationAttachments(scenes, anchorText)
+            .map(a => ({ ...a, id: a.id || newId() }));
+          // Serialize the progressive writes so they never race (each one
+          // targets the node version returned by the previous write).
+          interimChain = interimChain.then(async () => {
+            try {
+              const cur = this.chatService.nodes().find(n => n.id === currentTargetId) ?? chapter;
+              const saved = await this.chatService.editAssistant(
+                chatId,
+                currentTargetId,
+                cur.content || '',
+                [...baseAttachments, ...interim],
+                cur.thinking ?? baseThinking
+              );
+              currentTargetId = saved.id;
+            } catch (err: any) {
+              console.error(err);
+            }
+          });
+        }
+      : undefined;
+
     try {
       const chat = this.chatService.chats().find(c => c.id === chatId)!;
+      if (isStoryboard) {
+        // One Stop press cancels the whole illustrate use case: the returned
+        // signal propagates into the orchestration runner so in-flight LLM
+        // calls abort and no further scenes are rendered.
+        applySignal = this.chatService.beginOperation('illustrate');
+        this.chatService.isIllustrating.set(true);
+      }
       const build = { chat, node, usecase, vars };
-      const result = await this.runner.run(build);
+      const result = await this.runner.run(build, {
+        signal: applySignal ?? undefined,
+        ...(onImages ? { onImages } : {})
+      });
+      await interimChain; // flush any pending progressive writes
+
+      if (this.chatService.isOperationCancelled()) return; // user stopped — not an error
 
       // Place the pictures on the chapter node (illustration-N + prompt-N /
       // refused-prompt-N attachments), consistent with the app.
@@ -851,7 +925,23 @@ export class ChatNodeComponent {
       if (!plan) {
         throw new Error(this.i18n.t('node.imageNoChapter'));
       }
-      const saved = await this.postprocessor.apply(plan, build);
+
+      let saved: ChatNode;
+      if (isStoryboard) {
+        // Replace the interim (progressively attached) pictures with the
+        // authoritative final plan — the progressive writes above are
+        // supersets of the start state, so this never duplicates.
+        const cur = this.chatService.nodes().find(n => n.id === currentTargetId) ?? chapter;
+        saved = await this.chatService.editAssistant(
+          chatId,
+          currentTargetId,
+          cur.content || '',
+          [...baseAttachments, ...plan.attachments],
+          cur.thinking ?? baseThinking
+        );
+      } else {
+        saved = await this.postprocessor.apply(plan, build);
+      }
       this.activate.emit(saved.id);
 
       const imagesTotal = plan.summary.imagesTotal;
@@ -871,12 +961,17 @@ export class ChatNodeComponent {
         }));
       }
     } catch (err: any) {
+      if (this.chatService.isOperationCancelled()) return; // user stopped — not an error
       console.error(err);
       alert(this.i18n.t('node.imageFailed', { error: err?.message || err }));
     } finally {
       this.isLoading.set(false);
       this.pendingAction.set(null);
       this.imageProgress.set(null);
+      if (isStoryboard) {
+        this.chatService.isIllustrating.set(false);
+        this.chatService.endOperation();
+      }
     }
   }
 
@@ -975,6 +1070,7 @@ export class ChatNodeComponent {
 
     let accContent = '';
     let accThinking = '';
+    let accImages: LlmImagePart[] = [];
     try {
       const slots = await this.runner.run(
         { chat, node: question, usecase, vars },
@@ -983,6 +1079,7 @@ export class ChatNodeComponent {
           onChunk: chunk => {
             if (chunk.content) accContent += chunk.content;
             if (chunk.thinking) accThinking += chunk.thinking;
+            if (chunk.images?.length) accImages.push(...chunk.images);
             this.paintAnswer(answerNode.id, accContent, accThinking);
           }
         }
@@ -1015,11 +1112,18 @@ export class ChatNodeComponent {
       // Prefer the evaluator's settled slots.
       const finalContent = slots.text?.value ?? accContent;
       const finalThinking = slots.thinking?.value ?? accThinking;
+      const finalImages = slots.images?.value ?? accImages;
       this.paintAnswer(answerNode.id, finalContent, finalThinking);
 
-      if (finalContent.trim() || finalThinking.trim()) {
+      // An image-only answer (image-capable model streamed pictures, no text)
+      // must STILL be finalized with its attachments — otherwise it stays an
+      // empty placeholder that renders as "Generation stopped".
+      if (finalContent.trim() || finalThinking.trim() || finalImages.length > 0) {
+        const attachments = finalImages.length
+          ? generatedImageAttachments(finalImages)
+          : undefined;
         const versioned = await this.chatService.editAssistant(
-          chatId, answerNode.id, finalContent, undefined, finalThinking
+          chatId, answerNode.id, finalContent, attachments, finalThinking
         );
         this.chatService.setActiveChild(question.id, versioned.id);
         this.activate.emit(versioned.id);
@@ -1087,11 +1191,15 @@ export class ChatNodeComponent {
   async saveAsBranchAndSend(): Promise<void> {
     const target = await this.resolveSendTarget();
     if (!target) return;
-    const { node, content, attachments } = target;
+    const { node, content, attachments, model } = target;
 
     await this.runFlow('send-branch', 'branch', build => {
       build.vars['content'] = content;
       build.vars['attachments'] = attachments;
+      // The model selected in the editor wins — the flow writer (and the new
+      // question node) must use the freshly chosen model, not the node's.
+      build.vars['modelId'] = model.modelId;
+      build.vars['providerId'] = model.providerId;
     });
   }
 
@@ -1103,12 +1211,16 @@ export class ChatNodeComponent {
   async saveAsInsertAndSend(): Promise<void> {
     const target = await this.resolveSendTarget();
     if (!target) return;
-    const { node, content, attachments } = target;
+    const { node, content, attachments, model } = target;
     if (node.role !== 'user') return;
 
     await this.runFlow('send-insert', 'insert', build => {
       build.vars['content'] = content;
       build.vars['attachments'] = attachments;
+      // The model selected in the editor wins — the flow writer (and the new
+      // question node) must use the freshly chosen model, not the node's.
+      build.vars['modelId'] = model.modelId;
+      build.vars['providerId'] = model.providerId;
     });
   }
 

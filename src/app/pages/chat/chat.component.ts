@@ -316,9 +316,11 @@ export class ChatComponent implements OnInit {
     effect(() => {
       const chatId = this.currentChatId();
       const generating = this.chatService.generatingNodeId();
-      // While Elaborate chains nodes sequentially, draft housekeeping is
-      // deferred so it cannot re-point the active path between chapters.
-      const busy = this.isElaborating();
+      // While Elaborate chains nodes sequentially (and an illustration
+      // storyboard versions the chapter as pictures arrive), draft
+      // housekeeping is deferred so it cannot re-point the active path
+      // between the work's steps.
+      const busy = this.isElaborating() || this.chatService.isIllustrating();
       this.chatService.currentNodes();
       this.chatService.getActivePath();
       if (!chatId || generating || busy) return;

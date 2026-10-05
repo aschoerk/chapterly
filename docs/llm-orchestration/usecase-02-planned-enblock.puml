@@ -23,7 +23,7 @@ participant "Provider\n(proxy)" as NET
 == 1. Dialog picks the use case ==
 User -> DLG : count(>1), planning ON, singleCall/pure\n+ style, storyboard rules
 DLG --> UI : options
-UI -> UI : pickUsecase(vars) → 'planned-enblock'
+UI -> UI : pickUsecase(vars) → 'planned-enblock'\nbeginOperation('illustrate') → Stop ends the use case
 
 == 2. Run: env ==
 UI -> RUN : runner.run(chat, node, 'planned-enblock', vars)
@@ -53,9 +53,12 @@ ORCH -> EVAL : evaluateImagesResponse(raw)
 EVAL --> ORCH : images slot (ok | partial | refused, reason)
 ORCH --> UC : EvalSlots
 
-== 5. Place ==
+== 5. Place — IMMEDIATELY as pictures are created ==
 UC -> POST : storyboard slot (all N in one scene on success;\nper-scene refusal records on moderation)
-POST -> SVC : editAssistant(chapter, illustration-N + prompt-N)
+POST -> SVC : editAssistant(chapter, illustration-N + prompt-N)\n(versioned) — attached immediately on the node\nillustrate was called for, as each picture is created
 POST --> UI : activate(chapter.id)
+note over UI
+  One Stop press ends the use case via isOperationCancelled()\n— pictures already attached stay on the node.
+end note
 
 @enduml

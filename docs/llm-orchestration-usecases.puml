@@ -25,7 +25,8 @@ alt count > 1 && !planDescriptions
 else count > 1 && planDescriptions && singleCall
   DISP --> UI : usecase2_plannedEnblock        (plan → one en-block render)
 else count > 1 && planDescriptions
-  DISP --> UI : usecase3_plannedScenes         (plan → per-scene loop)
+  DISP --> UI : usecase3_plannedScenes         (plan → one en-block render,
+                                               scene templates)
 else count == 1 && historyMode == 'full'
   DISP --> UI : usecase4_renderFull            (current node + full chat ctx)
 else
@@ -57,34 +58,35 @@ EVAL --> ORCH : images-slot (ok | partial | refused, reason)
 ORCH --> DISP : images slot
 DISP -> ORCH : finish(place)
 ORCH -> POST : place({ usecase2, slots:{ descriptions, images } })
-POST -> SVC : editAssistant(chapter,\nillustration-1..N + prompt-1.txt)\n(kept partial if any scene refused)
+POST -> SVC : editAssistant(chapter,\nillustration-1..N + prompt-1.txt)\n(kept partial if any scene refused) — attached to\nthe chapter node immediately as each picture is created
 POST --> UI : activate(chapter.id)
 
-== B) Use case 3 — planned → per-scene LOOP (same plan step) ==
+== B) Use case 3 — planned → ONE en-block render (same plan step) ==
 DISP -> ORCH : completion(planInstruction, expect:'descriptions')
 ORCH -> EVAL : evaluate(completion json)
 EVAL --> ORCH : descriptions-slot (ok | refused, reason)
 ORCH --> DISP : descriptions-slot
-DISP -> ORCH : loop scenes: completion(renderScene(descriptions[i], i), expect:'image')
+DISP -> ORCH : completion(oneShotScenesPrompt(descriptions), expect:'images')
 note over DISP, ORCH
-  The plan step is IDENTICAL to use case 2 —\nreuse, no duplication, no shared mutable state.\nEach scene gets its OWN slot so one refused\nscene never discards the collected ones.\nAbort in a child → use case returns partial.\n(Variant of 2 vs 3 = ONE loop, that's all.)
+  IDENTICAL to use case 2 except the prompt TEMPLATES:\nplanned-scenes uses the SCENE-oriented planning\nitem and the scene one-shot render template -\nfewer static stills, more action-bearing scenes.\nTHE SAME shared pipeline (plannedStoryboard)\ndrives both; only the templates differ.\nAn image model returns ONE picture or NONE, so a\nNON-EMPTY batch stops here; if it returns 0 the\nshared per-scene fallback (+ reprise) fills gaps.\nAbort in a child → use case returns partial.
 end note
-loop i in 0..count-1
-  ORCH -> XPORT : send(completion, renderScene[i])
-  XPORT -> LOG : record/complete
-  XPORT --> ORCH : json (or thrown error → evaluated error slot)
-  ORCH -> EVAL : evaluate(success | {error, aborted})
-  EVAL --> ORCH : scene[i]-slot (ok | refused | error, reason)
-  ORCH --> DISP : scene[i]
-end
-DISP -> POST : place({ usecase3, slots:{ scene0..N } })
-POST -> SVC : per-scene prompt-N.txt + refused-prompt-N.txt\nkept next to each illustration,\neditAssistant(chapter)
+ORCH -> XPORT : send(completion, renderScenes)
+XPORT -> LOG : record/complete
+XPORT --> ORCH : json
+ORCH -> EVAL : evaluate(completion json)
+EVAL --> ORCH : images-slot (ok | partial | refused, reason)
+ORCH --> DISP : images slot
+DISP -> POST : place({ usecase3, slots:{ descriptions, images } })
+POST -> SVC : editAssistant(chapter,\nillustration-1..N + prompt-1.txt)\n(kept partial if any scene refused) — attached to\nthe chapter node immediately as each picture is created
 POST --> UI : activate(chapter.id) — alert if refused/partial
 
 == C) Use cases 1, 4, 5 — one clean call each ==
 note over DISP, ORCH
   usecase1 = completion(fullChatAsIs, expect:'storyboard', count:N)\nusecase4 = completion(fullHistoryMessages, expect:'image')\nusecase5 = completion(currentNodeOnly, expect:'image')
   Each is a SINGLE call on the shared primitives —\nno planning, no loop, no fallback branches.\nResponses (streaming for 4/5 text) fill the node DURING SSE.
+end note
+note over UI
+  illustrate() wraps every run with beginOperation('illustrate')\n— one Stop press ends the use case (isOperationCancelled);\npictures already attached to the chapter node stay.
 end note
 
 @enduml

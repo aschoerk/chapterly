@@ -746,6 +746,64 @@ describe('ChatNodeComponent', () => {
       fixture.detectChanges();
       expectButtonDisabled(findButton('OK'));
     });
+
+    it('OK persists the model selected in the editor onto the saved question', async () => {
+      const q1 = node({ id: 'q1', content: 'Original question' });
+      const a1 = node({
+        id: 'a1',
+        chatId: 'chat-1',
+        parentId: 'q1',
+        role: 'assistant',
+        content: 'Answer',
+      });
+      await openChat([q1, a1]);
+      createFixture(q1);
+      await startEditing(q1);
+      component.onDraftText('Rewritten question');
+      // The user switches the editor model before saving the version.
+      component.branchModelId.set('beta/model');
+
+      await component.saveAsVersion();
+      fixture.detectChanges();
+
+      const saved = chatService
+        .nodes()
+        .find((n) => n.role === 'user' && n.content === 'Rewritten question');
+      expect(saved).not.toBeUndefined();
+      expect(saved!.id).not.toBe('q1');
+      // The new version carries the editor-selected model + provider.
+      expect(saved!.modelId).toBe('beta/model');
+      expect(saved!.providerId).toBe('prov-1');
+      expect(emitted).toContain(saved!.id);
+    });
+
+    it('OK keeps the node model when the editor model is unchanged', async () => {
+      const q1 = node({
+        id: 'q1', content: 'Original', modelId: 'alpha/model', providerId: 'prov-1',
+      });
+      const a1 = node({
+        id: 'a1',
+        chatId: 'chat-1',
+        parentId: 'q1',
+        role: 'assistant',
+        content: 'Answer',
+      });
+      await openChat([q1, a1]);
+      createFixture(q1);
+      await startEditing(q1);
+      component.onDraftText('Rewritten');
+      // branchModelId is seeded to the node's own model — the version keeps it
+      // without an extra patch.
+      expect(component.branchModelId()).toBe('alpha/model');
+
+      await component.saveAsVersion();
+      fixture.detectChanges();
+
+      const saved = chatService
+        .nodes()
+        .find((n) => n.role === 'user' && n.content === 'Rewritten');
+      expect(saved?.modelId).toBe('alpha/model');
+    });
   });
 
   // ------------------------------------------------------------------
@@ -801,6 +859,32 @@ describe('ChatNodeComponent', () => {
       fixture.detectChanges();
 
       expect(chatService.chats().find((c) => c.id === 'chat-1')?.title).toBe('My brand new story');
+    });
+
+    it('finalizes an IMAGE-ONLY append answer with its attachment (no "Generation stopped" empty node)', async () => {
+      const q1 = node({ id: 'q1', content: '' });
+      await openChat([q1]);
+      createFixture(q1);
+
+      component.onDraftText('Render the scene');
+      // The image-capable model streamed ONLY an image back (no text) — the
+      // runner returns an images slot with a refused/empty text slot.
+      (runner.run as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+        text: { status: 'refused', value: null },
+        images: { status: 'ok', value: [{ url: 'data:image/png;base64,QQ==' }] }
+      });
+      await component.sendDraft();
+      fixture.detectChanges();
+
+      // The answer node is finalized (versioned) with the image attachment,
+      // instead of staying an empty placeholder.
+      const answers = chatService.nodes().filter((n) => n.role === 'assistant' && n.parentId === 'q1');
+      const withImg = answers.find(n => (n.attachments ?? []).length > 0);
+      expect(withImg).toBeTruthy();
+      expect(withImg!.attachments![0].name).toMatch(/^illustration-1\./);
+      expect(withImg!.attachments![0].dataUrl).toBe('data:image/png;base64,QQ==');
+      // The user node was persisted as the question.
+      expect(chatService.nodes().find((n) => n.id === 'q1')?.content).toBe('Render the scene');
     });
 
     it('routes image-bearing directions through the append-with-images use case', async () => {
@@ -945,6 +1029,41 @@ describe('ChatNodeComponent', () => {
       const answer = chatService.nodes().find((n) => n.role === 'assistant' && n.parentId === branch!.id);
       expect(answer?.content).toBe('Generated');
     });
+
+    it('uses the model selected in the editor for the branch stream', async () => {
+      const q1 = node({ id: 'q1', content: 'Original' });
+      const a1 = node({
+        id: 'a1',
+        chatId: 'chat-1',
+        parentId: 'q1',
+        role: 'assistant',
+        content: 'Answer',
+      });
+      await openChat([q1, a1]);
+      createFixture(q1);
+      await startEditing(q1);
+      component.onDraftText('Alternative path');
+      // The user switches the editor model before branching.
+      component.branchModelId.set('beta/model');
+
+      await component.saveAsBranchAndSend();
+      fixture.detectChanges();
+
+      // The new sibling question AND its streamed answer use the selected
+      // editor model — the change is no longer ignored.
+      const branch = chatService
+        .nodes()
+        .find((n) => n.role === 'user' && n.content === 'Alternative path');
+      expect(branch).not.toBeUndefined();
+      expect(branch!.modelId).toBe('beta/model');
+      expect(branch!.providerId).toBe('prov-1');
+      const answer = chatService.nodes().find((n) => n.role === 'assistant' && n.parentId === branch!.id);
+      expect(answer).toBeDefined();
+      expect(answer!.modelId).toBe('beta/model');
+      // The write model that streamed the answer is the selected one.
+      const req = orch.completion.mock.calls[0][1] as { model?: { modelId?: string } };
+      expect(req.model?.modelId).toBe('beta/model');
+    });
   });
 
   // ------------------------------------------------------------------
@@ -1003,6 +1122,38 @@ describe('ChatNodeComponent', () => {
         chatService.nodes().filter((n) => n.role === 'user' && n.content === 'Should not insert')
           .length,
       ).toBe(0);
+    });
+
+    it('uses the model selected in the editor for the inserted stream', async () => {
+      const q1 = node({ id: 'q1', content: 'Earlier question' });
+      const a1 = node({
+        id: 'a1',
+        chatId: 'chat-1',
+        parentId: 'q1',
+        role: 'assistant',
+        content: 'Old answer',
+      });
+      await openChat([q1, a1]);
+      createFixture(q1);
+      await startEditing(q1);
+      component.onDraftText('Inserted question');
+      // The user switches the editor model before inserting.
+      component.branchModelId.set('beta/model');
+
+      await component.saveAsInsertAndSend();
+      fixture.detectChanges();
+
+      const inserted = chatService
+        .nodes()
+        .find((n) => n.role === 'user' && n.content === 'Inserted question');
+      expect(inserted).not.toBeUndefined();
+      expect(inserted!.modelId).toBe('beta/model');
+      expect(inserted!.providerId).toBe('prov-1');
+      const answer = chatService.getChildren(inserted!.id).find((n) => n.role === 'assistant')!;
+      expect(answer).toBeDefined();
+      expect(answer.modelId).toBe('beta/model');
+      const req = orch.completion.mock.calls[0][1] as { model?: { modelId?: string } };
+      expect(req.model?.modelId).toBe('beta/model');
     });
   });
 
@@ -2327,6 +2478,139 @@ describe('ChatNodeComponent', () => {
       expect(text).toContain("I can't draw that.");
       // The user is still informed nothing was generated.
       expect(window.alert).toHaveBeenCalled();
+    });
+
+    it('attaches each storyboard picture as soon as it is ready (progressive onImages) and replaces interim with the final plan', async () => {
+      const q1 = node({ id: 'q1', content: 'A bazaar.' });
+      const a1 = node({
+        id: 'a1', chatId: 'chat-1', parentId: 'q1', role: 'assistant', content: 'A chapter.',
+      });
+      await openChat([q1, a1]);
+      const generation = TestBed.inject(GenerationSettingsService);
+      generation.update('image-create', { providerId: 'prov-1', modelId: 'alpha/model' });
+      illustrateDialog.open.mockResolvedValue({
+        count: 2, style: '', storyboardPrompt: '', purePictures: false,
+        historyMode: 'single', planDescriptions: true
+      });
+
+      // The storyboard use case is still RUNNING while it reports the first
+      // scene — gate its resolution so we can observe the in-flight state.
+      const flush = () => new Promise<void>((res) => setTimeout(res, 0));
+      let release!: () => void;
+      const gate = new Promise<void>((res) => { release = res; });
+      let capturedOnImages: ((scenes: unknown[]) => void) | null = null;
+      runner.run.mockImplementationOnce(async (
+        _build: unknown,
+        opts?: { onImages?: (scenes: unknown[]) => void },
+      ) => {
+        capturedOnImages = opts?.onImages ?? null;
+        await gate;
+        return {
+          storyboard: {
+            status: 'ok',
+            value: [
+              { scene: 1, prompt: 'scene one', images: [{ url: 'data:image/png;base64,S1' }], refused: false },
+              { scene: 2, prompt: 'scene two', images: [{ url: 'data:image/png;base64,S2' }], refused: false },
+            ],
+          },
+        };
+      });
+
+      createFixture(q1, 'a1');
+      const running = component.illustrate();
+      await flush();
+
+      // While the use case runs the app advertises the Stop button, and the
+      // runner has received the progressive onImages callback.
+      expect(capturedOnImages).not.toBeNull();
+      expect(chatService.isIllustrating()).toBe(true);
+
+      // First per-scene fallback completes → the chapter gains picture 1 NOW,
+      // before the use case is finished.
+      capturedOnImages!([
+        { scene: 1, prompt: 'scene one', images: [{ url: 'data:image/png;base64,S1' }], refused: false },
+      ]);
+      await flush();
+      await flush();
+      const mid = chatService.getChildren('q1').find((c) => c.role === 'assistant' && c.isCurrent)!;
+      expect(mid.attachments?.length).toBe(2);
+      expect(mid.attachments![0].name).toBe('illustration-1.png');
+      expect(mid.attachments![1].name).toBe('prompt-1.txt');
+      expect(decodeDataUrlToText(mid.attachments![1].dataUrl)).toContain('scene one');
+
+      // Now the use case finishes and the FINAL plan replaces the interim
+      // attachments exactly once — no duplicates, no leftover scene-1 only.
+      release();
+      await running;
+      await flush();
+      expect(chatService.isIllustrating()).toBe(false);
+      const chapter = chatService.getChildren('q1').find((c) => c.role === 'assistant' && c.isCurrent)!;
+      expect(chapter.attachments?.length).toBe(4);
+      const names = (chapter.attachments ?? []).map((a) => a.name);
+      expect(names.filter((n) => n.startsWith('illustration-')).sort()).toEqual([
+        'illustration-1.png',
+        'illustration-2.png',
+      ]);
+      expect(names.filter((n) => n.startsWith('prompt-')).sort()).toEqual([
+        'prompt-1.txt',
+        'prompt-2.txt',
+      ]);
+    });
+
+    it('marks isIllustrating while a storyboard runs and Stop ends the use case without attaching anything', async () => {
+      const q1 = node({ id: 'q1', content: 'A bazaar.' });
+      const a1 = node({
+        id: 'a1', chatId: 'chat-1', parentId: 'q1', role: 'assistant', content: 'A chapter.',
+      });
+      await openChat([q1, a1]);
+      const generation = TestBed.inject(GenerationSettingsService);
+      generation.update('image-create', { providerId: 'prov-1', modelId: 'alpha/model' });
+      illustrateDialog.open.mockResolvedValue({
+        count: 2, style: '', storyboardPrompt: '', purePictures: false,
+        historyMode: 'single', planDescriptions: true
+      });
+
+      const flush = () => new Promise<void>((res) => setTimeout(res, 0));
+      let capturedSignal: AbortSignal | null = null;
+      let release!: () => void;
+      const gate = new Promise<void>((res) => { release = res; });
+      runner.run.mockImplementationOnce(async (_build: unknown, opts?: { signal?: AbortSignal }) => {
+        capturedSignal = opts?.signal ?? null;
+        await gate;
+        return {
+          storyboard: {
+            status: 'ok',
+            value: [{ scene: 1, prompt: 'scene one', images: [], refused: true }],
+          },
+        };
+      });
+
+      createFixture(q1, 'a1');
+      // The alert spy accumulates calls across tests in this file; clear it so
+      // only THIS run's alerts are counted by the assertions below.
+      (window.alert as unknown as { mockClear: () => void }).mockClear();
+      const running = component.illustrate();
+      await flush();
+
+      // The Stop state is advertised while the storyboard runs, and the
+      // abort signal reached the orchestration runner.
+      expect(chatService.isIllustrating()).toBe(true);
+      expect(capturedSignal).not.toBeNull();
+      expect(capturedSignal!.aborted).toBe(false);
+
+      // Press Stop → the whole illustrate use case aborts.
+      chatService.stopGeneration();
+      expect(capturedSignal!.aborted).toBe(true);
+
+      // The (already aborted) use case resolves — nothing is attached, no
+      // error/refusal alert is surfaced, and the Stop state clears.
+      release();
+      await running;
+      await flush();
+      expect(chatService.isIllustrating()).toBe(false);
+      const chapter = chatService.getChildren('q1').find((c) => c.role === 'assistant' && c.isCurrent)!;
+      expect(chapter.attachments?.length ?? 0).toBe(0);
+      expect(window.alert).not.toHaveBeenCalled();
     });
 
     it('does nothing when the dialog is cancelled', async () => {
