@@ -235,8 +235,28 @@ export class SideBarComponent implements OnInit {
     return this.updatedDesc() ? 'sort.updatedNew' : 'sort.updatedOld';
   }
 
+  /**
+   * Effective age key for an environment in the "by age" sort mode.
+   *
+   * Environments are ordered by the age of their stories: when sorting by
+   * newest first we use the environment's youngest chat, when sorting by
+   * oldest first we use its oldest chat. That way an environment rises / falls
+   * with the activity of its chats (the project row itself keeps its own
+   * updatedAt, which the backend does not touch when a chat changes).
+   * Environments without chats fall back to their own updated/created stamp.
+   */
   private projectTime(p: Project): number {
-    return new Date(p.updatedAt || p.createdAt).getTime() || 0;
+    const fallback = new Date(p.updatedAt || p.createdAt).getTime() || 0;
+    const times = (this.chatsByProject().get(p.id) || [])
+      .map(c => new Date(c.updated_at || c.created_at).getTime())
+      .filter(t => t > 0);
+    if (!times.length) return fallback;
+    // Use the youngest chat when ordering newest-first, the oldest chat when
+    // ordering oldest-first (the caller sorts descending and reverses for the
+    // oldest-first direction, so both directions come out correct).
+    return this.updatedDesc()
+      ? times.reduce((a, b) => Math.max(a, b))
+      : times.reduce((a, b) => Math.min(a, b));
   }
 
   editProject(project: Project, event?: Event) {

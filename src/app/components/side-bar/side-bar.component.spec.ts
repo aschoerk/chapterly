@@ -10,6 +10,7 @@ import { ProjectService } from '../../core/project.service';
 import { PersonaService } from '../../core/persona.service';
 import { ConfirmService } from '../../core/confirm.service';
 import { I18nService } from '../../core/i18n/i18n.service';
+import { SortPreferencesService } from '../../core/sort-preferences.service';
 import { InMemoryChatApi } from '../../../../test-helpers/in-memory-chat-api';
 import {
   makeChat, makeModel, makePersona, makeProject, makeTopic
@@ -30,6 +31,7 @@ describe('SideBarComponent', () => {
   let projectService: ProjectService;
   let confirm: ConfirmService;
   let i18n: I18nService;
+  let sortPrefs: SortPreferencesService;
   const router = { navigate: vi.fn(async () => true) };
 
   // ------------------------------------------------------------------
@@ -68,6 +70,7 @@ describe('SideBarComponent', () => {
     chatService = TestBed.inject(ChatService);
     projectService = TestBed.inject(ProjectService);
     confirm = TestBed.inject(ConfirmService);
+    sortPrefs = TestBed.inject(SortPreferencesService);
 
     fixture = TestBed.createComponent(SideBarComponent);
     component = fixture.componentInstance;
@@ -582,6 +585,54 @@ describe('SideBarComponent', () => {
       });
       expandProject('Env A');
       expect(component.getChatsForProject('p-1').map(c => c.id)).toEqual(['c2', 'c1']);
+    });
+
+    it('orders environments by their youngest chat (newest-first)', async () => {
+      await setup(a => {
+        const now = Date.now();
+        // Alpha's project row is NEWER than Bravo's, but Bravo owns the most
+        // recently touched chat — environments must follow their chats.
+        a.projects.push(project({ id: 'p-a', name: 'Alpha', createdAt: new Date(now).toISOString() }));
+        a.projects.push(project({ id: 'p-b', name: 'Bravo', createdAt: new Date(now - 9000).toISOString() }));
+        a.chats.push(chat({ id: 'c-a', title: 'A story', projectId: 'p-a', updated_at: '2020-01-01T00:00:00Z' }));
+        a.chats.push(chat({ id: 'c-b', title: 'B story', projectId: 'p-b', updated_at: '2024-01-01T00:00:00Z' }));
+      });
+      expect(component.filteredProjects().map(p => p.id)).toEqual(['p-b', 'p-a']);
+    });
+
+    it('orders environments by their oldest chat (oldest-first)', async () => {
+      await setup(a => {
+        const now = Date.now();
+        // Alpha has one very new chat (2025) and one very old chat (2018);
+        // Bravo's only chat is 2020. Oldest-first must rank by the OLDEST
+        // chat, so Alpha (2018) precedes Bravo (2020) despite Alpha's 2025.
+        a.projects.push(project({ id: 'p-a', name: 'Alpha', createdAt: new Date(now - 9000).toISOString() }));
+        a.projects.push(project({ id: 'p-b', name: 'Bravo', createdAt: new Date(now - 1000).toISOString() }));
+        a.chats.push(chat({ id: 'c-a1', title: 'A old', projectId: 'p-a', updated_at: '2018-01-01T00:00:00Z' }));
+        a.chats.push(chat({ id: 'c-a2', title: 'A new', projectId: 'p-a', updated_at: '2025-01-01T00:00:00Z' }));
+        a.chats.push(chat({ id: 'c-b', title: 'B story', projectId: 'p-b', updated_at: '2020-01-01T00:00:00Z' }));
+      });
+      sortPrefs.setUpdatedDesc('sidebar', false);
+      await settle();
+      expect(component.filteredProjects().map(p => p.id)).toEqual(['p-a', 'p-b']);
+    });
+
+    it('moves an environment up when one of its chats is updated', async () => {
+      await setup(a => {
+        const now = Date.now();
+        a.projects.push(project({ id: 'p-a', name: 'Alpha', createdAt: new Date(now - 9000).toISOString() }));
+        a.projects.push(project({ id: 'p-b', name: 'Bravo', createdAt: new Date(now - 1000).toISOString() }));
+        a.chats.push(chat({ id: 'c-a', title: 'A story', projectId: 'p-a', updated_at: '2020-01-01T00:00:00Z' }));
+        a.chats.push(chat({ id: 'c-b', title: 'B story', projectId: 'p-b', updated_at: '2019-01-01T00:00:00Z' }));
+      });
+      // Newest chat: Alpha (2020) before Bravo (2019).
+      expect(component.filteredProjects().map(p => p.id)).toEqual(['p-a', 'p-b']);
+
+      // Editing a chat patches its updated_at (server returns a fresh stamp) —
+      // Bravo's youngest chat is now "now" → Bravo jumps to the top.
+      await chatService.updateChatTitle('c-b', 'B story edited');
+      await settle();
+      expect(component.filteredProjects().map(p => p.id)).toEqual(['p-b', 'p-a']);
     });
   });
 
