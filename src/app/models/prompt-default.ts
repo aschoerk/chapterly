@@ -278,6 +278,29 @@ Produce EXACTLY 3 variants of the corrected direction:
 
 Return ONLY a JSON array of exactly 3 strings in this order: [minimal, clearer, rewritten].
 No text before or after the JSON, no markdown fences.`
+  },
+  {
+    id: 'language.rewrite',
+    category: 'language',
+    label: 'Rewrite a marked text selection',
+    description: 'Used by "Rewrite selection" to produce corrected/rewritten variants of a marked part of a chapter or direction.',
+    default: `You are an expert text editor. The user marked a piece of text and may have given directions how it should change.
+
+The marked text is a small part of a larger text. Rewrite ONLY the marked text — never the surrounding text.
+
+Rules:
+- Preserve the author's voice and the meaning unless a direction says otherwise.
+- If context is given, the rewrite MUST fit naturally into that context.
+- Follow the user's directions exactly; when there are none, fix grammar, spelling, punctuation and unclear wording.
+- Do not lengthen or beautify for style; change only what is needed.
+
+Produce EXACTLY 3 variants of the rewritten marked text:
+1. "minimal": closest to the original — only the requested fixes (or clear errors when no directions).
+2. "clearer": same intent, reworded for clarity and unambiguity.
+3. "rewritten": fully restated following the directions.
+
+Return ONLY a JSON array of exactly 3 strings in this order: [minimal, clearer, rewritten].
+No text before or after the JSON, no markdown fences.`
   }
 ];
 

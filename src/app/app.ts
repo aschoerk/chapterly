@@ -4,6 +4,7 @@ import {AppNavComponent} from './components/app-nav/app-nav.component';
 import {ConfirmDialogComponent} from './components/confirm-dialog/confirm-dialog.component';
 import {IllustrateDialogComponent} from './components/illustrate-dialog/illustrate-dialog.component';
 import {PrependDialogComponent} from './components/prepend-dialog/prepend-dialog.component';
+import {RewriteDialogComponent} from './components/rewrite-dialog/rewrite-dialog.component';
 import {ImageLightboxComponent} from './components/image-lightbox/image-lightbox.component';
 import { ThemeService } from './core/theme.service';
 import { EnvironmentService } from './core/environment.service';
@@ -11,7 +12,7 @@ import { EnvironmentService } from './core/environment.service';
 @Component({
   selector: 'app-root',
   standalone: true,
-  imports: [RouterOutlet, AppNavComponent, ConfirmDialogComponent, IllustrateDialogComponent, PrependDialogComponent, ImageLightboxComponent],
+  imports: [RouterOutlet, AppNavComponent, ConfirmDialogComponent, IllustrateDialogComponent, PrependDialogComponent, RewriteDialogComponent, ImageLightboxComponent],
   styleUrl: './app.css',
   templateUrl: './app.html',
 })

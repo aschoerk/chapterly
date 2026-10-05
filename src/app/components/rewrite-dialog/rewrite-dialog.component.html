@@ -1,0 +1,110 @@
+@if (dialog.current(); as d) {
+  <div
+    class="rewrite-backdrop"
+    (click)="onBackdrop($event)"
+    (keydown)="onKey($event)"
+    tabindex="0"
+  >
+    <div
+      class="rewrite-dialog"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="rewrite-title"
+      (click)="$event.stopPropagation()"
+    >
+      <h3 id="rewrite-title">{{ i18n.t('rewriteDialog.title') }}</h3>
+      <p class="rewrite-hint">{{ i18n.t('rewriteDialog.hint') }}</p>
+
+      <label class="rewrite-field">
+        <span class="rewrite-label">{{ i18n.t('rewriteDialog.fragmentLabel') }}</span>
+        <textarea
+          rows="4"
+          [ngModel]="fragment()"
+          (ngModelChange)="fragment.set($event)"
+          [placeholder]="i18n.t('rewriteDialog.fragmentPh')"
+        ></textarea>
+      </label>
+
+      <label class="rewrite-field">
+        <span class="rewrite-label">{{ i18n.t('rewriteDialog.directionsLabel') }}</span>
+        <textarea
+          rows="3"
+          [ngModel]="directions()"
+          (ngModelChange)="directions.set($event)"
+          [placeholder]="i18n.t('rewriteDialog.directionsPh')"
+        ></textarea>
+      </label>
+
+      <label class="rewrite-field rewrite-model">
+        <span class="rewrite-label">{{ i18n.t('rewriteDialog.modelLabel') }}</span>
+        <select
+          [ngModel]="modelId()"
+          (ngModelChange)="onModelChange($event)"
+          [disabled]="loading()"
+          [title]="i18n.t('rewriteDialog.modelTitle')"
+        >
+          @for (m of enabledModels(); track m.id) {
+            <option [value]="m.modelId">{{ m.displayName }}</option>
+          }
+        </select>
+      </label>
+
+      <fieldset class="rewrite-context">
+        <legend>{{ i18n.t('rewriteDialog.contextLabel') }}</legend>
+        @for (cm of contextOptions(); track cm.mode) {
+          <label class="rewrite-context-option">
+            <input type="radio"
+                   name="rewrite-context"
+                   [value]="cm.mode"
+                   [checked]="contextMode() === cm.mode"
+                   [disabled]="loading()"
+                   (change)="contextMode.set(cm.mode)" />
+            <span class="rewrite-context-text">
+              <span class="rewrite-context-name">{{ cm.label }}</span>
+              <small class="rewrite-context-hint">{{ cm.hint }}</small>
+            </span>
+          </label>
+        }
+      </fieldset>
+
+      @if (suggestions(); as variants) {
+        <div class="rewrite-suggestions">
+          <div class="rewrite-suggestions-head">
+            <span>{{ i18n.t('rewriteDialog.suggestionsIntro') }}</span>
+            @if (loading()) {
+              <span class="spinner"></span>
+            }
+          </div>
+          @for (v of variants; track $index) {
+            <div class="rewrite-suggestion">
+              <span class="rewrite-suggestion-tag">{{ suggestionTag($index) }}</span>
+              <span class="rewrite-suggestion-text">{{ v }}</span>
+              <button class="btn small primary" type="button"
+                      [disabled]="loading()"
+                      (click)="useVariant(v)">
+                {{ i18n.t('rewriteDialog.suggestionUse') }}
+              </button>
+            </div>
+          }
+        </div>
+      }
+
+      <div class="rewrite-actions">
+        <button class="btn" type="button" [disabled]="loading()" (click)="dialog.cancel()">
+          {{ i18n.t('common.cancel') }}
+        </button>
+        <button class="btn" type="button"
+                [disabled]="loading() || !fragment().trim()"
+                (click)="applyEdited()"
+                [title]="i18n.t('rewriteDialog.applyEditedTitle')">
+          {{ i18n.t('rewriteDialog.applyEdited') }}
+        </button>
+        <button class="btn primary" type="button"
+                [disabled]="loading() || !fragment().trim()"
+                (click)="rewrite()">
+          {{ loading() ? i18n.t('rewriteDialog.rewriting') : i18n.t('rewriteDialog.rewrite') }}
+        </button>
+      </div>
+    </div>
+  </div>
+}

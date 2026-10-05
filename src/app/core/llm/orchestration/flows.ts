@@ -674,6 +674,51 @@ const languageCheck: FlowController = async env => {
 };
 
 // ---------------------------------------------------------------------------
+// rewrite-selection — propose corrected variants of a MARKED piece of text,
+// optionally grounded in surrounding context. No chat mutation; the caller
+// renders the returned variant strings and replaces the marked range.
+// ---------------------------------------------------------------------------
+const rewriteSelection: FlowController = async env => {
+  const text = (env.cx.vars.content ?? '').trim();
+  if (!text) {
+    return { error: makeSlot('error', 'http', 'No text to rewrite.', {}) };
+  }
+  const directions = (env.cx.vars.directions ?? '').trim();
+  // Context scope: 'none' | 'node' | 'upto' | 'all' (defaults to the node).
+  const mode = (env.cx.vars.contextMode ?? 'node');
+  const node = env.cx.node;
+  const nodeContent = node?.content ?? '';
+
+  let contextText = '';
+  if (mode === 'node') {
+    contextText = nodeContent;
+  } else if (mode === 'upto') {
+    const end = typeof env.cx.vars.selectionEnd === 'number'
+      ? env.cx.vars.selectionEnd
+      : nodeContent.length;
+    contextText = nodeContent.slice(0, Math.max(0, end));
+  } else if (mode === 'all') {
+    // The whole thread up to (and including) the current node, text-only.
+    const messages = node
+      ? env.factory.buildSendMessagesEx({ chatId: env.cx.chat.id, nodeId: node.id })
+      : [];
+    contextText = env.factory.textOnlyMessages(messages)
+      .map(m => {
+        const who = m.role === 'user' ? 'User' : m.role === 'assistant' ? 'Assistant' : 'System';
+        return `${who}:\n${typeof m.content === 'string' ? m.content : ''}`;
+      })
+      .join('\n\n');
+  }
+
+  const instruction = env.factory.rewriteInstruction();
+  const parts: string[] = [instruction];
+  if (directions) parts.push(`User directions — the rewrite MUST follow these:\n${directions}`);
+  if (contextText) parts.push(`Context the marked text appears in:\n${contextText}`);
+  parts.push(`Marked text to rewrite:\n${text}`);
+  return textCompletion(env, parts.join('\n\n'));
+};
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
@@ -712,7 +757,8 @@ const FLOW_CONTROLLERS: Partial<Record<UsecaseKind, FlowController>> = {
   'structure-overview': structureOverview,
   'structure-heading': structureHeading,
   'structure-headings': structureHeadings,
-  'language-check': languageCheck
+  'language-check': languageCheck,
+  'rewrite-selection': rewriteSelection
 };
 
 export function isFlowUsecase(usecase: UsecaseKind): boolean {

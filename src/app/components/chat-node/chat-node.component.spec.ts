@@ -18,6 +18,7 @@ import { LightboxService } from '../../core/lightbox.service';
 import { decodeDataUrlToText } from '../../core/llm/llm-message';
 import { IllustrateDialogService } from '../../core/illustrate-dialog.service';
 import { PrependDialogService } from '../../core/prepend-dialog.service';
+import { RewriteDialogService } from '../../core/rewrite-dialog.service';
 import { LlmUseCaseRunner, LlmOrchestratorService } from '../../core/llm/orchestration';
 
 /** Thin aliases over the shared test-helpers factories. */
@@ -47,6 +48,7 @@ describe('ChatNodeComponent', () => {
   };
   let illustrateDialog: { open: ReturnType<typeof vi.fn>; current: ReturnType<typeof vi.fn> };
   let prependDialog: { open: ReturnType<typeof vi.fn>; current: ReturnType<typeof vi.fn> };
+  let rewriteDialog: { open: ReturnType<typeof vi.fn>; current: ReturnType<typeof vi.fn> };
   let runner: { run: ReturnType<typeof vi.fn> };
   let orch: {
     completion: ReturnType<typeof vi.fn>;
@@ -88,6 +90,13 @@ describe('ChatNodeComponent', () => {
         },
         {
           provide: PrependDialogService,
+          useValue: {
+            open: vi.fn(async () => null),
+            current: vi.fn(() => null)
+          }
+        },
+        {
+          provide: RewriteDialogService,
           useValue: {
             open: vi.fn(async () => null),
             current: vi.fn(() => null)
@@ -185,6 +194,10 @@ describe('ChatNodeComponent', () => {
       current: ReturnType<typeof vi.fn>;
     };
     prependDialog = TestBed.inject(PrependDialogService) as unknown as {
+      open: ReturnType<typeof vi.fn>;
+      current: ReturnType<typeof vi.fn>;
+    };
+    rewriteDialog = TestBed.inject(RewriteDialogService) as unknown as {
       open: ReturnType<typeof vi.fn>;
       current: ReturnType<typeof vi.fn>;
     };
@@ -803,6 +816,110 @@ describe('ChatNodeComponent', () => {
         .nodes()
         .find((n) => n.role === 'user' && n.content === 'Rewritten');
       expect(saved?.modelId).toBe('alpha/model');
+    });
+  });
+
+  // ------------------------------------------------------------------
+  // Rewrite selection (marked text → model suggestions)
+  // ------------------------------------------------------------------
+
+  describe('rewrite selection', () => {
+    it('shows the Rewrite button while editing (directions and chapters)', async () => {
+      const q1 = node({ id: 'q1', content: 'A direction with some text.' });
+      const a1 = node({
+        id: 'a1', chatId: 'chat-1', parentId: 'q1', role: 'assistant', content: 'Answer',
+      });
+      await openChat([q1, a1]);
+
+      createFixture(q1);
+      await startEditing(q1);
+      fixture.detectChanges();
+      expect(findButton('Rewrite')).not.toBeNull();
+
+      createFixture(a1);
+      await startEditing(a1);
+      fixture.detectChanges();
+      expect(findButton('Rewrite')).not.toBeNull();
+    });
+
+    it('requires a marked text before opening the dialog', async () => {
+      const q1 = node({ id: 'q1', content: 'A direction with some text.' });
+      const a1 = node({
+        id: 'a1', chatId: 'chat-1', parentId: 'q1', role: 'assistant', content: 'Answer',
+      });
+      await openChat([q1, a1]);
+      createFixture(q1);
+      await startEditing(q1);
+
+      // No selection (cursor collapsed at 0,0) → the dialog never opens and
+      // the user is told to mark the text first.
+      await component.openRewriteDialog();
+      fixture.detectChanges();
+      expect(rewriteDialog.open).not.toHaveBeenCalled();
+      expect(window.alert).toHaveBeenCalledWith(
+        expect.stringContaining('Mark the text'),
+      );
+    });
+
+    it('opens the dialog with the marked fragment + node model and replaces the selection with the result', async () => {
+      const content = 'The hero enters the old tower.';
+      const q1 = node({
+        id: 'q1', content, modelId: 'alpha/model', providerId: 'prov-1',
+      });
+      const a1 = node({
+        id: 'a1', chatId: 'chat-1', parentId: 'q1', role: 'assistant', content: 'Answer',
+      });
+      await openChat([q1, a1]);
+      createFixture(q1);
+      await startEditing(q1);
+
+      // Mark "the old tower".
+      const start = content.indexOf('the old tower');
+      const end = start + 'the old tower'.length;
+      const ta = fixture.nativeElement.querySelector('.editor-textarea') as HTMLTextAreaElement;
+      ta.value = component.contentDraft();
+      ta.setSelectionRange(start, end);
+
+      (rewriteDialog.open as ReturnType<typeof vi.fn>).mockResolvedValue('a ruined keep');
+      await component.openRewriteDialog();
+      fixture.detectChanges();
+
+      // The dialog was seeded with the marked fragment + the node's model.
+      const call = (rewriteDialog.open as ReturnType<typeof vi.fn>).mock.calls[0][0] as {
+        fragment?: string; contextMode?: string; modelId?: string; providerId?: string; selectionEnd?: number;
+      };
+      expect(call.fragment).toBe('the old tower');
+      expect(call.contextMode).toBe('node');
+      expect(call.modelId).toBe('alpha/model');
+      expect(call.providerId).toBe('prov-1');
+      expect(call.selectionEnd).toBe(end);
+
+      // The marked range was replaced in the draft (the editor stays open).
+      expect(component.contentDraft()).toBe('The hero enters a ruined keep.');
+      expect(component.isEditing()).toBe(true);
+    });
+
+    it('does nothing when the dialog is cancelled', async () => {
+      const content = 'The hero enters the old tower.';
+      const q1 = node({ id: 'q1', content });
+      const a1 = node({
+        id: 'a1', chatId: 'chat-1', parentId: 'q1', role: 'assistant', content: 'Answer',
+      });
+      await openChat([q1, a1]);
+      createFixture(q1);
+      await startEditing(q1);
+
+      const start = content.indexOf('the old tower');
+      const end = start + 'the old tower'.length;
+      const ta = fixture.nativeElement.querySelector('.editor-textarea') as HTMLTextAreaElement;
+      ta.value = component.contentDraft();
+      ta.setSelectionRange(start, end);
+      (rewriteDialog.open as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+
+      await component.openRewriteDialog();
+      fixture.detectChanges();
+
+      expect(component.contentDraft()).toBe('The hero enters the old tower.');
     });
   });
 

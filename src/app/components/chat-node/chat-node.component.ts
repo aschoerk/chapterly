@@ -30,12 +30,14 @@ import { PromptDefaultsService } from '../../core/prompt-defaults.service';
 import { ModelEntry, ProviderConfig, canGenerateImages } from '../../models/chat-config';
 import { IllustrateDialogService } from '../../core/illustrate-dialog.service';
 import { PrependDialogService } from '../../core/prepend-dialog.service';
+import { RewriteDialogService } from '../../core/rewrite-dialog.service';
 import { IllustrateOptions } from '../../models/illustrate-options';
 import { LightboxService } from '../../core/lightbox.service';
 import { LlmUseCaseRunner } from '../../core/llm/orchestration';
 import { LlmFlowRunner } from '../../core/llm/orchestration';
 import { LlmPostprocessorService, pickUsecase, buildIllustrationAttachments, generatedImageAttachments } from '../../core/llm/orchestration';
 import { type ImageScene } from '../../core/llm/orchestration';
+import { parseSuggestionVariants } from '../../core/llm/orchestration/evaluators';
 import { type LlmImagePart } from '../../core/llm/llm-message';
 
 @Component({
@@ -58,6 +60,7 @@ export class ChatNodeComponent {
   private readonly promptDefaults = inject(PromptDefaultsService);
   private readonly illustrateDialog = inject(IllustrateDialogService);
   private readonly lightbox = inject(LightboxService);
+  private readonly rewriteDialog = inject(RewriteDialogService);
 
   private readonly confirm = inject(ConfirmService);
   readonly i18n = inject(I18nService);
@@ -1359,43 +1362,59 @@ export class ChatNodeComponent {
     this.englishSuggestions.set(null);
   }
 
+  /**
+   * Rewrite the MARKED text of the editor: capture the current textarea
+   * selection, open the rewrite dialog (editable fragment + directions +
+   * context scope + model), and when the dialog returns a text, replace the
+   * marked range in the draft with it. Works for both directions (user) and
+   * chapters (assistant) while editing.
+   */
+  async openRewriteDialog(): Promise<void> {
+    if (!this.isEditing() || this.isLoading() || this.checkingEnglish()) return;
+    const ta = this.editArea()?.nativeElement;
+    if (!ta) return;
+
+    const s = Math.min(ta.selectionStart ?? 0, ta.selectionEnd ?? 0);
+    const e = Math.max(ta.selectionStart ?? 0, ta.selectionEnd ?? 0);
+    const draft = this.contentDraft();
+    const fragment = draft.slice(s, e);
+    if (!fragment.trim()) {
+      alert(this.i18n.t('node.rewriteNoSelection'));
+      return;
+    }
+
+    const node = this.node();
+    const chatId = this.chatService.currentChatId();
+    const chat = chatId
+      ? this.chatService.chats().find(c => c.id === chatId) ?? null
+      : null;
+    const result = await this.rewriteDialog.open({
+      fragment,
+      // The whole node content is the most useful default context; the user
+      // can narrow it (none / up to the marked part / whole thread) in the dialog.
+      contextMode: 'node',
+      selectionEnd: e,
+      node,
+      chat,
+      modelId: node.modelId || this.resolvePreferredModelId(node),
+      providerId: node.providerId ?? ''
+    });
+    if (result == null) return; // cancelled
+
+    const next = draft.slice(0, s) + result + draft.slice(e);
+    this.contentDraft.set(next);
+    this.editSession.patch(node.id, next, this.editAttachments());
+    this.scheduleResize();
+    // Restore focus and place the cursor around the inserted replacement.
+    requestAnimationFrame(() => {
+      ta.focus();
+      ta.setSelectionRange(s, s + result.length);
+    });
+  }
+
   /** Parse the LLM answer into up to 3 suggestion strings. */
   private parseEnglishVariants(content: string): string[] {
-    const trimmed = content.trim();
-    const fenced = trimmed
-      .replace(/^```(?:json)?\s*/i, '')
-      .replace(/```\s*$/, '');
-
-    const asStrings = (v: unknown): string[] | null => {
-      if (Array.isArray(v)) {
-        const arr = v.map(x => String(x).trim()).filter(Boolean);
-        return arr.length ? arr : null;
-      }
-      if (v && typeof v === 'object' && Array.isArray((v as { variants?: unknown }).variants)) {
-        return asStrings((v as { variants: unknown[] }).variants);
-      }
-      return null;
-    };
-    const parse = (raw: string): string[] | null => {
-      try {
-        return asStrings(JSON.parse(raw));
-      } catch {
-        return null;
-      }
-    };
-
-    let arr = parse(fenced) ?? parse(trimmed);
-    if (!arr) {
-      const match = trimmed.match(/\[[\s\S]*\]/);
-      if (match) arr = parse(match[0]);
-    }
-    if (!arr) {
-      arr = fenced
-        .split(/\r?\n/)
-        .map(s => s.replace(/^[\s\-•·*\d.)]+/, '').trim())
-        .filter(Boolean);
-    }
-    return (arr ?? []).slice(0, 3);
+    return parseSuggestionVariants(content);
   }
 
   /**

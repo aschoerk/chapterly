@@ -96,6 +96,7 @@ export type UsecaseKind =
   | 'structure-heading'
   | 'structure-headings'
   | 'language-check'
+  | 'rewrite-selection'
   | 'append'
   | 'append-with-images'
   | 'send-branch'
@@ -288,9 +289,18 @@ export interface UsecaseVars {
   modelId?: string;
   /** Image use cases: provider of the chosen rendering model. */
   providerId?: string;
+  /** `rewrite-selection`: free-form directions/hints how the marked text should change. */
+  directions?: string;
+  /** `rewrite-selection`: how much surrounding context the model should see. */
+  contextMode?: RewriteContextMode;
+  /** `rewrite-selection`: offset in the node content up to which context is
+   *  included for the `upto` mode (end of the marked text). */
+  selectionEnd?: number;
 }
 
-/** The full static run context handed to every use case. */
+/** Context scope for the `rewrite-selection` use case: how much surrounding
+ *  text the model should look at when rewriting a marked fragment. */
+export type RewriteContextMode = 'none' | 'node' | 'upto' | 'all';
 
 /** The full static run context handed to every use case. */
 export interface UsecaseContext {

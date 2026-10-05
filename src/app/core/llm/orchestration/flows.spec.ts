@@ -613,6 +613,166 @@ describe('LLM orchestration — structure generation + language check flows', ()
   });
 });
 
+describe('LLM orchestration — rewrite-selection (marked text → variants)', () => {
+  let api: InMemoryChatApi;
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  async function openRewriteStory(): Promise<ChatService> {
+    TestBed.resetTestingModule();
+    api = new InMemoryChatApi();
+    const now = new Date().toISOString();
+    seedApi(api, {
+      providers: [{ id: 'prov-1' }],
+      models: [
+        { id: 'm-1', displayName: 'Alpha', modelId: 'alpha/model' },
+        { id: 'm-2', displayName: 'Beta', modelId: 'beta/model' }
+      ]
+    });
+    api.chats.push(makeChat({ id: CHAT_ID, title: 'Story', created_at: now, updated_at: now }));
+    api.nodes = [
+      makeNode({ id: 'q1', role: 'user', content: 'Opening direction', isCurrent: true }),
+      makeNode({
+        id: 'a1', parentId: 'q1', role: 'assistant',
+        content: 'The hero enters the old tower. A wind howls through broken shutters.',
+        isCurrent: true, modelId: 'alpha/model'
+      }),
+      makeNode({
+        id: 'q2', parentId: 'a1', role: 'user',
+        content: 'Make the tower scary and short.', isCurrent: true
+      })
+    ];
+    await TestBed.configureTestingModule({
+      providers: [provideZonelessChangeDetection(), provideHttpClient(), { provide: CHAT_API, useValue: api }]
+    }).compileComponents();
+    TestBed.inject(I18nService).setLocale('en');
+    const settings = TestBed.inject(SettingsService);
+    await settings.loadAll();
+    const chatService = TestBed.inject(ChatService);
+    await chatService.loadChats();
+    await chatService.selectChat(CHAT_ID);
+    chatService.setActiveChild(null, 'q1');
+    chatService.setActiveChild('q1', 'a1');
+    chatService.setActiveChild('a1', 'q2');
+    return chatService;
+  }
+
+  function firstCompletionUserContent(): string {
+    const body = (fetchMock.mock.calls[0][1] as { body: string }).body;
+    const payload = JSON.parse(body) as { messages: { role: string; content: string }[] };
+    return payload.messages.find(m => m.role === 'user')!.content;
+  }
+
+  beforeEach(() => {
+    localStorage.clear();
+    fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('isFlowUsecase recognizes rewrite-selection', () => {
+    expect(isFlowUsecase('rewrite-selection' as never)).toBe(true);
+  });
+
+  it('no context: sends only instructions + directions + the marked text', async () => {
+    fetchMock.mockResolvedValueOnce(textResponse('["short fix.","clearer keep.","scary restate."]'));
+    const chatService = await openRewriteStory();
+    const runner = TestBed.inject(LlmFlowRunner);
+
+    const slots = await runner.run({
+      chat: api.chats[0],
+      node: chatService.nodes().find(n => n.id === 'a1')!,
+      usecase: 'rewrite-selection',
+      vars: {
+        content: 'the old tower',
+        directions: 'make it scary and short',
+        contextMode: 'none',
+        modelId: 'beta/model',
+        providerId: 'prov-1'
+      }
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    // No chat mutation — rewrite-selection returns raw text only.
+    expect(slots.text?.value).toBe('["short fix.","clearer keep.","scary restate."]');
+    expect(chatService.nodes().length).toBe(3);
+    const content = firstCompletionUserContent();
+    expect(content).toContain('User directions — the rewrite MUST follow these:');
+    expect(content).toContain('make it scary and short');
+    expect(content).toContain('Marked text to rewrite:');
+    expect(content).toContain('the old tower');
+    expect(content).not.toContain('Context the marked text appears in:');
+    // The write model is the one chosen in the dialog.
+    const body = JSON.parse((fetchMock.mock.calls[0][1] as { body: string }).body) as { model: string };
+    expect(body.model).toBe('beta/model');
+  });
+
+  it('current-node context: the whole node content is included', async () => {
+    fetchMock.mockResolvedValueOnce(textResponse('["a."]'));
+    const chatService = await openRewriteStory();
+    const runner = TestBed.inject(LlmFlowRunner);
+
+    await runner.run({
+      chat: api.chats[0],
+      node: chatService.nodes().find(n => n.id === 'a1')!,
+      usecase: 'rewrite-selection',
+      vars: { content: 'the old tower', contextMode: 'node', modelId: 'alpha/model', providerId: 'prov-1' }
+    });
+
+    const content = firstCompletionUserContent();
+    expect(content).toContain('Context the marked text appears in:');
+    expect(content).toContain('The hero enters the old tower. A wind howls through broken shutters.');
+  });
+
+  it('upto context: only the node text up to and including the marked part', async () => {
+    fetchMock.mockResolvedValueOnce(textResponse('["a.","b.","c."]'));
+    const chatService = await openRewriteStory();
+    const runner = TestBed.inject(LlmFlowRunner);
+
+    const node = chatService.nodes().find(n => n.id === 'a1')!;
+    const nodeContent = node.content ?? '';
+    const selEnd = nodeContent.indexOf('the old tower') + 'the old tower'.length;
+
+    await runner.run({
+      chat: api.chats[0],
+      node,
+      usecase: 'rewrite-selection',
+      vars: {
+        content: 'the old tower',
+        contextMode: 'upto',
+        selectionEnd: selEnd,
+        modelId: 'alpha/model',
+        providerId: 'prov-1'
+      }
+    });
+
+    const content = firstCompletionUserContent();
+    expect(content).toContain('The hero enters the old tower');
+    // The text AFTER the marked part must NOT appear in the upto context.
+    expect(content).not.toContain('wind howls through broken shutters');
+  });
+
+  it('whole-text context: the entire thread up to the node is included', async () => {
+    fetchMock.mockResolvedValueOnce(textResponse('["a.","b.","c."]'));
+    const chatService = await openRewriteStory();
+    const runner = TestBed.inject(LlmFlowRunner);
+
+    const node = chatService.nodes().find(n => n.id === 'q2')!;
+    await runner.run({
+      chat: api.chats[0],
+      node,
+      usecase: 'rewrite-selection',
+      vars: { content: 'scary', contextMode: 'all', modelId: 'alpha/model', providerId: 'prov-1' }
+    });
+
+    const content = firstCompletionUserContent();
+    expect(content).toContain('Opening direction');
+    expect(content).toContain('The hero enters the old tower.');
+    expect(content).toContain('Make the tower scary and short.');
+    expect(content).toContain('Marked text to rewrite:');
+    expect(content).toContain('scary');
+  });
+});
+
 describe('LLM orchestration — interpretation only when the description is NOT already stored', () => {
   let api: InMemoryChatApi;
   let fetchMock: ReturnType<typeof vi.fn>;

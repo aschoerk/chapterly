@@ -408,6 +408,11 @@ export class UsecaseContextFactory {
     return prompt || this.promptDefaults.effective('language.check');
   }
 
+  /** The rewrite-selection instruction (editable prompt default). */
+  rewriteInstruction(): string {
+    return this.promptDefaults.effective('language.rewrite');
+  }
+
   /** Topic system prompt for a chat (reuses legacy helper conceptually). */
   topicSystemPrompt(chat: Chat | null): string | null {
     const projectId = chat?.projectId;

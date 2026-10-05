@@ -450,4 +450,49 @@ export function messageToText(m: ChatMessage): string {
   return '';
 }
 
+/**
+ * Parse an LLM answer into up to 3 suggestion strings (the corrected text
+ * variants shared by "Check my English" and the rewrite-selection dialog).
+ * Accepts fenced/raw JSON arrays, `{variants: [...]}` wrappers, an embedded
+ * `[...]` inside prose, and finally a fallback line-split.
+ */
+export function parseSuggestionVariants(content: string): string[] {
+  const trimmed = (content || '').trim();
+  if (!trimmed) return [];
+  const fenced = trimmed
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/```\s*$/, '');
+
+  const asStrings = (v: unknown): string[] | null => {
+    if (v && typeof v === 'object' && Array.isArray((v as { variants?: unknown }).variants)) {
+      return asStrings((v as { variants: unknown[] }).variants);
+    }
+    if (Array.isArray(v)) {
+      const arr = v.map(x => String(x).trim()).filter(Boolean);
+      return arr.length ? arr : null;
+    }
+    return null;
+  };
+  const parse = (raw: string): string[] | null => {
+    try {
+      return asStrings(JSON.parse(raw));
+    } catch {
+      return null;
+    }
+  };
+
+  let arr = parse(fenced) ?? parse(trimmed);
+  if (!arr) {
+    const match = trimmed.match(/\[[\s\S]*\]/);
+    if (match) arr = parse(match[0]);
+  }
+  if (!arr) {
+    arr = fenced
+      .split(/\r?\n/)
+      .map(s => s.replace(/^[\s\-•·*\d.)]+/, '').trim())
+      .filter(Boolean);
+  }
+  return (arr ?? []).slice(0, 3);
+}
+
 export type { Slot, EvalSlots };
