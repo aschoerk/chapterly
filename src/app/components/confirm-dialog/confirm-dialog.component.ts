@@ -1,4 +1,4 @@
-import { Component, inject } from '@angular/core';
+import { Component, inject, HostListener } from '@angular/core';
 import { ConfirmService } from '../../core/confirm.service';
 
 @Component({
@@ -17,5 +17,19 @@ export class ConfirmDialogComponent {
   onKey(ev: KeyboardEvent): void {
     if (ev.key === 'Escape') this.confirm.close(false);
     if (ev.key === 'Enter') this.confirm.close(true);
+  }
+
+  /**
+   * Escape cancels the dialog. Handled at document level so it works even
+   * when focus is outside the dialog (the backdrop only catches keys once
+   * an inner control has focus). Guarded by the open state, so it never
+   * interferes while the dialog is closed.
+   */
+  @HostListener('document:keydown', ['$event'])
+  onDocumentKey(ev: KeyboardEvent): void {
+    if (ev.key === 'Escape' && this.confirm.current()) {
+      ev.preventDefault();
+      this.confirm.close(false);
+    }
   }
 }

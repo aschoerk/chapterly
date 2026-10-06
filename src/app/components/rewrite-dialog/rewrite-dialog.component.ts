@@ -1,4 +1,4 @@
-import { Component, computed, effect, inject, signal } from '@angular/core';
+import { Component, computed, effect, inject, signal, HostListener } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { I18nService } from '../../core/i18n/i18n.service';
 import { SettingsService } from '../../core/settings.service';
@@ -139,5 +139,20 @@ export class RewriteDialogComponent {
 
   onKey(ev: KeyboardEvent): void {
     if (ev.key === 'Escape' && !this.loading()) this.dialog.cancel();
+  }
+
+  /**
+   * Escape cancels the dialog. Handled at document level so it works even
+   * when focus is outside the dialog (the backdrop only catches keys once
+   * an inner control has focus). Guarded by the open state, so it never
+   * interferes while the dialog is closed; a running rewrite is not
+   * cancelled (mirrors the backdrop/keydown handling).
+   */
+  @HostListener('document:keydown', ['$event'])
+  onDocumentKey(ev: KeyboardEvent): void {
+    if (ev.key === 'Escape' && this.dialog.current() && !this.loading()) {
+      ev.preventDefault();
+      this.dialog.cancel();
+    }
   }
 }

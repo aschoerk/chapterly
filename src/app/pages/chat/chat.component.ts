@@ -450,6 +450,13 @@ export class ChatComponent implements OnInit {
 
   @HostListener('window:keydown', ['$event'])
   onKey(event: KeyboardEvent) {
+    // Escape closes the elaborate dialog (same as its Cancel button).
+    if (event.key === 'Escape' && this.showElaborateDialog()) {
+      event.preventDefault();
+      this.cancelElaborate();
+      return;
+    }
+
     if (this.isTyping(event)) return;
     const ctrl = event.ctrlKey || event.metaKey;
 

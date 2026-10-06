@@ -396,6 +396,20 @@ describe('Chat', () => {
     expect(component.elaborateModelId()).toBe('alpha/model');
   });
 
+  it('Escape closes the elaborate dialog (same as its Cancel button)', async () => {
+    await openElaborateStory();
+
+    component.openElaborateDialog();
+    expect(component.showElaborateDialog()).toBe(true);
+
+    component.onKey({
+      key: 'Escape',
+      preventDefault: vi.fn()
+    } as unknown as KeyboardEvent);
+
+    expect(component.showElaborateDialog()).toBe(false);
+  });
+
   it('initializes first/last chapter to 1 with empty characters the first time', async () => {
     await openElaborateStory();
 

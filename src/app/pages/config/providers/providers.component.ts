@@ -1,4 +1,4 @@
-import { Component, inject, signal, computed } from '@angular/core';
+import { Component, inject, signal, computed, HostListener } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { SettingsService } from '../../../core/settings.service';
@@ -325,6 +325,22 @@ export class ProvidersComponent {
   onFetchedParamsChanged(event: { override: boolean; draft: ChatParametersDraft }) {
     this.fetchedParamsOverride.set(event.override);
     this.fetchedParamsDraft.set(event.draft);
+  }
+
+  /** Escape closes whichever modal is open (same as its Cancel button). */
+  @HostListener('document:keydown', ['$event'])
+  onDocumentKeydown(ev: KeyboardEvent): void {
+    if (ev.key !== 'Escape') return;
+    if (this.showAddProvider()) {
+      ev.preventDefault();
+      this.showAddProvider.set(false);
+    } else if (this.showAddPreset()) {
+      ev.preventDefault();
+      this.showAddPreset.set(false);
+    } else if (this.showFetchedParams()) {
+      ev.preventDefault();
+      this.showFetchedParams.set(false);
+    }
   }
 
   deleteModel(id: string) {

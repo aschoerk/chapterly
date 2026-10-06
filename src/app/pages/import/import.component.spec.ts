@@ -804,6 +804,37 @@ describe('ImportComponent', () => {
     create.mockRestore();
   });
 
+  it('Escape cancels the document picker (same as its Cancel button)', async () => {
+    seedApi(api, {
+      chats: [{ id: 'c1', title: 'Book' }],
+      nodes: [
+        { id: 'q0', chatId: 'c1', parentId: null, role: 'user', content: 'Q', createdAt: '2025-01-01T00:00:00Z' },
+        { id: 'b1', chatId: 'c1', parentId: 'q0', role: 'assistant', content: 'Branch one ending', version: 1, createdAt: '2025-01-02T00:00:00Z' },
+        { id: 'b2', chatId: 'c1', parentId: 'q0', role: 'assistant', content: 'Branch two ending', version: 1, createdAt: '2025-01-03T00:00:00Z' },
+      ],
+    });
+    await createComponent();
+
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    const create = vi.spyOn(URL, 'createObjectURL').mockImplementation(() => 'blob:x');
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+
+    component.exportScope.set('chat');
+    component.exportChatId.set('c1');
+    await component.exportDocx();
+    expect(component.showDocPicker()).toBe(true);
+
+    component.onDocumentKeydown({
+      key: 'Escape',
+      preventDefault: vi.fn()
+    } as unknown as KeyboardEvent);
+    expect(component.showDocPicker()).toBe(false);
+    expect(click).not.toHaveBeenCalled();
+    // restore mocks so afterEach restoreAllMocks doesn't leak
+    click.mockRestore();
+    create.mockRestore();
+  });
+
   // ------------------------------------------------------------------
   // Navigation
   // ------------------------------------------------------------------

@@ -173,6 +173,51 @@ describe('RewriteDialogComponent', () => {
     expect(fixture.nativeElement.querySelector('.rewrite-dialog')).toBeNull();
   });
 
+  it('Escape closes the dialog and resolves null (same as cancel)', async () => {
+    const p = openState();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.rewrite-dialog')).not.toBeNull();
+
+    component.onDocumentKey({
+      key: 'Escape',
+      preventDefault: vi.fn()
+    } as unknown as KeyboardEvent);
+    fixture.detectChanges();
+
+    await expect(p).resolves.toBeNull();
+    expect(fixture.nativeElement.querySelector('.rewrite-dialog')).toBeNull();
+  });
+
+  it('ignores Escape while the dialog is closed', () => {
+    const preventDefault = vi.fn();
+    component.onDocumentKey({ key: 'Escape', preventDefault } as unknown as KeyboardEvent);
+    expect(preventDefault).not.toHaveBeenCalled();
+    expect(fixture.nativeElement.querySelector('.rewrite-dialog')).toBeNull();
+  });
+
+  it('does not cancel on Escape while a rewrite is loading', async () => {
+    runner.run.mockResolvedValueOnce(new Promise(resolve => {
+      setTimeout(() => resolve({ text: { status: 'ok', value: '["a tower."]' } }), 50);
+    }));
+    const p = openState();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const pending = component.rewrite(); // keep it in flight
+    fixture.detectChanges();
+    expect(component.loading()).toBe(true);
+
+    const preventDefault = vi.fn();
+    component.onDocumentKey({ key: 'Escape', preventDefault } as unknown as KeyboardEvent);
+    expect(preventDefault).not.toHaveBeenCalled();
+    expect(fixture.nativeElement.querySelector('.rewrite-dialog')).not.toBeNull();
+
+    await pending; // let the in-flight rewrite settle
+    dialog.cancel();
+    await p;
+  });
+
   it('surfaces an alert when the model returns no suggestions', async () => {
     const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => {});
     runner.run.mockResolvedValueOnce({ text: { status: 'refused', value: null, reason: 'moderated' } });

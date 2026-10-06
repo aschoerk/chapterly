@@ -1,4 +1,4 @@
-import { Component, inject, signal } from '@angular/core';
+import { Component, inject, signal, HostListener } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
@@ -1855,6 +1855,16 @@ export class ImportComponent {
   cancelDocPick(): void {
     this.showDocPicker.set(false);
     this.pendingDocExport = null;
+  }
+
+  /** Escape cancels the document picker (same as its Cancel button). */
+  @HostListener('document:keydown', ['$event'])
+  onDocumentKeydown(ev: KeyboardEvent): void {
+    if (ev.key !== 'Escape') return;
+    if (this.showDocPicker()) {
+      ev.preventDefault();
+      this.cancelDocPick();
+    }
   }
 
   /** Run the export with the chosen document path. */

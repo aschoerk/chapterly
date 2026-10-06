@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideZonelessChangeDetection } from '@angular/core';
 import { provideHttpClient } from '@angular/common/http';
@@ -87,6 +87,28 @@ describe('PrependDialogComponent', () => {
     dialog.cancel();
     await expect(p).resolves.toBeNull();
     fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.prepend-dialog')).toBeNull();
+  });
+
+  it('Escape closes the dialog and resolves null (same as cancel)', async () => {
+    const p = dialog.open('original', false);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.prepend-dialog')).not.toBeNull();
+
+    component.onDocumentKey({
+      key: 'Escape',
+      preventDefault: vi.fn()
+    } as unknown as KeyboardEvent);
+    fixture.detectChanges();
+
+    await expect(p).resolves.toBeNull();
+    expect(fixture.nativeElement.querySelector('.prepend-dialog')).toBeNull();
+  });
+
+  it('ignores Escape while the dialog is closed', () => {
+    const preventDefault = vi.fn();
+    component.onDocumentKey({ key: 'Escape', preventDefault } as unknown as KeyboardEvent);
+    expect(preventDefault).not.toHaveBeenCalled();
     expect(fixture.nativeElement.querySelector('.prepend-dialog')).toBeNull();
   });
 });

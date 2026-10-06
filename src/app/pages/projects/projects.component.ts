@@ -919,12 +919,7 @@ export class ProjectsComponent implements OnInit {
   onDocumentKeydown(ev: KeyboardEvent): void {
     if (ev.key !== 'Escape') return;
 
-    if (!this.showForm()) {
-      this.openAddTopicId.set(null);
-      this.openChangeTopicId.set(null);
-      return;
-    }
-
+    // A confirm dialog is already up — Escape means "keep editing".
     if (this.confirm.current()) {
       ev.preventDefault();
       this.confirm.close(false);
@@ -940,7 +935,12 @@ export class ProjectsComponent implements OnInit {
     if (this.showTopicForm()) {
       ev.preventDefault();
       void this.requestCloseTopic();
+      return;
     }
+
+    // No modal is open: just dismiss any topic popovers.
+    this.openAddTopicId.set(null);
+    this.openChangeTopicId.set(null);
   }
 
   private captureProjectBaseline(): void {

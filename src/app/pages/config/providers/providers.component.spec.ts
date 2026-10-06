@@ -232,4 +232,43 @@ describe('ProvidersComponent', () => {
     expect(component.presetTestResult()?.message).toMatch(/Model ID/i);
     http.expectNone(() => true);
   });
+
+  function escapeEvent(): KeyboardEvent {
+    return { key: 'Escape', preventDefault: vi.fn() } as unknown as KeyboardEvent;
+  }
+
+  it('Escape closes the add-provider modal (same as its Cancel button)', () => {
+    component.openAddProvider();
+    expect(component.showAddProvider()).toBe(true);
+
+    component.onDocumentKeydown(escapeEvent());
+
+    expect(component.showAddProvider()).toBe(false);
+  });
+
+  it('Escape closes the add/edit preset modal (same as its Cancel button)', async () => {
+    await settings.addProvider({
+      name: 'OR',
+      type: 'openrouter',
+      baseUrl: 'https://example',
+      apiKey: 'key-xxxxxx',
+      enabled: true
+    });
+    await settings.loadAll();
+    component.openAddPreset();
+    expect(component.showAddPreset()).toBe(true);
+
+    component.onDocumentKeydown(escapeEvent());
+
+    expect(component.showAddPreset()).toBe(false);
+  });
+
+  it('Escape closes the fetched-params modal (same as its Cancel button)', () => {
+    component.showFetchedParams.set(true);
+    expect(component.showFetchedParams()).toBe(true);
+
+    component.onDocumentKeydown(escapeEvent());
+
+    expect(component.showFetchedParams()).toBe(false);
+  });
 });
