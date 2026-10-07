@@ -231,12 +231,17 @@ export class ChatComponent implements OnInit {
   readonly showTrash = signal(false);
   readonly trashLoading = signal(false);
 
-  /** Elaborate-dialog state: first/last chapter + comma-separated characters. */
+  /** Elaborate-dialog state: first/last chapter + comma-separated characters
+   *  + optional hints guiding the elaborations. */
   readonly showElaborateDialog = signal(false);
   readonly isElaborating = signal(false);
   readonly elaborateFirst = signal(1);
   readonly elaborateLast = signal(1);
   readonly elaborateNames = signal('');
+  readonly elaborateHints = signal('');
+  /** When checked, the dialog ignores First/Last and re-elaborates the chapter
+   *  that was last elaborated, chaining onto its already generated text. */
+  readonly elaborateStickLast = signal(false);
   /** Model used for every elaboration. Initialised to the model of the most
    *  recent assistant answer; can be overridden in the dialog. */
   readonly elaborateModelId = signal<string>('');
@@ -749,7 +754,7 @@ export class ChatComponent implements OnInit {
   // ------------------------------------------------------------------
 
   /** Per-chat continuation state for the Elaborate dialog. */
-  private loadElaborateState(chatId: string): { lastChapter: number; characters: string } {
+  private loadElaborateState(chatId: string): { lastChapter: number; characters: string; hints: string } {
     try {
       const raw = localStorage.getItem(ChatComponent.LS_ELABORATE);
       const map = raw ? JSON.parse(raw) : {};
@@ -758,15 +763,16 @@ export class ChatComponent implements OnInit {
         return {
           lastChapter: Math.max(0, Math.floor(entry.lastChapter)),
           characters: typeof entry.characters === 'string' ? entry.characters : '',
+          hints: typeof entry.hints === 'string' ? entry.hints : '',
         };
       }
     } catch {
       /* corrupted / blocked storage — start fresh */
     }
-    return { lastChapter: 0, characters: '' };
+    return { lastChapter: 0, characters: '', hints: '' };
   }
 
-  private saveElaborateState(chatId: string, state: { lastChapter: number; characters: string }): void {
+  private saveElaborateState(chatId: string, state: { lastChapter: number; characters: string; hints: string }): void {
     try {
       const raw = localStorage.getItem(ChatComponent.LS_ELABORATE);
       const map = raw ? JSON.parse(raw) : {};
@@ -775,6 +781,13 @@ export class ChatComponent implements OnInit {
     } catch {
       /* best-effort; never block elaboration on storage failure */
     }
+  }
+
+  /** The dialog hints formatted for the `{{hints}}` template placeholder
+   *  (empty string when no hints were given, so empty templates stay clean). */
+  private elaborateHintsText(): string {
+    const hints = this.elaborateHints().trim();
+    return hints ? `\nFollow these hints from the user: ${hints}` : '';
   }
 
   /** Most recent current assistant answer of this chat (model source + attach point). */
@@ -831,6 +844,8 @@ export class ChatComponent implements OnInit {
     this.elaborateFirst.set(next);
     this.elaborateLast.set(next);
     this.elaborateNames.set(state.characters);
+    this.elaborateHints.set(state.hints);
+    this.elaborateStickLast.set(false);
 
     // initial model = the one that created the most recent assistant answer
     const model = this.resolveElaborateModel(anchor);
@@ -842,20 +857,53 @@ export class ChatComponent implements OnInit {
     this.showElaborateDialog.set(false);
   }
 
+  /** Toggle "stick to last chapter". While checked the First/Last fields are
+   *  disabled and shown as the single chapter last elaborated for this chat;
+   *  unchecking restores the default continuation (= last elaborated + 1). */
+  onStickLastToggle(checked: boolean): void {
+    this.elaborateStickLast.set(!!checked);
+    const chatId = this.currentChatId();
+    if (!chatId) return;
+    const state = this.loadElaborateState(chatId);
+    if (checked) {
+      const stick = state.lastChapter > 0
+        ? state.lastChapter
+        : Math.max(this.elaborateLast(), 1);
+      this.elaborateFirst.set(stick);
+      this.elaborateLast.set(stick);
+    } else {
+      const next = Math.max(state.lastChapter + 1, 1);
+      this.elaborateFirst.set(next);
+      this.elaborateLast.set(next);
+    }
+  }
+
   /** Confirm the dialog and run the sequential elaborations. */
   async confirmElaborate(): Promise<void> {
     const chatId = this.currentChatId();
     this.showElaborateDialog.set(false);
     if (!chatId) return;
 
-    const first = this.elaborateFirst();
-    const last = this.elaborateLast();
-    if (first < 1 || last < first) return;
+    const firstRaw = this.elaborateFirst();
+    let first = Math.max(firstRaw, 1);
+    let last = this.elaborateLast();
+
+    // "Stick to last chapter": ignore the First/Last values and re-elaborate
+    // the chapter that was last elaborated for THIS chat. The new question is
+    // chained under the most recent assistant answer (which holds the already
+    // generated text of that chapter), so the model continues it in context.
+    if (this.elaborateStickLast()) {
+      const state = this.loadElaborateState(chatId);
+      last = state.lastChapter > 0 ? state.lastChapter : Math.max(last, 1);
+      first = last;
+    }
+    if (last < first) return;
 
     const names = this.elaborateNames()
       .split(',')
       .map(s => s.trim())
       .filter(Boolean);
+    const hints = this.elaborateHintsText();
 
     const anchor = this.mostRecentAssistantNode();
     if (!anchor) return;
@@ -868,7 +916,11 @@ export class ChatComponent implements OnInit {
     const { model, provider } = resolved;
 
     // Remember what was used, per chat, for the next dialog opening.
-    this.saveElaborateState(chatId, { lastChapter: last, characters: this.elaborateNames() });
+    this.saveElaborateState(chatId, {
+      lastChapter: last,
+      characters: this.elaborateNames(),
+      hints: this.elaborateHints()
+    });
 
     this.isElaborating.set(true);
     this.chatService.elaborating = true;
@@ -883,9 +935,10 @@ export class ChatComponent implements OnInit {
         const prompts = names.length > 0
           ? names.map(name => this.promptDefaults.render('structure.elaborate-view', {
               chapter,
-              name
+              name,
+              hints
             }))
-          : [this.promptDefaults.render('structure.elaborate', { chapter })];
+          : [this.promptDefaults.render('structure.elaborate', { chapter, hints })];
 
         for (const prompt of prompts) {
           if (this.chatService.isOperationCancelled()) break;

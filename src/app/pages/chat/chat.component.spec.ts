@@ -387,6 +387,27 @@ describe('Chat', () => {
     expect(orch.completion).toHaveBeenCalledTimes(2);
   });
 
+  it('elaborates each chapter following the dialog hints', async () => {
+    await openElaborateStory();
+    orch.completion.mockClear();
+
+    component.elaborateFirst.set(1);
+    component.elaborateLast.set(2);
+    component.elaborateNames.set('');
+    component.elaborateHints.set(' dark, melancholic tone ');
+
+    await component.confirmElaborate();
+
+    const questions = chatService.nodes()
+      .filter(n => n.role === 'user' && n.content?.startsWith('elaborate on chapter'))
+      .map(n => n.content ?? '');
+    expect(questions).toEqual([
+      'elaborate on chapter 1\nFollow these hints from the user: dark, melancholic tone',
+      'elaborate on chapter 2\nFollow these hints from the user: dark, melancholic tone'
+    ]);
+    expect(orch.completion).toHaveBeenCalledTimes(2);
+  });
+
   it('pre-selects the most recent answer model when opening the elaborate dialog', async () => {
     await openElaborateStory();
 
@@ -424,10 +445,11 @@ describe('Chat', () => {
     await openElaborateStory();
     orch.completion.mockClear();
 
-    // First use: elaborate chapters 1–3 with two characters
+    // First use: elaborate chapters 1–3 with two characters + hints
     component.elaborateFirst.set(1);
     component.elaborateLast.set(3);
     component.elaborateNames.set('Anna, Ben');
+    component.elaborateHints.set('keep it atmospheric');
     await component.confirmElaborate();
 
     // Reopen the dialog for the SAME chat.
@@ -437,6 +459,38 @@ describe('Chat', () => {
     expect(component.elaborateFirst()).toBe(4); // last chapter (3) + 1
     expect(component.elaborateLast()).toBe(4);  // defaults to First
     expect(component.elaborateNames()).toBe('Anna, Ben'); // last used characters
+    expect(component.elaborateHints()).toBe('keep it atmospheric'); // last used hints
+  });
+
+  it('toggling stick-to-last points First/Last at the stored last chapter and restores the continuation when unchecked', async () => {
+    await openElaborateStory();
+    orch.completion.mockClear();
+
+    // First use: elaborate chapters 1–3 → stored last chapter = 3.
+    component.elaborateFirst.set(1);
+    component.elaborateLast.set(3);
+    await component.confirmElaborate();
+
+    // Reopen: continuation defaults to 4.
+    component.openElaborateDialog();
+    expect(component.elaborateFirst()).toBe(4);
+    expect(component.elaborateLast()).toBe(4);
+
+    // The user tweaks the fields, then ticks "stick to last chapter".
+    component.elaborateFirst.set(7);
+    component.elaborateLast.set(9);
+    component.onStickLastToggle(true);
+
+    // First/Last now show the actual single stick chapter, not 7..9.
+    expect(component.elaborateStickLast()).toBe(true);
+    expect(component.elaborateFirst()).toBe(3);
+    expect(component.elaborateLast()).toBe(3);
+
+    // Unchecking restores the default continuation (last elaborated + 1).
+    component.onStickLastToggle(false);
+    expect(component.elaborateStickLast()).toBe(false);
+    expect(component.elaborateFirst()).toBe(4);
+    expect(component.elaborateLast()).toBe(4);
   });
 
   it('keeps elaborate continuation state separate per chat', async () => {

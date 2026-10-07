@@ -102,6 +102,11 @@ export const EN = {
     elaborateLast: 'Last chapter',
     elaborateNames: 'Characters',
     elaborateNamesPlaceholder: 'e.g. Anna, Ben (comma separated, optional)',
+    elaborateHints: 'Hints',
+    elaborateHintsPlaceholder: 'Optional hints guiding the elaborations',
+    elaborateStickLast: 'Stick to last chapter',
+    elaborateStickLastHint:
+      'Ignore First/Last and elaborate the last chapter again in the context of the already generated text.',
     elaborateModel: 'Model',
     elaborateModelTitle:
       'Model used for the elaborations (initially the one of the most recent answer)',

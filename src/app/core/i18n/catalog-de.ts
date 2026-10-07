@@ -103,6 +103,11 @@ export const DE = {
     elaborateLast: 'Letztes Kapitel',
     elaborateNames: 'Figuren',
     elaborateNamesPlaceholder: 'z. B. Anna, Ben (mit Komma getrennt, optional)',
+    elaborateHints: 'Hinweise',
+    elaborateHintsPlaceholder: 'Optionale Hinweise für die Ausarbeitungen',
+    elaborateStickLast: 'Am letzten Kapitel weiterarbeiten',
+    elaborateStickLastHint:
+      'Übersieht Erstes/Letztes und arbeitet das letzte Kapitel im Kontext des bereits erzeugten Textes erneut aus.',
     elaborateModel: 'Modell',
     elaborateModelTitle: 'Modell für die Ausarbeitungen (anfangs das der letzten Antwort)',
     elaborateConfirm: 'Ausarbeiten',

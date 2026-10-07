@@ -49,15 +49,25 @@ describe('PromptDefaultsService', () => {
   });
 
   it('render() substitutes placeholders and leaves unknown ones intact', () => {
-    expect(service.render('structure.elaborate', { chapter: 4 }))
+    expect(service.render('structure.elaborate', { chapter: 4, hints: '' }))
       .toBe('elaborate on chapter 4');
-    const withName = service.render('structure.elaborate-view', { chapter: 2, name: 'Anna' });
+    const withName = service.render('structure.elaborate-view', {
+      chapter: 2, name: 'Anna', hints: ''
+    });
     expect(withName).toBe(
       'elaborate on chapter 2 out of the view of Anna in first person. Do never repeat text verbatim from previous views in the same chapter.'
     );
     expect(service.render('image.storyboard', { index: 1, total: 3 })).toContain(
       'render picture 1 of 3'
     );
+  });
+
+  it('render() injects the elaborate dialog hints via {{hints}}', () => {
+    const hints = '\nFollow these hints from the user: keep it dark';
+    expect(service.render('structure.elaborate', { chapter: 4, hints }))
+      .toBe('elaborate on chapter 4\nFollow these hints from the user: keep it dark');
+    expect(service.render('structure.elaborate-view', { chapter: 2, name: 'Anna', hints }))
+      .toContain('\nFollow these hints from the user: keep it dark');
   });
 
   it('resetAll clears every customization', () => {

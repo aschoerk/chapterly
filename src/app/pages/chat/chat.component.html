@@ -192,23 +192,37 @@
                 <h3>{{ i18n.t('chat.elaborateTitle') }}</h3>
                 <p class="elaborate-hint">{{ i18n.t('chat.elaborateHint') }}</p>
 
-                <div class="elaborate-row">
+                <div class="elaborate-row" [class.disabled]="elaborateStickLast()">
                   <label class="elaborate-field compact">
                     <span>{{ i18n.t('chat.elaborateFirst') }}</span>
                     <input type="number" min="1" [ngModel]="elaborateFirst()"
-                           (ngModelChange)="elaborateFirst.set(+$event)" />
+                           (ngModelChange)="elaborateFirst.set(+$event)"
+                           [disabled]="elaborateStickLast()" />
                   </label>
                   <label class="elaborate-field compact">
                     <span>{{ i18n.t('chat.elaborateLast') }}</span>
                     <input type="number" min="1" [ngModel]="elaborateLast()"
-                           (ngModelChange)="elaborateLast.set(+$event)" />
+                           (ngModelChange)="elaborateLast.set(+$event)"
+                           [disabled]="elaborateStickLast()" />
                   </label>
                 </div>
+                <label class="elaborate-field elaborate-stick"
+                       [title]="i18n.t('chat.elaborateStickLastHint')">
+                  <input type="checkbox" [ngModel]="elaborateStickLast()"
+                         (ngModelChange)="onStickLastToggle($event)" />
+                  <span>{{ i18n.t('chat.elaborateStickLast') }}</span>
+                </label>
                 <label class="elaborate-field">
                   <span>{{ i18n.t('chat.elaborateNames') }}</span>
                   <input type="text" [ngModel]="elaborateNames()"
                          (ngModelChange)="elaborateNames.set($event)"
                          [placeholder]="i18n.t('chat.elaborateNamesPlaceholder')" />
+                </label>
+                <label class="elaborate-field elaborate-hints">
+                  <span>{{ i18n.t('chat.elaborateHints') }}</span>
+                  <textarea rows="3" [ngModel]="elaborateHints()"
+                            (ngModelChange)="elaborateHints.set($event)"
+                            [placeholder]="i18n.t('chat.elaborateHintsPlaceholder')"></textarea>
                 </label>
                 <label class="elaborate-field">
                   <span>{{ i18n.t('chat.elaborateModel') }}</span>

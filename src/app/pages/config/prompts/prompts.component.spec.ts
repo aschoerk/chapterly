@@ -100,7 +100,7 @@ describe('PromptsComponent', () => {
 
     // Default template keeps the built-in placeholders working.
     defaults.reset('structure.elaborate');
-    expect(defaults.render('structure.elaborate', { chapter: 3 }))
+    expect(defaults.render('structure.elaborate', { chapter: 3, hints: '' }))
       .toBe('elaborate on chapter 3');
   });
 });

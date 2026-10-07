@@ -550,6 +550,32 @@ body.sidebar-resizing * {
   flex-wrap: nowrap;
 }
 
+/* First/Last are ignored while "stick to last chapter" is checked. */
+.elaborate-row.disabled {
+  opacity: 0.55;
+}
+
+/* "Stick to last chapter" checkbox row. */
+.elaborate-stick {
+  cursor: pointer;
+  user-select: none;
+}
+
+.elaborate-stick input[type='checkbox'] {
+  flex: 0 0 auto;
+  width: auto;
+  max-width: none;
+  margin: 0;
+  accent-color: var(--accent, #4f8cff);
+}
+
+/* The label text spans the full row, not the fixed 8.5rem label column. */
+.elaborate-stick span {
+  flex: 1 1 auto;
+  width: auto;
+  white-space: normal;
+}
+
 .elaborate-row .elaborate-field {
   margin-bottom: 0;
   flex: 1 1 0%;
@@ -578,6 +604,26 @@ body.sidebar-resizing * {
 
 .elaborate-row .elaborate-field.compact input {
   padding: 0.4rem 0.4rem;
+}
+
+/* Hints: multiline textarea aligned with the fixed label column. */
+.elaborate-field.elaborate-hints {
+  align-items: flex-start; /* keep the label at the top, not the vertical center */
+}
+
+.elaborate-hints textarea {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--color-input-border, #ccc);
+  border-radius: var(--radius-md, 8px);
+  font: inherit;
+  line-height: 1.4;
+  resize: vertical; /* user can only drag the bottom edge so the label column stays aligned */
+  min-height: calc(3 * 1.4em + 0.8rem); /* never shrink below the 3-line default */
 }
 
 .elaborate-field select.elaborate-model-select {
