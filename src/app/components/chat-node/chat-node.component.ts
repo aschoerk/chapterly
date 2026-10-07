@@ -313,9 +313,14 @@ export class ChatNodeComponent {
     const attachmentsUnchanged =
       JSON.stringify(attachments) === JSON.stringify(node.attachments || []);
 
+    // Nothing was changed (empty draft w/o attachments, or identical text +
+    // attachments) → keep the node untouched and just close the editor. Use
+    // closeEditor() (NOT cancelEdit()): cancelEdit would ask for a discard
+    // confirmation when the edit session is dirty (e.g. the user typed and
+    // then reverted), which blocked saving. No new version node is created.
     if ((!newContent && attachments.length === 0) ||
       (newContent === node.content && attachmentsUnchanged)) {
-      await this.cancelEdit();
+      this.closeEditor();
       return;
     }
 
@@ -1196,7 +1201,7 @@ export class ChatNodeComponent {
     if (!target) return;
     const { node, content, attachments, model } = target;
 
-    await this.runFlow('send-branch', 'branch', build => {
+    const ok = await this.runFlow('send-branch', 'branch', build => {
       build.vars['content'] = content;
       build.vars['attachments'] = attachments;
       // The model selected in the editor wins — the flow writer (and the new
@@ -1204,6 +1209,10 @@ export class ChatNodeComponent {
       build.vars['modelId'] = model.modelId;
       build.vars['providerId'] = model.providerId;
     });
+    // The draft was consumed to create the branch — close the editor so the
+    // edit session is not left dangling (otherwise the next edit on this node
+    // reopens a stale, dirty session).
+    if (ok) this.closeEditor();
   }
 
 /**
@@ -1217,7 +1226,7 @@ export class ChatNodeComponent {
     const { node, content, attachments, model } = target;
     if (node.role !== 'user') return;
 
-    await this.runFlow('send-insert', 'insert', build => {
+    const ok = await this.runFlow('send-insert', 'insert', build => {
       build.vars['content'] = content;
       build.vars['attachments'] = attachments;
       // The model selected in the editor wins — the flow writer (and the new
@@ -1225,6 +1234,9 @@ export class ChatNodeComponent {
       build.vars['modelId'] = model.modelId;
       build.vars['providerId'] = model.providerId;
     });
+    // Same as Branch: the draft was consumed by the insert — close the editor
+    // (and the edit session) so a later edit does not start out dirty.
+    if (ok) this.closeEditor();
   }
 
   /** Generate a chapter heading for THIS assistant answer; only its text is used as context. */

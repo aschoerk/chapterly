@@ -1181,6 +1181,32 @@ describe('ChatNodeComponent', () => {
       const req = orch.completion.mock.calls[0][1] as { model?: { modelId?: string } };
       expect(req.model?.modelId).toBe('beta/model');
     });
+
+    it('closes the editor and clears the edit session after branching', async () => {
+      const q1 = node({ id: 'q1', content: 'Original' });
+      const a1 = node({
+        id: 'a1',
+        chatId: 'chat-1',
+        parentId: 'q1',
+        role: 'assistant',
+        content: 'Answer',
+      });
+      await openChat([q1, a1]);
+      createFixture(q1);
+      await startEditing(q1);
+      component.onDraftText('Alternative path');
+      const session = TestBed.inject(NodeEditSession);
+      expect(session.isDirty()).toBe(true);
+
+      await component.saveAsBranchAndSend();
+      fixture.detectChanges();
+
+      // The draft was consumed — the editor closes and no stale session stays
+      // behind, so a later edit does not start out dirty.
+      expect(component.isEditing()).toBe(false);
+      expect(session.editingNodeId()).toBeNull();
+      expect(session.isDirty()).toBe(false);
+    });
   });
 
   // ------------------------------------------------------------------
@@ -1271,6 +1297,31 @@ describe('ChatNodeComponent', () => {
       expect(answer.modelId).toBe('beta/model');
       const req = orch.completion.mock.calls[0][1] as { model?: { modelId?: string } };
       expect(req.model?.modelId).toBe('beta/model');
+    });
+
+    it('closes the editor and clears the edit session after inserting', async () => {
+      const q1 = node({ id: 'q1', content: 'Earlier question' });
+      const a1 = node({
+        id: 'a1',
+        chatId: 'chat-1',
+        parentId: 'q1',
+        role: 'assistant',
+        content: 'Old answer',
+      });
+      await openChat([q1, a1]);
+      createFixture(q1);
+      await startEditing(q1);
+      component.onDraftText('Inserted question');
+      const session = TestBed.inject(NodeEditSession);
+      expect(session.isDirty()).toBe(true);
+
+      await component.saveAsInsertAndSend();
+      fixture.detectChanges();
+
+      // Same as Branch: the edit session must not stay behind dirty.
+      expect(component.isEditing()).toBe(false);
+      expect(session.editingNodeId()).toBeNull();
+      expect(session.isDirty()).toBe(false);
     });
   });
 

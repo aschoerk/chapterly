@@ -20,6 +20,7 @@ import { GenerationTaskKind } from '../../models/generation-task';
 import { ModelEntry, ProviderConfig } from '../../models/chat-config';
 import { ConfirmService } from '../../core/confirm.service';
 import { NodeClipboardService } from '../../core/node-clipboard.service';
+import { NodeEditSession } from '../../core/node-edit-session';
 import { LlmUseCaseRunner } from '../../core/llm/orchestration';
 
 @Component({
@@ -42,6 +43,7 @@ export class ChatComponent implements OnInit {
   private readonly generation = inject(GenerationSettingsService);
   private readonly promptDefaults = inject(PromptDefaultsService);
   private readonly confirm = inject(ConfirmService);
+  private readonly editSession = inject(NodeEditSession);
 
   readonly chats = this.chatService.chats;
   readonly currentChatId = this.chatService.currentChatId;
@@ -296,6 +298,10 @@ export class ChatComponent implements OnInit {
 
   ngOnDestroy() {
     this.endSidebarResize();
+    // Leaving the chat page must not leave a stale edit session behind —
+    // otherwise re-entering a node editor later would start out "dirty" even
+    // though nothing was changed.
+    this.editSession.abandon();
   }
 
 
