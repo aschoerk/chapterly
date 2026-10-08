@@ -718,6 +718,87 @@ describe('Chat', () => {
     expect(chatService.nodes().find(n => n.id === 'q2')?.parentId).toBe(pastedA.id);
   });
 
+  it('opens the paste-button context menu offering Insert and Append', async () => {
+    await openChapteredStory(); // path: q1 → a1 → q2 → a2
+    const clipboard = TestBed.inject(NodeClipboardService);
+    clipboard.copySequence([chatService.nodes().find(n => n.id === 'q1')!]);
+
+    const a1 = chatService.nodes().find(n => n.id === 'a1')!;
+    component.openNavPasteMenu({
+      clientX: 120,
+      clientY: 80,
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+    } as unknown as MouseEvent, a1);
+
+    const menu = component.navPasteMenu();
+    expect(menu).not.toBeNull();
+    expect(menu!.leftId).toBe('a1');
+    expect(menu!.rightId).toBe('q2');
+
+    const items = component.navPasteMenuItems(menu!);
+    expect(items.length).toBe(2);
+    expect(items[0].label).toContain('Insert');
+    expect(items[1].label).toContain('Append');
+    expect(component.navPasteMenuLeftPx()).toBeGreaterThanOrEqual(8);
+    expect(component.navPasteMenuTopPx()).toBeGreaterThanOrEqual(8);
+  });
+
+  it('appending from the paste-button menu keeps the chain invisible: root under the left node, sibling of the right node', async () => {
+    await openChapteredStory(); // path: q1 → a1 → q2 → a2
+    const clipboard = TestBed.inject(NodeClipboardService);
+    const q1 = chatService.nodes().find(n => n.id === 'q1')!;
+    const a1 = chatService.nodes().find(n => n.id === 'a1')!;
+    clipboard.copySequence([q1, a1]); // chain q1 (root) → a1 (child)
+
+    // Append between a1 (left) and q2 (right): q2 must stay the active child.
+    await component.appendNavSelectionAfter('a1');
+
+    const byContent = (c: string) =>
+      chatService.nodes().filter(n => n.content === c && n.isCurrent);
+    const pastedQ = byContent('Q1').find(n => n.id !== 'q1')!;
+    const pastedA = byContent('Answer one').find(n => n.id !== 'a1')!;
+
+    // the chain root hangs under the LEFT node …
+    expect(pastedQ.parentId).toBe('a1');
+    expect(pastedA.parentId).toBe(pastedQ.id);
+    // … as a SIBLING of the right node — q2 is NOT re-hung under the chain
+    expect(chatService.nodes().find(n => n.id === 'q2')?.parentId).toBe('a1');
+    // the pasted chain never becomes visible in the navbar: the first four
+    // visible nodes stay q1 → a1 → q2 → a2 (a draft follows a2)
+    const ids = chatService.getActivePath().map(n => n.id);
+    expect(ids.slice(0, 4)).toEqual(['q1', 'a1', 'q2', 'a2']);
+    // … but both are siblings under a1 and the chain root comes right before q2
+    const kids = chatService.getChildren('a1').map(n => n.id);
+    expect(kids.indexOf(pastedQ.id) + 1).toBe(kids.indexOf('q2'));
+  });
+
+  it('appending at the end makes the pasted chain visible', async () => {
+    await openChapteredStory(); // path: q1 → a1 → q2 → a2 → [draft]
+    const clipboard = TestBed.inject(NodeClipboardService);
+    const q1 = chatService.nodes().find(n => n.id === 'q1')!;
+    const a1 = chatService.nodes().find(n => n.id === 'a1')!;
+    clipboard.copySequence([q1, a1]); // chain q1 (root) → a1 (child)
+
+    // Paste button behind the LAST visible node → no right node.
+    const lastVisible = chatService.getActivePath().at(-1)!;
+    await component.appendNavSelectionAfter(lastVisible.id);
+
+    const byContent = (c: string) =>
+      chatService.nodes().filter(n => n.content === c && n.isCurrent);
+    const pastedQ = byContent('Q1').find(n => n.id !== 'q1')!;
+    const pastedA = byContent('Answer one').find(n => n.id !== 'a1')!;
+
+    expect(pastedQ.parentId).toBe(lastVisible.id);
+    expect(pastedA.parentId).toBe(pastedQ.id);
+    // with no right node the chain becomes the visible continuation
+    const ids = chatService.getActivePath().map(n => n.id);
+    const qIdx = ids.indexOf(pastedQ.id);
+    expect(qIdx).toBeGreaterThanOrEqual(0);
+    expect(qIdx).toBe(ids.indexOf(lastVisible.id) + 1);
+    expect(ids[qIdx + 1]).toBe(pastedA.id);
+  });
+
   it('normalises navbar selection to a contiguous chain', async () => {
     await openChapteredStory(); // active path ids: q1, a1, q2, a2
     fixture.detectChanges(); // initialise the path-key effect

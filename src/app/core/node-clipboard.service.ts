@@ -291,4 +291,45 @@ export class NodeClipboardService {
     this.chatService.setActiveChild(leftId, root.id);
     return root;
   }
+
+  /**
+   * Append the clipboard chain as a PARALLEL BRANCH instead of splicing it
+   * into the active path: the chain's root hangs under `leftId` and becomes a
+   * sibling of the visible right node (both children of `leftId` — the visible
+   * chain `leftId → rightId` is left untouched). Because the right node stays
+   * the active continuation, the pasted chain is NOT visible in the navbar
+   * when a right node exists. Only when pasted at the very end (no right node)
+   * does the chain become the visible continuation of `leftId`.
+   */
+  async appendIntoPath(leftId: string, rightId: string | null): Promise<ChatNode | null> {
+    const entry = this.clipboard();
+    const chatId = this.chatService.currentChatId();
+    if (!entry || !chatId) return null;
+
+    const created = await this.createNodes(chatId, entry, leftId);
+    if (!created) return null;
+    const { root } = created;
+
+    // The chain's root becomes a sibling of the visible right node — placed
+    // right where the paste button sits (immediately before the right node),
+    // or appended at the end of leftId's children when there is none.
+    const siblings = this.chatService.getChildren(leftId).map(n => n.id);
+    const finalOrder = siblings.filter(id => id !== root.id);
+    let insertAt = finalOrder.length;
+    if (rightId) {
+      const i = finalOrder.indexOf(rightId);
+      if (i >= 0) insertAt = i;
+    }
+    finalOrder.splice(insertAt, 0, root.id);
+    if (finalOrder.length > 1) {
+      await this.chatService.reorderSiblings(chatId, leftId, finalOrder);
+    }
+
+    // Only when pasted at the very end does the chain become the visible
+    // continuation; otherwise the existing right node stays active.
+    if (!rightId) {
+      this.chatService.setActiveChild(leftId, root.id);
+    }
+    return root;
+  }
 }

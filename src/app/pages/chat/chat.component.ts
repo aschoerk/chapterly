@@ -225,20 +225,118 @@ export class ChatComponent implements OnInit {
 
   /** Paste the clipboard chain into the active path right between the node
    *  after which the navbar paste button sits and its successor — the two
-   *  visible nodes left and right of the button. If the button belongs to the
-   *  last visible node, the chain is appended behind it. */
+   *  visible nodes left and right of the button (a simple left click, and
+   *  Ctrl+V on the hovered node). If the button belongs to the last visible
+   *  node, the chain is appended behind it. */
   async pasteNavSelectionAfter(nodeId: string): Promise<void> {
-    if (!this.clipboard.hasContent()) return;
+    const targets = this.navPasteTargets(nodeId);
+    if (!targets) return;
+    await this.pasteChain('insert', targets.leftId, targets.rightId);
+  }
+
+  /** Append the clipboard chain as a PARALLEL BRANCH under the left visible
+   *  node (sibling of the right visible node) instead of splicing it into the
+   *  visible chain. Only made visible when pasted at the very end. */
+  async appendNavSelectionAfter(nodeId: string): Promise<void> {
+    const targets = this.navPasteTargets(nodeId);
+    if (!targets) return;
+    await this.pasteChain('append', targets.leftId, targets.rightId);
+  }
+
+  /** The two visible navbar nodes around a paste button: the node itself
+   *  (left) and the next visible node (right, or null when pasting at the end). */
+  private navPasteTargets(nodeId: string): { leftId: string; rightId: string | null } | null {
+    if (!this.clipboard.hasContent()) return null;
     const path = this.getActivePath();
     const i = path.findIndex(n => n.id === nodeId);
-    if (i < 0) return; // no longer a visible nav node
-    const rightId = i + 1 < path.length ? path[i + 1].id : null;
+    if (i < 0) return null; // no longer a visible nav node
+    return { leftId: nodeId, rightId: i + 1 < path.length ? path[i + 1].id : null };
+  }
+
+  private async pasteChain(
+    mode: 'insert' | 'append',
+    leftId: string,
+    rightId: string | null,
+  ): Promise<void> {
     try {
-      await this.clipboard.insertIntoPath(nodeId, rightId);
+      if (mode === 'insert') {
+        await this.clipboard.insertIntoPath(leftId, rightId);
+      } else {
+        await this.clipboard.appendIntoPath(leftId, rightId);
+      }
     } catch (err: any) {
       console.error(err);
       alert(this.i18n.t('node.pasteFailed', { error: err?.message || err }));
     }
+  }
+
+  // ------------------------------------------------------------------
+  // Context menu on the navbar paste button (right-click)
+  // ------------------------------------------------------------------
+
+  /** Open context menu: { pointer position, left/right visible node }. */
+  readonly navPasteMenu = signal<{
+    x: number;
+    y: number;
+    leftId: string;
+    rightId: string | null;
+  } | null>(null);
+
+  openNavPasteMenu(event: MouseEvent, node: ChatNode): void {
+    const targets = this.navPasteTargets(node.id);
+    if (!targets) return;
+    event.preventDefault();
+    event.stopPropagation();
+    this.navPasteMenu.set({ x: event.clientX, y: event.clientY, ...targets });
+  }
+
+  closeNavPasteMenu(): void {
+    this.navPasteMenu.set(null);
+  }
+
+  navPasteMenuLeftPx(): number {
+    const m = this.navPasteMenu();
+    if (!m) return 0;
+    return Math.max(8, Math.min(m.x, window.innerWidth - 260 - 8));
+  }
+
+  navPasteMenuTopPx(): number {
+    const m = this.navPasteMenu();
+    if (!m) return 0;
+    return Math.max(8, Math.min(m.y, window.innerHeight - 120 - 8));
+  }
+
+  navPasteMenuItems(menu: {
+    leftId: string;
+    rightId: string | null;
+  }): { label: string; hint: string; action: () => void }[] {
+    return [
+      {
+        label: this.i18n.t('node.pasteInsert'),
+        hint: this.i18n.t('node.pasteInsertTitle'),
+        action: () => void this.pasteChain('insert', menu.leftId, menu.rightId),
+      },
+      {
+        label: this.i18n.t('node.pasteAppend'),
+        hint: this.i18n.t('node.pasteAppendTitle'),
+        action: () => void this.pasteChain('append', menu.leftId, menu.rightId),
+      },
+    ];
+  }
+
+  runNavPasteAction(item: { action: () => void }): void {
+    this.closeNavPasteMenu();
+    item.action();
+  }
+
+  @HostListener('window:resize')
+  onNavPasteResize(): void {
+    this.closeNavPasteMenu();
+  }
+
+  @HostListener('document:scroll')
+  onNavPasteScroll(): void {
+    this.closeNavPasteMenu();
   }
 
   private readonly router = inject(Router);
@@ -501,10 +599,17 @@ export class ChatComponent implements OnInit {
   @HostListener('window:keydown', ['$event'])
   onKey(event: KeyboardEvent) {
     // Escape closes the elaborate dialog (same as its Cancel button).
-    if (event.key === 'Escape' && this.showElaborateDialog()) {
-      event.preventDefault();
-      this.cancelElaborate();
-      return;
+    if (event.key === 'Escape') {
+      if (this.showElaborateDialog()) {
+        event.preventDefault();
+        this.cancelElaborate();
+        return;
+      }
+      if (this.navPasteMenu()) {
+        event.preventDefault();
+        this.closeNavPasteMenu();
+        return;
+      }
     }
 
     if (this.isTyping(event)) return;

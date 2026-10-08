@@ -315,6 +315,7 @@
                   @if (clipboard.hasContent()) {
                     <button class="nav-paste-after" type="button"
                             (click)="pasteNavSelectionAfter(node.id); $event.stopPropagation()"
+                            (contextmenu)="openNavPasteMenu($event, node); $event.stopPropagation()"
                             [title]="i18n.t('node.pasteAfterTitle')">
                       ⤵
                     </button>
@@ -325,6 +326,26 @@
                   }
                 }
               </div>
+
+              @if (navPasteMenu(); as menu) {
+                <div class="nav-paste-backdrop" (mousedown)="closeNavPasteMenu()"></div>
+                <div class="nav-paste-menu"
+                     role="menu"
+                     [attr.aria-label]="i18n.t('node.pasteAfterTitle')"
+                     [style.left.px]="navPasteMenuLeftPx()"
+                     [style.top.px]="navPasteMenuTopPx()"
+                     (contextmenu)="$event.preventDefault()">
+                  @for (item of navPasteMenuItems(menu); track $index) {
+                    <button type="button"
+                            class="nav-paste-item"
+                            role="menuitem"
+                            [title]="item.hint"
+                            (click)="runNavPasteAction(item)">
+                      {{ item.label }}
+                    </button>
+                  }
+                </div>
+              }
             </div>
           }
         }
