@@ -76,7 +76,9 @@ export class ChatComponent implements OnInit {
   private navDragMoved = false;
   private navDragAnchor = -1;
   private navDragBase = new Set<string>();
-  private navSelectionChatId: string | null = null;
+  /** Marker for the chat + active-path the current selection refers to.
+   *  Any change (chat switch or a switched child) clears the selection. */
+  private navPathKey = '';
 
   isNavNodeSelected(id: string): boolean {
     return this.navSelectedIds().includes(id);
@@ -114,7 +116,7 @@ export class ChatComponent implements OnInit {
     const range = new Set(path.slice(lo, hi + 1).map(n => n.id));
     const merged = new Set(this.navDragBase);
     for (const id of range) merged.add(id);
-    this.navSelectedIds.set(path.filter(n => merged.has(n.id)).map(n => n.id));
+    this.applyNavSelection(path.filter(n => merged.has(n.id)).map(n => n.id));
   }
 
   onNavPointerLeave(): void {
@@ -134,21 +136,44 @@ export class ChatComponent implements OnInit {
 
   toggleNavSelection(id: string): void {
     const cur = this.navSelectedIds();
-    this.navSelectedIds.set(cur.includes(id) ? cur.filter(x => x !== id) : [...cur, id]);
+    this.applyNavSelection(cur.includes(id) ? cur.filter(x => x !== id) : [...cur, id]);
   }
 
   clearNavSelection(): void {
     this.navSelectedIds.set([]);
   }
 
-  private selectedNavNodes(): ChatNode[] {
-    const byId = new Map(this.chatService.currentNodes().map(n => [n.id, n]));
-    const out: ChatNode[] = [];
-    for (const id of this.navSelectedIds()) {
-      const n = byId.get(id);
-      if (n) out.push(n);
+  /** Keep the selection a contiguous chain of the active path: whatever
+   *  toggling/dragging produces is normalised to the minimal unbroken chain
+   *  covering the involved nodes, so copy/cut/delete always act on one
+   *  continuous run of visible nodes, kept in top-first (path) order. */
+  private applyNavSelection(ids: string[]): void {
+    if (!ids.length) {
+      this.navSelectedIds.set([]);
+      return;
     }
-    return out;
+    const path = this.getActivePath();
+    const index = new Map(path.map((n, i) => [n.id, i]));
+    let lo = Number.POSITIVE_INFINITY;
+    let hi = Number.NEGATIVE_INFINITY;
+    for (const id of ids) {
+      const i = index.get(id);
+      if (i === undefined) continue;
+      if (i < lo) lo = i;
+      if (i > hi) hi = i;
+    }
+    if (hi < lo) {
+      this.navSelectedIds.set([]);
+      return;
+    }
+    this.navSelectedIds.set(path.slice(lo, hi + 1).map(n => n.id));
+  }
+
+  private selectedNavNodes(): ChatNode[] {
+    // Always derive in active-path (top-first) order so cut/delete reparent
+    // left-over children to the chain's topmost surviving ancestor.
+    const selected = new Set(this.navSelectedIds());
+    return this.getActivePath().filter(n => selected.has(n.id));
   }
 
   copyNavSelection(): void {
@@ -182,7 +207,8 @@ export class ChatComponent implements OnInit {
     }
   }
 
-  /** Remove the selected nodes (single nodes only — following text stays). */
+  /** Remove the selected chain (top-first) — left-over children are
+   *  reparented to the chain's topmost surviving ancestor. */
   async deleteNavSelection(): Promise<void> {
     const nodes = this.selectedNavNodes();
     if (!nodes.length) return;
@@ -197,11 +223,18 @@ export class ChatComponent implements OnInit {
     }
   }
 
-  /** Paste the clipboard right after the given navbar node. */
+  /** Paste the clipboard chain into the active path right between the node
+   *  after which the navbar paste button sits and its successor — the two
+   *  visible nodes left and right of the button. If the button belongs to the
+   *  last visible node, the chain is appended behind it. */
   async pasteNavSelectionAfter(nodeId: string): Promise<void> {
     if (!this.clipboard.hasContent()) return;
+    const path = this.getActivePath();
+    const i = path.findIndex(n => n.id === nodeId);
+    if (i < 0) return; // no longer a visible nav node
+    const rightId = i + 1 < path.length ? path[i + 1].id : null;
     try {
-      await this.clipboard.paste(null, nodeId);
+      await this.clipboard.insertIntoPath(nodeId, rightId);
     } catch (err: any) {
       console.error(err);
       alert(this.i18n.t('node.pasteFailed', { error: err?.message || err }));
@@ -342,12 +375,18 @@ export class ChatComponent implements OnInit {
       });
     });
     effect(() => {
-      // Navbar selection only ever refers to the currently open chat.
+      // Navbar selection only ever refers to the currently visible chain: it
+      // is cleared as soon as the chat changes OR a child is switched (the
+      // active path no longer matches what was selected).
       const chatId = this.chatService.currentChatId();
-      if (chatId !== this.navSelectionChatId) {
-        this.navSelectionChatId = chatId;
-        this.navSelectedIds.set([]);
-        this.navClipboardTargetId.set(null);
+      const pathIds = this.chatService.getActivePath().map(n => n.id).join('\u0000');
+      const key = `${chatId ?? ''}::${pathIds}`;
+      if (key !== this.navPathKey) {
+        this.navPathKey = key;
+        if (this.navSelectedIds().length > 0) {
+          this.navSelectedIds.set([]);
+          this.navClipboardTargetId.set(null);
+        }
       }
     });
   }
@@ -871,6 +910,10 @@ export class ChatComponent implements OnInit {
         : Math.max(this.elaborateLast(), 1);
       this.elaborateFirst.set(stick);
       this.elaborateLast.set(stick);
+      // Sticking to the last chapter re-elaborates existing text, so any
+      // characters/hints only make sense for fresh chapters — clear them.
+      this.elaborateNames.set('');
+      this.elaborateHints.set('');
     } else {
       const next = Math.max(state.lastChapter + 1, 1);
       this.elaborateFirst.set(next);

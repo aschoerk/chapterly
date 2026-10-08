@@ -659,34 +659,142 @@ describe('Chat', () => {
     expect(chatService.deletedNodes().some(n => n.id === 'a1')).toBe(true);
   });
 
-  it('pastes a copied sequence behind a node and persists the order', async () => {
-    await openStory();
+  it('pastes a copied chain behind a visible navbar node as its linear continuation', async () => {
+    await openStory(); // path: q1 → a1 → [auto draft]
+    const clipboard = TestBed.inject(NodeClipboardService);
+    const q1 = chatService.nodes().find(n => n.id === 'q1')!;
+    const a1 = chatService.nodes().find(n => n.id === 'a1')!;
+    // whatever followed a1 on the active path (here: the auto-created draft)
+    const rightId = chatService.getActivePath().find(n => n.parentId === a1.id)?.id ?? null;
+    clipboard.copySequence([q1, a1]); // chain q1 (root) → a1 (child)
+
+    await component.pasteNavSelectionAfter('a1');
+
+    const byContent = (c: string) =>
+      chatService.nodes().filter(n => n.content === c && n.isCurrent);
+    const pastedQ = byContent('Question').find(n => n.id !== 'q1')!;
+    const pastedA = byContent('Answer one').find(n => n.id !== 'a1')!;
+
+    // the chain root hangs under the LEFT visible node, subtree kept
+    expect(pastedQ.parentId).toBe('a1');
+    expect(pastedA.parentId).toBe(pastedQ.id);
+    // the node that used to follow a1 now continues behind the chain
+    if (rightId) {
+      expect(chatService.nodes().find(n => n.id === rightId)?.parentId).toBe(pastedA.id);
+    }
+    const ids = chatService.getActivePath().map(n => n.id);
+    expect(ids.slice(0, 3)).toEqual(['q1', a1.id, pastedQ.id]);
+    expect(ids[3]).toBe(pastedA.id);
+  });
+
+  it('pastes a copied chain between the two visible navbar nodes around the paste button', async () => {
+    await openChapteredStory(); // path: q1 → a1 → q2 → a2
     const clipboard = TestBed.inject(NodeClipboardService);
     const q1 = chatService.nodes().find(n => n.id === 'q1')!;
     const a1 = chatService.nodes().find(n => n.id === 'a1')!;
     clipboard.copySequence([q1, a1]); // chain q1 (root) → a1 (child)
 
-    await component.pasteNavSelectionAfter('a2'); // sibling of a1 under q1
+    // the paste button sits between a1 (left) and q2 (right) on the visible chain
+    await component.pasteNavSelectionAfter('a1');
 
     const byContent = (c: string) =>
       chatService.nodes().filter(n => n.content === c && n.isCurrent);
-    const pastedQ = byContent('Question').find(n => n.id !== 'q1' && n.parentId === 'q1')!;
-    const pastedA = byContent('Answer one').find(n => n.id !== 'a1' && n.parentId === pastedQ.id)!;
+    const pastedQ = byContent('Q1').find(n => n.id !== 'q1')!;
+    const pastedA = byContent('Answer one').find(n => n.id !== 'a1')!;
 
-    // subtree relation preserved
-    expect(pastedQ.parentId).toBe('q1');
+    // the chain root hangs under the LEFT node …
+    expect(pastedQ.parentId).toBe('a1');
     expect(pastedA.parentId).toBe(pastedQ.id);
+    // … and the RIGHT node (q2) is re-hung under the chain's last node, so the
+    // chain is spliced into the visible linear order: a1 → chain → q2
+    expect(chatService.nodes().find(n => n.id === 'q2')?.parentId).toBe(pastedA.id);
+    // q2's own subtree (a2) stays untouched under q2
+    expect(chatService.nodes().find(n => n.id === 'a2')?.parentId).toBe('q2');
+    const ids = chatService.getActivePath().map(n => n.id);
+    expect(ids.slice(1, 5)).toEqual([a1.id, pastedQ.id, pastedA.id, 'q2']);
 
-    // the pasted root sits right after a2 among q1's children
-    const kids = chatService.getChildren('q1').map(n => n.id);
-    const a2Idx = kids.indexOf('a2');
-    expect(a2Idx).toBeGreaterThanOrEqual(0);
-    expect(kids[a2Idx + 1]).toBe(pastedQ.id);
-
-    // ordering survives a reload (positions persisted)
+    // both the reparent (patchNode) and the ordering survive a reload
     await chatService.loadNodes('chat-1');
-    const afterReload = chatService.getChildren('q1').map(n => n.id);
-    expect(afterReload[afterReload.indexOf('a2') + 1]).toBe(pastedQ.id);
+    expect(chatService.nodes().find(n => n.id === 'q2')?.parentId).toBe(pastedA.id);
+  });
+
+  it('normalises navbar selection to a contiguous chain', async () => {
+    await openChapteredStory(); // active path ids: q1, a1, q2, a2
+    fixture.detectChanges(); // initialise the path-key effect
+
+    // toggling two non-adjacent nodes fills the gap → one unbroken chain
+    component.toggleNavSelection('q1');
+    component.toggleNavSelection('q2');
+    expect(component.navSelectedIds()).toEqual(['q1', 'a1', 'q2']);
+
+    // deselecting the lower endpoint shrinks the chain to the rest
+    component.toggleNavSelection('q1');
+    expect(component.navSelectedIds()).toEqual(['a1', 'q2']);
+  });
+
+  it('clears the navbar selection as soon as a child is switched', async () => {
+    seedApi(api, {
+      chats: [{ id: 'chat-1', title: 'Story' }],
+      nodes: [
+        { id: 'q1', chatId: 'chat-1', parentId: null, role: 'user', content: 'Q' },
+        { id: 'a1', chatId: 'chat-1', parentId: 'q1', role: 'assistant', content: 'A1' },
+        { id: 'a2', chatId: 'chat-1', parentId: 'q1', role: 'assistant', content: 'A2' },
+        { id: 'a3', chatId: 'chat-1', parentId: 'a1', role: 'assistant', content: 'A3' }
+      ]
+    });
+    await chatService.loadChats();
+    await chatService.selectChat('chat-1');
+    chatService.setActiveChild(null, 'q1');
+    chatService.setActiveChild('q1', 'a1');
+    chatService.setActiveChild('a1', 'a3');
+    fixture.detectChanges(); // initialise the path-key effect
+
+    component.toggleNavSelection('a1');
+    expect(component.isNavNodeSelected('a1')).toBe(true);
+
+    // switching the active child under q1 from a1 to a2 changes the path
+    chatService.setActiveChild('q1', 'a2');
+    fixture.detectChanges();
+    expect(component.navSelectedIds()).toEqual([]);
+    expect(component.isNavNodeSelected('a1')).toBe(false);
+  });
+
+  it('deleting a chain reparents following text to the topmost surviving ancestor', async () => {
+    await openChapteredStory(); // q1 -> a1 -> q2 -> a2
+    fixture.detectChanges();
+
+    component.toggleNavSelection('a1');
+    component.toggleNavSelection('q2');
+    expect(component.navSelectedIds()).toEqual(['a1', 'q2']);
+
+    await component.deleteNavSelection();
+
+    expect(chatService.nodes().find(n => n.id === 'a1')).toBeUndefined();
+    expect(chatService.nodes().find(n => n.id === 'q2')).toBeUndefined();
+    // a2 (the following text) is re-attached under q1 — the chain's
+    // topmost surviving ancestor.
+    expect(chatService.nodes().find(n => n.id === 'a2')?.parentId).toBe('q1');
+    expect(chatService.deletedNodes().some(n => n.id === 'a1')).toBe(true);
+  });
+
+  it('cutting a chain puts the chain in the clipboard and reparents the following text', async () => {
+    await openChapteredStory(); // q1 -> a1 -> q2 -> a2
+    fixture.detectChanges();
+    const clipboard = TestBed.inject(NodeClipboardService);
+    const confirm = TestBed.inject(ConfirmService);
+    vi.spyOn(confirm, 'ask').mockResolvedValue(true);
+
+    component.toggleNavSelection('a1');
+    component.toggleNavSelection('q2');
+    expect(component.navSelectedIds()).toEqual(['a1', 'q2']);
+
+    await component.cutNavSelection();
+
+    expect(clipboard.clipboard()!.nodes.map(n => n.content)).toEqual(['Answer one', 'Q2']);
+    expect(chatService.nodes().find(n => n.id === 'a1')).toBeUndefined();
+    expect(chatService.nodes().find(n => n.id === 'q2')).toBeUndefined();
+    // a2 is re-attached under the topmost surviving ancestor (q1)
+    expect(chatService.nodes().find(n => n.id === 'a2')?.parentId).toBe('q1');
   });
 });
 

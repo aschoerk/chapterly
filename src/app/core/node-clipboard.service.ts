@@ -174,25 +174,17 @@ export class NodeClipboardService {
     this.save(null);
   }
 
-  /**
-   * Paste the clipboard in the currently selected chat.
-   *
-   * When `afterNodeId` is given, the pasted sequence is inserted right after
-   * that sibling (its parent is the target parent). Otherwise the sequence is
-   * appended under `targetParentId` (null = top of the story). Precise ordering
-   * is persisted via a sibling reorder.
-   */
-  async paste(targetParentId: string | null, afterNodeId?: string | null): Promise<ChatNode | null> {
-    const entry = this.clipboard();
-    const chatId = this.chatService.currentChatId();
-    if (!entry || !chatId) return null;
-
-    const parentId = afterNodeId
-      ? this.chatService.currentNodes().find(n => n.id === afterNodeId)?.parentId ?? null
-      : targetParentId;
-
+  /** Create the copied nodes as new nodes under `parentId`, remapping parent
+   *  pointers so the copied chain/tree links are preserved. Returns the root,
+   *  the last (deepest) created node and every created root id. */
+  private async createNodes(
+    chatId: string,
+    entry: ClipboardEntry,
+    parentId: string | null,
+  ): Promise<{ root: ChatNode; last: ChatNode; rootIds: string[] } | null> {
     const idMap = new Map<string, string>();
     let root: ChatNode | null = null;
+    let last: ChatNode | null = null;
     const rootIds: string[] = [];
     const pending = entry.nodes.slice();
 
@@ -216,28 +208,87 @@ export class NodeClipboardService {
       });
       idMap.set(node.id, created.id);
       if (!root) root = created;
+      last = created;
       if (isRoot) rootIds.push(created.id);
     }
+    return root && last ? { root, last, rootIds } : null;
+  }
 
-    if (root) {
-      // Insert the sequence after `afterNodeId` (or append at the end of the siblings).
-      const siblings = this.chatService
-        .getChildren(parentId)
-        .filter((n) => !rootIds.includes(n.id))
-        .map((n) => n.id);
-      let insertAt = siblings.length;
-      if (afterNodeId) {
-        const i = siblings.findIndex((id) => id === afterNodeId);
-        if (i >= 0) insertAt = i + 1;
-      }
-      const finalOrder = [
-        ...siblings.slice(0, insertAt),
-        ...rootIds,
-        ...siblings.slice(insertAt),
-      ];
-      await this.chatService.reorderSiblings(chatId, parentId, finalOrder);
-      this.chatService.setActiveChild(parentId, root.id);
+  /**
+   * Paste the clipboard in the currently selected chat.
+   *
+   * When `afterNodeId` is given, the pasted sequence is inserted right after
+   * that sibling (its parent is the target parent). Otherwise the sequence is
+   * appended under `targetParentId` (null = top of the story). Precise ordering
+   * is persisted via a sibling reorder.
+   */
+  async paste(targetParentId: string | null, afterNodeId?: string | null): Promise<ChatNode | null> {
+    const entry = this.clipboard();
+    const chatId = this.chatService.currentChatId();
+    if (!entry || !chatId) return null;
+
+    const parentId = afterNodeId
+      ? this.chatService.currentNodes().find(n => n.id === afterNodeId)?.parentId ?? null
+      : targetParentId;
+
+    const created = await this.createNodes(chatId, entry, parentId);
+    if (!created) return null;
+    const { root, rootIds } = created;
+
+    // Insert the sequence after `afterNodeId` (or append at the end of the siblings).
+    const siblings = this.chatService
+      .getChildren(parentId)
+      .filter((n) => !rootIds.includes(n.id))
+      .map((n) => n.id);
+    let insertAt = siblings.length;
+    if (afterNodeId) {
+      const i = siblings.findIndex((id) => id === afterNodeId);
+      if (i >= 0) insertAt = i + 1;
     }
+    const finalOrder = [
+      ...siblings.slice(0, insertAt),
+      ...rootIds,
+      ...siblings.slice(insertAt),
+    ];
+    await this.chatService.reorderSiblings(chatId, parentId, finalOrder);
+    this.chatService.setActiveChild(parentId, root.id);
+    return root;
+  }
+
+  /**
+   * Insert the clipboard chain into the ACTIVE PATH (linear reading order)
+   * directly between the two visible nav-bar nodes around the paste button:
+   *
+   *     leftId → [chain] → rightId
+   *
+   * The chain's root hangs under `leftId` and `rightId` (the node that used to
+   * follow `leftId`) is re-hung under the chain's LAST node, so the visible
+   * navbar/tree keeps a continuous chain. When `rightId` is null the chain is
+   * simply appended behind `leftId` (leftId → [chain]).
+   */
+  async insertIntoPath(leftId: string, rightId: string | null): Promise<ChatNode | null> {
+    const entry = this.clipboard();
+    const chatId = this.chatService.currentChatId();
+    if (!entry || !chatId) return null;
+
+    const created = await this.createNodes(chatId, entry, leftId);
+    if (!created) return null;
+    const { root } = created;
+
+    // The right visible node continues under the chain's last node so the
+    // active path stays continuous: leftId → chain → rightId.
+    if (rightId && rightId !== leftId) {
+      await this.chatService.reparentNodes(chatId, [rightId], created.last.id);
+    }
+
+    // Order the chain root first among leftId's children (persisted) and make
+    // it the active continuation.
+    const siblings = this.chatService.getChildren(leftId).map(n => n.id);
+    const finalOrder = [root.id, ...siblings.filter(id => id !== root.id)];
+    if (finalOrder.length > 1) {
+      await this.chatService.reorderSiblings(chatId, leftId, finalOrder);
+    }
+    this.chatService.setActiveChild(leftId, root.id);
     return root;
   }
 }
