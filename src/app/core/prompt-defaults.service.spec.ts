@@ -50,12 +50,16 @@ describe('PromptDefaultsService', () => {
 
   it('render() substitutes placeholders and leaves unknown ones intact', () => {
     expect(service.render('structure.elaborate', { chapter: 4, hints: '' }))
-      .toBe('elaborate on chapter 4');
+      .toBe(`elaborate on chapter 4
+Expand chapter 4 in detail. Use only material that belongs in chapter 4; do not incorporate any events, details, or information from chapters that come after it.
+ `);
     const withName = service.render('structure.elaborate-view', {
       chapter: 2, name: 'Anna', hints: ''
     });
     expect(withName).toBe(
-      'elaborate on chapter 2 out of the view of Anna in first person. Do never repeat text verbatim from previous views in the same chapter.'
+      `Expand chapter 2 in detail. Use only material that belongs in chapter 2; do not incorporate any events, details, or information from chapters that come after it.
+Elaborate the chapter this time out of the view of Anna in first person. Do never repeat content verbatim from previously generated views of the same chapter.
+`
     );
     expect(service.render('image.storyboard', { index: 1, total: 3 })).toContain(
       'render picture 1 of 3'
@@ -65,7 +69,7 @@ describe('PromptDefaultsService', () => {
   it('render() injects the elaborate dialog hints via {{hints}}', () => {
     const hints = '\nFollow these hints from the user: keep it dark';
     expect(service.render('structure.elaborate', { chapter: 4, hints }))
-      .toBe('elaborate on chapter 4\nFollow these hints from the user: keep it dark');
+      .toContain('Follow these hints from the user: keep it dark');
     expect(service.render('structure.elaborate-view', { chapter: 2, name: 'Anna', hints }))
       .toContain('\nFollow these hints from the user: keep it dark');
   });

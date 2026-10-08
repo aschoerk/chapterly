@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideZonelessChangeDetection } from '@angular/core';
 import { provideHttpClient } from '@angular/common/http';
@@ -920,6 +920,112 @@ describe('ChatNodeComponent', () => {
       fixture.detectChanges();
 
       expect(component.contentDraft()).toBe('The hero enters the old tower.');
+    });
+
+    afterEach(() => {
+      // restore getSelection / alert spies installed per-test below
+      vi.restoreAllMocks();
+    });
+
+    it('shows the Rewrite button in the non-edit view (directions and chapters)', async () => {
+      const q1 = node({ id: 'q1', content: 'A direction with some text.' });
+      const a1 = node({
+        id: 'a1', chatId: 'chat-1', parentId: 'q1', role: 'assistant', content: 'The hero enters the old tower.',
+      });
+      await openChat([q1, a1]);
+
+      createFixture(q1);
+      fixture.detectChanges();
+      expect(findButton('Rewrite')).not.toBeNull();
+
+      createFixture(a1);
+      fixture.detectChanges();
+      expect(findButton('Rewrite')).not.toBeNull();
+    });
+
+    it('rewrites a marked fragment from the rendered (non-edit) content as a new version', async () => {
+      const content = 'The hero enters the old tower.';
+      const a1 = node({
+        id: 'a1', chatId: 'chat-1', role: 'assistant', content,
+        modelId: 'alpha/model', providerId: 'prov-1',
+      });
+      const q1 = node({ id: 'q1', content: 'Chapter' });
+      await openChat([q1, a1]);
+      createFixture(a1);
+      fixture.detectChanges();
+
+      const mark = 'the old tower';
+      const readEl = fixture.nativeElement.querySelector('.node-content') as HTMLElement;
+      vi.spyOn(window, 'getSelection').mockReturnValue({
+        isCollapsed: false,
+        rangeCount: 1,
+        anchorNode: readEl,
+        focusNode: readEl,
+        toString: () => mark,
+      } as unknown as Selection);
+
+      (rewriteDialog.open as ReturnType<typeof vi.fn>).mockResolvedValue('a ruined keep');
+      await component.openReadRewriteDialog();
+      fixture.detectChanges();
+
+      const call = (rewriteDialog.open as ReturnType<typeof vi.fn>).mock.calls[0][0] as {
+        fragment?: string; contextMode?: string; modelId?: string; providerId?: string; selectionEnd?: number;
+      };
+      expect(call.fragment).toBe(mark);
+      expect(call.contextMode).toBe('node');
+      expect(call.modelId).toBe('alpha/model');
+      expect(call.providerId).toBe('prov-1');
+      expect(call.selectionEnd).toBe(content.indexOf(mark) + mark.length);
+
+      const saved = chatService.nodes()
+        .find(n => n.role === 'assistant' && n.content === 'The hero enters a ruined keep.');
+      expect(saved).toBeDefined();
+      expect(emitted).toContain(saved!.id);
+    });
+
+    it('rewrites a marked fragment whose rendering collapsed whitespace', async () => {
+      // The mark spans a line break in the source, so the rendered text has a
+      // space where the source has a newline. The lookup must still match.
+      const a1 = node({
+        id: 'a1', chatId: 'chat-1', role: 'assistant', content: 'The hero enters\nthe old tower.',
+      });
+      const q1 = node({ id: 'q1', content: 'Chapter' });
+      await openChat([q1, a1]);
+      createFixture(a1);
+      fixture.detectChanges();
+
+      const readEl = fixture.nativeElement.querySelector('.node-content') as HTMLElement;
+      vi.spyOn(window, 'getSelection').mockReturnValue({
+        isCollapsed: false,
+        rangeCount: 1,
+        anchorNode: readEl,
+        focusNode: readEl,
+        toString: () => 'enters the old tower',
+      } as unknown as Selection);
+
+      (rewriteDialog.open as ReturnType<typeof vi.fn>).mockResolvedValue('climbs the old tower');
+      await component.openReadRewriteDialog();
+      fixture.detectChanges();
+
+      const saved = chatService.nodes()
+        .find(n => n.role === 'assistant' && n.content === 'The hero climbs the old tower.');
+      expect(saved).toBeDefined();
+    });
+
+    it('requires a marked fragment in the rendered content before opening the dialog', async () => {
+      const a1 = node({
+        id: 'a1', chatId: 'chat-1', role: 'assistant', content: 'The hero enters the old tower.',
+      });
+      await openChat([node({ id: 'q1', content: 'Chapter' }), a1]);
+      createFixture(a1);
+      fixture.detectChanges();
+
+      // jsdom exposes no real document selection (always collapsed/empty).
+      await component.openReadRewriteDialog();
+      fixture.detectChanges();
+
+      expect(rewriteDialog.open).not.toHaveBeenCalled();
+      expect(window.alert).toHaveBeenCalledWith(expect.stringContaining('Mark the text'));
     });
   });
 

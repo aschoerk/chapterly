@@ -40,6 +40,24 @@ import { type ImageScene } from '../../core/llm/orchestration';
 import { parseSuggestionVariants } from '../../core/llm/orchestration/evaluators';
 import { type LlmImagePart } from '../../core/llm/llm-message';
 
+/**
+ * Locate a DOM-selected fragment inside the markdown source. Rendering
+ * collapses whitespace (newlines → space, multiple spaces → one), so a plain
+ * indexOf can miss a selection that spans a line break. Fall back to a
+ * whitespace-tolerant regex. Returns the flat index/length of the first match,
+ * or null when the fragment cannot be found.
+ */
+function locateFragmentInSource(source: string, fragment: string): { index: number; length: number } | null {
+  if (!fragment.trim()) return null;
+  const plain = source.indexOf(fragment);
+  if (plain >= 0) return { index: plain, length: fragment.length };
+  const escaped = fragment.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const re = new RegExp(escaped.replace(/\s+/g, '\\s+'));
+  const m = source.match(re);
+  if (m && m.index != null && m[0].length > 0) return { index: m.index, length: m[0].length };
+  return null;
+}
+
 @Component({
   selector: 'app-chat-node',
   standalone: true,
@@ -95,6 +113,7 @@ export class ChatNodeComponent {
 
   private readonly editArea = viewChild<ElementRef<HTMLTextAreaElement>>('editArea');
   private readonly streamEnd = viewChild<ElementRef<HTMLElement>>('streamEnd');
+  private readonly readContent = viewChild<ElementRef<HTMLElement>>('readContent');
 
   readonly isEditing = computed(() =>
     this.editSession.editingNodeId() === this.node().id
@@ -1427,6 +1446,88 @@ export class ChatNodeComponent {
   /** Parse the LLM answer into up to 3 suggestion strings. */
   private parseEnglishVariants(content: string): string[] {
     return parseSuggestionVariants(content);
+  }
+
+  /**
+   * Rewrite a piece of text MARKED in the rendered (non-edit) content.
+   * Captures the current DOM selection inside the node, opens the rewrite
+   * dialog (editable fragment + directions + context scope + model), and when
+   * the dialog returns a text, persists a new version of the node with the
+   * marked range replaced. The marked text is located in the markdown source
+   * whitespace-tolerantly (rendering collapses whitespace), so the rest of the
+   * source — including surrounding markdown formatting — is preserved.
+   */
+  async openReadRewriteDialog(): Promise<void> {
+    if (this.isEditing() || this.isLoading()) return;
+    const contentEl = this.readContent()?.nativeElement;
+    const selection = window.getSelection();
+    if (!contentEl || !selection || selection.isCollapsed || selection.rangeCount === 0) {
+      alert(this.i18n.t('node.rewriteNoSelection'));
+      return;
+    }
+    if (!contentEl.contains(selection.anchorNode) || !contentEl.contains(selection.focusNode)) {
+      alert(this.i18n.t('node.rewriteNoSelection'));
+      return;
+    }
+    const fragment = selection.toString();
+    if (!fragment.trim()) {
+      alert(this.i18n.t('node.rewriteNoSelection'));
+      return;
+    }
+
+    const node = this.node();
+    const source = node.content || '';
+    const loc = locateFragmentInSource(source, fragment);
+    const chatId = this.chatService.currentChatId();
+    const chat = chatId
+      ? this.chatService.chats().find(c => c.id === chatId) ?? null
+      : null;
+    const result = await this.rewriteDialog.open({
+      fragment,
+      // The whole node content is the most useful default context; the user
+      // can narrow it (none / up to the marked part / whole thread) in the dialog.
+      contextMode: 'node',
+      selectionEnd: loc ? loc.index + loc.length : source.length,
+      node,
+      chat,
+      modelId: node.modelId || this.resolvePreferredModelId(node),
+      providerId: node.providerId ?? ''
+    });
+    if (result == null) return; // cancelled
+
+    if (!loc) {
+      alert(this.i18n.t('node.rewriteNoSourceMatch'));
+      return;
+    }
+    const newContent = source.slice(0, loc.index) + result + source.slice(loc.index + loc.length);
+
+    this.isLoading.set(true);
+    this.pendingAction.set('version');
+    try {
+      let saved: ChatNode;
+      if (node.role === 'assistant' || node.role === 'system' || node.role === 'structural') {
+        saved = await this.chatService.editAssistant(
+          chatId!,
+          node.id,
+          newContent,
+          node.attachments || []
+        );
+      } else {
+        saved = await this.chatService.editUser(
+          chatId!,
+          node.id,
+          newContent,
+          node.attachments || []
+        );
+      }
+      this.activate.emit(saved.id);
+    } catch (err: any) {
+      console.error(err);
+      alert(this.i18n.t('node.saveFailed', { error: err?.message || err }));
+    } finally {
+      this.isLoading.set(false);
+      this.pendingAction.set(null);
+    }
   }
 
   /**

@@ -101,6 +101,8 @@ describe('PromptsComponent', () => {
     // Default template keeps the built-in placeholders working.
     defaults.reset('structure.elaborate');
     expect(defaults.render('structure.elaborate', { chapter: 3, hints: '' }))
-      .toBe('elaborate on chapter 3');
+      .toBe(`elaborate on chapter 3
+Expand chapter 3 in detail. Use only material that belongs in chapter 3; do not incorporate any events, details, or information from chapters that come after it.
+ `);
   });
 });

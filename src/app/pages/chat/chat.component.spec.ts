@@ -334,10 +334,13 @@ describe('Chat', () => {
     const nodes = chatService.nodes();
     const questions = nodes.filter(n =>
       n.role === 'user' && n.content?.startsWith('elaborate on chapter'));
-    expect(questions.map(n => n.content)).toEqual([
+    // the generic prompt leads with the chapter line; the rest is the
+    // user-editable "structure.elaborate" template's expansion
+    expect(questions.map(n => (n.content ?? '').split('\n')[0])).toEqual([
       'elaborate on chapter 1',
       'elaborate on chapter 2'
     ]);
+    expect(questions[0].content).toContain('Expand chapter 1 in detail');
 
     // one LLM answer per question, chained head-to-tail. Answers are read via
     // getChildren (editAssistant VERSIONS the placeholder → only the current
@@ -368,20 +371,21 @@ describe('Chat', () => {
 
     await component.confirmElaborate();
 
+    // The character view template starts with the "Expand chapter …" line;
+    // the per-character instruction is the second line.
     const questions = chatService.nodes()
-      .filter(n => n.role === 'user' && n.content?.startsWith('elaborate on chapter'))
+      .filter(n => n.role === 'user' && n.content?.startsWith('Expand chapter'))
       .map(n => n.content ?? '');
-    // only compare the first sentence so that wording changes later do not break the test
-    expect(questions.map(q => q.split('. ')[0])).toEqual([
-      'elaborate on chapter 1 out of the view of Anna in first person',
-      'elaborate on chapter 1 out of the view of Ben in first person'
+    expect(questions.map(q => q.split('\n')[1])).toEqual([
+      'Elaborate the chapter this time out of the view of Anna in first person. Do never repeat content verbatim from previously generated views of the same chapter.',
+      'Elaborate the chapter this time out of the view of Ben in first person. Do never repeat content verbatim from previously generated views of the same chapter.'
     ]);
 
     // still sequential: the second character hangs under the first answer
     const q1 = chatService.nodes().find(n =>
-      n.content.indexOf('elaborate on chapter 1 out of the view of Anna in first person') !== -1)!;
+      n.content.indexOf('view of Anna in first person') !== -1)!;
     const q2 = chatService.nodes().find(n =>
-      n.content.indexOf('elaborate on chapter 1 out of the view of Ben in first person') !== -1) !;
+      n.content.indexOf('view of Ben in first person') !== -1) !;
     const a1 = chatService.getChildren(q1.id).find(n => n.role === 'assistant')!;
     expect(q2.parentId).toBe(a1.id);
     expect(orch.completion).toHaveBeenCalledTimes(2);
@@ -401,10 +405,13 @@ describe('Chat', () => {
     const questions = chatService.nodes()
       .filter(n => n.role === 'user' && n.content?.startsWith('elaborate on chapter'))
       .map(n => n.content ?? '');
-    expect(questions).toEqual([
-      'elaborate on chapter 1\nFollow these hints from the user: dark, melancholic tone',
-      'elaborate on chapter 2\nFollow these hints from the user: dark, melancholic tone'
+    expect(questions.map(q => q.split('\n')[0])).toEqual([
+      'elaborate on chapter 1',
+      'elaborate on chapter 2'
     ]);
+    for (const q of questions) {
+      expect(q).toContain('Follow these hints from the user: dark, melancholic tone');
+    }
     expect(orch.completion).toHaveBeenCalledTimes(2);
   });
 
@@ -549,7 +556,7 @@ describe('Chat', () => {
     await component.confirmElaborate();
 
     const nodes = chatService.nodes();
-    const q1 = nodes.find(n => n.role === 'user' && n.content === 'elaborate on chapter 1')!;
+    const q1 = nodes.find(n => n.role === 'user' && n.content?.startsWith('elaborate on chapter 1'))!;
     expect(q1.modelId).toBe('beta/model');
     expect(q1.providerId).toBe('prov-2');
     const a1 = chatService.getChildren(q1.id).find(n => n.role === 'assistant')!;
@@ -787,7 +794,7 @@ describe('Chat · elaborate with real streaming', () => {
       .filter(n => n.role === 'user' && n.content?.startsWith('elaborate on chapter'))
       .map(n => n.content)
       .sort();
-    expect(questions).toEqual([
+    expect(questions.map(q => q.split('\n')[0])).toEqual([
       'elaborate on chapter 1',
       'elaborate on chapter 2'
     ]);
@@ -795,7 +802,7 @@ describe('Chat · elaborate with real streaming', () => {
 
     // The active path must follow the whole elaboration chain (chapters 1 and 2),
     // not get re-pointed to a stray draft under the first answer.
-    const q2 = chatService.nodes().find(n => n.content === 'elaborate on chapter 2')!;
+    const q2 = chatService.nodes().find(n => n.content?.startsWith('elaborate on chapter 2'))!;
     // chapter-1 answer is the parent of chapter-2's question
     const a1 = chatService.nodes().find(n => n.id === q2.parentId)!;
     const a2 = chatService.nodes().find(n =>

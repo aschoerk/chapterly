@@ -341,11 +341,11 @@
         <div class="node-content empty-draft click-to-edit"
              [title]="i18n.t('node.clickToWrite')"
              (click)="onContentClick($event)">
-          <div class="node-content"
+          <div #readContent class="node-content"
                [innerHTML]="renderedHtml()"></div>
         </div>
       } @else {
-        <div class="node-content"
+        <div #readContent class="node-content"
              [innerHTML]="renderedHtml()"></div>
       }
     } @else if (isThinkingLive()) {
@@ -537,6 +537,20 @@
           <span>{{ i18n.t('node.copy') }}</span>
         }
       </button>
+      @if (node().content?.trim()) {
+        <button class="btn-icon" type="button"
+                [disabled]="isLoading()"
+                (mousedown)="$event.preventDefault()"
+                (click)="openReadRewriteDialog(); $event.stopPropagation()"
+                [title]="i18n.t('node.rewriteTitle')">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M13 3l8 8-9.5 9.5a2 2 0 0 1-1 .55L5 22l1-5.5a2 2 0 0 1 .55-1L16 6"/>
+            <path d="M13 3l2 2-8 8"/>
+            <path d="M13 3l-2.5 2.5"/>
+          </svg>
+          <span>{{ i18n.t('node.rewrite') }}</span>
+        </button>
+      }
       @if (node().role === 'user' && !isUnsentQuestion()) {
         <button class="btn-icon"
               type="button"
