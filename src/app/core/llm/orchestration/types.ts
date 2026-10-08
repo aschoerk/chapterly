@@ -36,6 +36,17 @@ import { ModelEntry, ProviderConfig } from '../../../models/chat-config';
  *                          (from `vars.promptText`); no planning — the prompt
  *                          IS the concrete scene. Used by the "adapt prompt
  *                          & re-render" flow.
+ *  7. image-send         — no storyboard: create ONE image from marked text +
+ *                          a chat-specific constant (combined in
+ *                          `vars.promptText`) sent AS-IS to the image model,
+ *                          plus optional reference images (`vars.attachments`)
+ *                          forwarded as image_url parts when present. Unlike
+ *                          every other illustration use case the model usually
+ *                          sees only text; the reference images only appear
+ *                          when the user attached them. No planning, no
+ *                          drawing-instruction template. Used by the "Create
+ *                          image of a selection" dialog on chapter nodes; the
+ *                          picture is attached to the assistant node.
  *  structure-title      — generate a story TITLE from ALL current chapters
  *                          and wrap the story under it (structural node at
  *                          the root + the title becomes the chat title).
@@ -91,6 +102,7 @@ export type UsecaseKind =
   | 'render-full'
   | 'render-node'
   | 'image-generation'
+  | 'image-send'
   | 'structure-title'
   | 'structure-overview'
   | 'structure-heading'
@@ -277,7 +289,9 @@ export interface UsecaseVars {
    *  content for structural flows. */
   content?: string;
   /** For `append-with-images`: the user node's attachments (the images to
-   *  interpret). The current node's own attachments are used when absent. */
+   *  interpret). The current node's own attachments are used when absent.
+   *  For `image-send`: the reference images attached in the dialog, forwarded
+   *  to the image model as image_url parts. */
   attachments?: NodeAttachment[];
   /** Structural flows: nodes to re-parent under the fresh answer. */
   adoptNodeIds?: string[];

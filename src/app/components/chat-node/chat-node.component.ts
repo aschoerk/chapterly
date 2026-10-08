@@ -31,6 +31,7 @@ import { ModelEntry, ProviderConfig, canGenerateImages } from '../../models/chat
 import { IllustrateDialogService } from '../../core/illustrate-dialog.service';
 import { PrependDialogService } from '../../core/prepend-dialog.service';
 import { RewriteDialogService } from '../../core/rewrite-dialog.service';
+import { CreateImageDialogService } from '../../core/create-image-dialog.service';
 import { IllustrateOptions } from '../../models/illustrate-options';
 import { LightboxService } from '../../core/lightbox.service';
 import { LlmUseCaseRunner } from '../../core/llm/orchestration';
@@ -93,6 +94,7 @@ export class ChatNodeComponent implements OnDestroy {
   private readonly illustrateDialog = inject(IllustrateDialogService);
   private readonly lightbox = inject(LightboxService);
   private readonly rewriteDialog = inject(RewriteDialogService);
+  private readonly createImageDialog = inject(CreateImageDialogService);
 
   private readonly confirm = inject(ConfirmService);
   readonly i18n = inject(I18nService);
@@ -1556,6 +1558,153 @@ export class ChatNodeComponent implements OnDestroy {
   }
 
   /**
+   * Create an image of a piece of text MARKED in the rendered chapter content.
+   * Captures the current DOM selection inside the ASSISTANT node, opens the
+   * "Create image" dialog (chat-specific constant + the marked text, both
+   * editable, plus optional reference images + the image model), and when the
+   * dialog confirms, sends the combined text AS-IS (with any reference images)
+   * to the image model. The created picture is attached to the assistant node
+   * via `editAssistant` (versioned), exactly like the illustration flow.
+   *
+   * Unlike `illustrate` there is NO planning and NO drawing-instruction
+   * template — "send it as it is" is the point of this action; reference
+   * images only ever appear when the user attached them.
+   */
+  async openReadCreateImageDialog(): Promise<void> {
+    if (this.isEditing() || this.isLoading()) return;
+    const node = this.node();
+    if (node.role !== 'assistant') return;
+    const chatId = this.chatService.currentChatId();
+    if (!chatId) return;
+
+    const contentEl = this.readContent()?.nativeElement;
+    const selection = window.getSelection();
+    if (!contentEl || !selection || selection.isCollapsed || selection.rangeCount === 0 ||
+        !contentEl.contains(selection.anchorNode) || !contentEl.contains(selection.focusNode)) {
+      alert(this.i18n.t('node.createImageNoSelection'));
+      return;
+    }
+    const script = selection.toString();
+    if (!script.trim()) {
+      alert(this.i18n.t('node.createImageNoSelection'));
+      return;
+    }
+
+    // Default image-producing model from the settings (image-create task,
+    // fallback: the first enabled image-capable model).
+    let defaultModel = this.generation.modelFor('image-create');
+    let defaultProvider = this.generation.providerFor('image-create');
+    if (!defaultModel || !defaultProvider) {
+      const fallback = this.enabledModels().find(canGenerateImages);
+      if (fallback) {
+        defaultModel = fallback;
+        defaultProvider = this.settings.providers().find(p => p.id === fallback.providerId) ?? null;
+      }
+    }
+    if (!defaultModel || !defaultProvider) {
+      alert(this.i18n.t('node.imageModelMissing'));
+      return;
+    }
+
+    const chat = this.chatService.chats().find(c => c.id === chatId) ?? null;
+    const result = await this.createImageDialog.open({
+      chatId,
+      chat,
+      node,
+      script,
+      modelId: defaultModel.modelId,
+      providerId: defaultModel.providerId
+    });
+    if (!result) return; // cancelled
+
+    // The text is sent AS-IS: the chat constant (always shown) followed by
+    // the marked text, with the reference images attached as image parts.
+    const prompt = [result.constant.trim(), result.script.trim()]
+      .filter(Boolean)
+      .join('\n\n');
+    if (!prompt.trim() && result.images.length === 0) {
+      alert(this.i18n.t('createImageDialog.empty'));
+      return;
+    }
+
+    this.isLoading.set(true);
+    this.pendingAction.set('image');
+    this.imageProgress.set(null);
+    try {
+      const build = {
+        chat,
+        node,
+        usecase: 'image-send' as const,
+        vars: {
+          promptText: prompt,
+          attachments: result.images,
+          count: 1,
+          modelId: result.modelId || defaultModel.modelId,
+          providerId: (result.modelId && result.providerId)
+            ? result.providerId
+            : defaultModel.providerId
+        }
+      };
+      const slots = await this.runner.run(build);
+
+      const scenes = slots.storyboard?.value ?? [];
+      const images = slots.images?.value ?? [];
+      if (scenes.length === 0 && images.length > 0) {
+        // No per-scene records but images came back (defensive).
+        scenes.push({ scene: 1, prompt, images, refused: false });
+      }
+      if (slots.error?.status === 'error' && scenes.length === 0) {
+        const reason = slots.error.reason ?? '';
+        if (/image model/i.test(reason)) {
+          alert(this.i18n.t('node.imageModelMissing'));
+          return;
+        }
+        throw new Error(reason || this.i18n.t('node.imageEmpty'));
+      }
+
+      const generated = buildIllustrationAttachments(scenes, prompt)
+        .map(x => ({ ...x, id: x.id || newId() }));
+      if (generated.length === 0) {
+        const reply = (scenes[0]?.content ?? '').trim()
+          || (slots.text?.value ?? '').trim();
+        throw new Error(
+          reply
+            ? `${this.i18n.t('node.imageEmpty')} — ${reply.slice(0, 300)}`
+            : this.i18n.t('node.imageEmpty')
+        );
+      }
+
+      // Attach the created picture (+ the prompt record) to the chapter node.
+      const merged = [...(node.attachments ?? []), ...generated];
+      const saved = await this.chatService.editAssistant(
+        chatId,
+        node.id,
+        node.content || '',
+        merged,
+        node.thinking ?? undefined
+      );
+      this.activate.emit(saved.id);
+
+      if (images.length === 0) {
+        // Everything refused — the refused-prompt record was saved so the
+        // prompt stays findable; still inform the user.
+        const reply = (scenes[0]?.content ?? '').trim()
+          || (slots.text?.value ?? '').trim();
+        alert(reply
+          ? `${this.i18n.t('node.imageEmpty')} — ${reply.slice(0, 300)}`
+          : this.i18n.t('node.imageEmpty'));
+      }
+    } catch (err: any) {
+      console.error(err);
+      alert(this.i18n.t('node.imageFailed', { error: err?.message || err }));
+    } finally {
+      this.isLoading.set(false);
+      this.pendingAction.set(null);
+      this.imageProgress.set(null);
+    }
+  }
+
+  /**
    * Delete this assistant answer and its subtree, then resend the parent
    * user request. Confirms first when the answer already has children.
    */
@@ -1845,7 +1994,8 @@ export class ChatNodeComponent implements OnDestroy {
         { label: this.i18n.t('node.ctxHeading'), action: () => void this.generateHeading(), disabled: busy },
         { label: this.i18n.t('node.ctxRegenerate'), action: () => void this.regenerateAnswer(), disabled: busy },
         { label: this.i18n.t('node.ctxRegenerateInPlace'), action: () => void this.regenerateInPlace(), disabled: busy },
-        { label: this.i18n.t('node.ctxIllustrate'), action: () => void this.illustrate(), disabled: busy || !this.canIllustrate() }
+        { label: this.i18n.t('node.ctxIllustrate'), action: () => void this.illustrate(), disabled: busy || !this.canIllustrate() },
+        { label: this.i18n.t('node.ctxCreateImage'), action: () => void this.openReadCreateImageDialog(), disabled: busy || !n.content?.trim() }
       );
     } else if (n.role === 'user') {
       if (this.showClosedContinue()) {

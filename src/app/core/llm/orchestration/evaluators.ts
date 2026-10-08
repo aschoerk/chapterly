@@ -346,7 +346,7 @@ export function evaluateImagesResponse(args: EvaluateArgs): EvalSlots {
   const images = extractLlmImages(args.raw);
   out.images = images.length
     ? makeSlot('ok', images, undefined, { prompt: args.prompt, scene: args.scene })
-    : refusedSlot<import('../llm-message').LlmImagePart[]>('(no image returned)', { prompt: args.prompt, scene: args.scene });
+    : refusedSlot<import('../llm-message').LlmImagePart[]>(refusalText(args.raw), { prompt: args.prompt, scene: args.scene });
   return out;
 }
 

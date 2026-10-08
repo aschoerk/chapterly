@@ -1,0 +1,88 @@
+@if (dialog.current(); as d) {
+  <div
+    class="cimg-backdrop"
+    (click)="onBackdrop($event)"
+    (keydown)="onKey($event)"
+    tabindex="0"
+  >
+    <div
+      class="cimg-dialog"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="cimg-title"
+      (click)="$event.stopPropagation()"
+    >
+      <h3 id="cimg-title">{{ i18n.t('createImageDialog.title') }}</h3>
+      <p class="cimg-hint">{{ i18n.t('createImageDialog.hint') }}</p>
+
+      <label class="cimg-field">
+        <span class="cimg-label">{{ i18n.t('createImageDialog.constantLabel') }}</span>
+        <textarea
+          rows="3"
+          [ngModel]="constant()"
+          (ngModelChange)="constant.set($event)"
+          [placeholder]="i18n.t('createImageDialog.constantPh')"
+        ></textarea>
+      </label>
+
+      <label class="cimg-field">
+        <span class="cimg-label">{{ i18n.t('createImageDialog.scriptLabel') }}</span>
+        <textarea
+          rows="4"
+          [ngModel]="script()"
+          (ngModelChange)="script.set($event)"
+          [placeholder]="i18n.t('createImageDialog.scriptPh')"
+        ></textarea>
+      </label>
+
+      <div class="cimg-field">
+        <span class="cimg-label">{{ i18n.t('createImageDialog.imagesLabel') }}</span>
+        <div class="cimg-chips">
+          @for (img of images(); track img.id) {
+            <div class="chip">
+              <img [src]="img.dataUrl" class="thumb" [alt]="img.name" />
+              <span class="name" [title]="img.name">{{ img.name }}</span>
+              <button type="button" class="remove"
+                      [title]="i18n.t('createImageDialog.removeImage')"
+                      (click)="removeImage(img.id)">×</button>
+            </div>
+          }
+          <button class="btn-icon add-attach" type="button"
+                  [title]="i18n.t('createImageDialog.addImage')"
+                  (click)="imageFileInput.click()">
+            📎
+          </button>
+          <input #imageFileInput
+                 type="file"
+                 multiple
+                 hidden
+                 accept="image/*"
+                 (change)="onFilesSelected($event)" />
+        </div>
+        <small class="cimg-hint">{{ i18n.t('createImageDialog.imagesHint') }}</small>
+      </div>
+
+      <label class="cimg-field cimg-model">
+        <span class="cimg-label">{{ i18n.t('createImageDialog.modelLabel') }}</span>
+        <select
+          [ngModel]="modelId()"
+          (ngModelChange)="onModelChange($event)"
+          [title]="i18n.t('createImageDialog.modelTitle')"
+        >
+          @for (m of imageModels(); track m.id) {
+            <option [value]="m.modelId">{{ m.displayName }}</option>
+          }
+        </select>
+      </label>
+
+      <div class="cimg-actions">
+        <button class="btn" type="button" (click)="dialog.cancel()">
+          {{ i18n.t('common.cancel') }}
+        </button>
+        <button class="btn primary" type="button" (click)="submit()">
+          {{ i18n.t('createImageDialog.send') }}
+        </button>
+      </div>
+    </div>
+  </div>
+}

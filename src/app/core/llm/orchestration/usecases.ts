@@ -1,10 +1,11 @@
 import { Injectable, inject } from '@angular/core';
-import type { ChatMessage } from '../../../models/chat';
+import type { ChatMessage, NodeAttachment } from '../../../models/chat';
 import type { EvalSlots, ImageScene, LlmImagePart, UsecaseContext, UsecaseKind, UsecaseVars } from './types';
 import { UsecaseContextFactory, type BuildContext, type ModelRef } from './context';
 import { LlmOrchestratorService, type PrimitiveOptions } from './orchestrator';
 import { makeSlot, okSlot } from './slots';
 import { isFlowUsecase, LlmFlowRunner, prepareTextSend } from './flows';
+import { isImageMime, resolvedMime, type MessagePart } from '../llm-message';
 
 /**
  * Runtime environment handed to every use-case controller: the static
@@ -445,6 +446,51 @@ async function imageGeneration(env: UsecaseEnv): Promise<EvalSlots> {
 }
 
 // ---------------------------------------------------------------------------
+// 7. image-send — create an image from marked text + a chat constant
+// (combined in `vars.promptText`) sent AS-IS to the image model, plus optional
+// reference images (`vars.attachments`) forwarded as image_url parts. That is
+// explicitly NOT like the illustration use cases: no planning pass and NO
+// drawing-instruction template — the prompt is exactly what the user typed in
+// the dialog. Reference images are forwarded ONLY when the user attached them
+// (they are occasional references, not the primary input). The picture is
+// attached to the assistant node by the caller.
+// ---------------------------------------------------------------------------
+/** The image_url message parts of the reference images attached in the dialog. */
+function referenceImageParts(attachments: NodeAttachment[] | undefined | null): MessagePart[] {
+  const parts: MessagePart[] = [];
+  for (const a of attachments ?? []) {
+    if (isImageMime(resolvedMime(a)) && a.dataUrl?.startsWith('data:') && a.dataUrl.includes(',')) {
+      parts.push({ type: 'image_url', image_url: { url: a.dataUrl } });
+    }
+  }
+  return parts;
+}
+
+async function imageSend(env: UsecaseEnv): Promise<EvalSlots> {
+  const prompt = (env.cx.vars.promptText ?? '').trim();
+  const refs = referenceImageParts(env.cx.vars.attachments);
+  let messages: ChatMessage[];
+  if (refs.length > 0) {
+    messages = [{
+      role: 'user',
+      content: [
+        { type: 'text', text: prompt || 'See the attached reference image(s).' },
+        ...refs
+      ]
+    }];
+  } else {
+    messages = [{ role: 'user', content: prompt || '(no text)' }];
+  }
+  const slots = await env.orch.completeImage(env.cx, {
+    model: env.render.model,
+    provider: env.render.provider,
+    messages,
+    extras: env.imageExtras
+  }, { expect: 'images', prompt, signal: env.signal });
+  return wrapImagesAsStoryboard(slots, prompt, 1);
+}
+
+// ---------------------------------------------------------------------------
 // Shared planning step (IDENTICAL code for the two planned use cases; the
 // planning prompt/prefix is passed in by the caller).
 // ---------------------------------------------------------------------------
@@ -540,6 +586,7 @@ const CONTROLLERS: Partial<Record<UsecaseKind, UsecaseController>> = {
   'render-full': renderFull,
   'render-node': renderNode,
   'image-generation': imageGeneration,
+  'image-send': imageSend,
   'append': append,
   'append-with-images': appendWithImages
 };

@@ -19,6 +19,7 @@ import { decodeDataUrlToText } from '../../core/llm/llm-message';
 import { IllustrateDialogService } from '../../core/illustrate-dialog.service';
 import { PrependDialogService } from '../../core/prepend-dialog.service';
 import { RewriteDialogService } from '../../core/rewrite-dialog.service';
+import { CreateImageDialogService } from '../../core/create-image-dialog.service';
 import { LlmUseCaseRunner, LlmOrchestratorService } from '../../core/llm/orchestration';
 
 /** Thin aliases over the shared test-helpers factories. */
@@ -49,6 +50,7 @@ describe('ChatNodeComponent', () => {
   let illustrateDialog: { open: ReturnType<typeof vi.fn>; current: ReturnType<typeof vi.fn> };
   let prependDialog: { open: ReturnType<typeof vi.fn>; current: ReturnType<typeof vi.fn> };
   let rewriteDialog: { open: ReturnType<typeof vi.fn>; current: ReturnType<typeof vi.fn> };
+  let createImageDialog: { open: ReturnType<typeof vi.fn>; current: ReturnType<typeof vi.fn> };
   let runner: { run: ReturnType<typeof vi.fn> };
   let orch: {
     completion: ReturnType<typeof vi.fn>;
@@ -97,6 +99,13 @@ describe('ChatNodeComponent', () => {
         },
         {
           provide: RewriteDialogService,
+          useValue: {
+            open: vi.fn(async () => null),
+            current: vi.fn(() => null)
+          }
+        },
+        {
+          provide: CreateImageDialogService,
           useValue: {
             open: vi.fn(async () => null),
             current: vi.fn(() => null)
@@ -198,6 +207,10 @@ describe('ChatNodeComponent', () => {
       current: ReturnType<typeof vi.fn>;
     };
     rewriteDialog = TestBed.inject(RewriteDialogService) as unknown as {
+      open: ReturnType<typeof vi.fn>;
+      current: ReturnType<typeof vi.fn>;
+    };
+    createImageDialog = TestBed.inject(CreateImageDialogService) as unknown as {
       open: ReturnType<typeof vi.fn>;
       current: ReturnType<typeof vi.fn>;
     };
@@ -1026,6 +1039,151 @@ describe('ChatNodeComponent', () => {
 
       expect(rewriteDialog.open).not.toHaveBeenCalled();
       expect(window.alert).toHaveBeenCalledWith(expect.stringContaining('Mark the text'));
+    });
+  });
+
+  // ------------------------------------------------------------------
+  // Create image from a selection (assistant chapters)
+  // ------------------------------------------------------------------
+
+  describe('create image (selection)', () => {
+    afterEach(() => {
+      // restore getSelection spies installed per-test below
+      vi.restoreAllMocks();
+    });
+
+    function seedImageModel(): void {
+      const generation = TestBed.inject(GenerationSettingsService);
+      generation.update('image-create', { providerId: 'prov-1', modelId: 'alpha/model' });
+    }
+
+    it('shows the Create image button only for assistant chapters with content', async () => {
+      const q1 = node({ id: 'q1', content: 'A direction.' });
+      const a1 = node({
+        id: 'a1', chatId: 'chat-1', parentId: 'q1', role: 'assistant', content: 'The hero enters the old tower.',
+      });
+      await openChat([q1, a1]);
+
+      createFixture(q1);
+      fixture.detectChanges();
+      expect(findButton('Create image')).toBeNull();
+
+      createFixture(a1);
+      fixture.detectChanges();
+      expect(findButton('Create image')).not.toBeNull();
+    });
+
+    it('requires a marked fragment in the rendered content before opening the dialog', async () => {
+      const a1 = node({
+        id: 'a1', chatId: 'chat-1', role: 'assistant', content: 'The hero enters the old tower.',
+      });
+      await openChat([node({ id: 'q1', content: 'Chapter' }), a1]);
+      createFixture(a1);
+      fixture.detectChanges();
+
+      // jsdom exposes no real document selection (always collapsed/empty).
+      await component.openReadCreateImageDialog();
+      fixture.detectChanges();
+
+      expect(createImageDialog.open).not.toHaveBeenCalled();
+      expect(window.alert).toHaveBeenCalledWith(expect.stringContaining('Mark the text'));
+    });
+
+    it('opens the dialog with the marked text + the configured image model and attaches the created picture', async () => {
+      const content = 'The hero enters the old tower.';
+      const a1 = node({
+        id: 'a1', chatId: 'chat-1', role: 'assistant', content,
+        modelId: 'alpha/model', providerId: 'prov-1',
+      });
+      const q1 = node({ id: 'q1', content: 'Chapter' });
+      await openChat([q1, a1]);
+      seedImageModel();
+      createFixture(a1);
+      fixture.detectChanges();
+
+      const mark = 'the old tower';
+      const readEl = fixture.nativeElement.querySelector('.node-content') as HTMLElement;
+      vi.spyOn(window, 'getSelection').mockReturnValue({
+        isCollapsed: false,
+        rangeCount: 1,
+        anchorNode: readEl,
+        focusNode: readEl,
+        toString: () => mark,
+      } as unknown as Selection);
+
+      // The dialog is confirmed with a chat constant + the marked text + one
+      // reference image.
+      (createImageDialog.open as ReturnType<typeof vi.fn>).mockResolvedValue({
+        constant: 'noir ink drawing',
+        script: mark,
+        images: [attachment({
+          id: 'ref1', name: 'memo.png', mimeType: 'image/png',
+          dataUrl: 'data:image/png;base64,REF'
+        })],
+        modelId: 'alpha/model',
+        providerId: 'prov-1'
+      });
+      await component.openReadCreateImageDialog();
+      fixture.detectChanges();
+
+      // The dialog was seeded with the marked text + the default model.
+      const call = (createImageDialog.open as ReturnType<typeof vi.fn>).mock.calls[0][0] as {
+        script?: string; modelId?: string; providerId?: string; node?: { id?: string };
+      };
+      expect(call.script).toBe(mark);
+      expect(call.modelId).toBe('alpha/model');
+      expect(call.providerId).toBe('prov-1');
+      expect(call.node?.id).toBe('a1');
+
+      // Routes through the orchestration `image-send` use case; the prompt is
+      // the combined constant + marked text, the reference image is forwarded.
+      expect(runner.run).toHaveBeenCalledTimes(1);
+      const build = runner.run.mock.calls[0][0] as {
+        usecase?: string;
+        vars?: { promptText?: string; attachments?: unknown[]; count?: number; modelId?: string };
+      };
+      expect(build.usecase).toBe('image-send');
+      expect(build.vars?.promptText).toBe('noir ink drawing\n\nthe old tower');
+      expect(build.vars?.attachments).toHaveLength(1);
+      expect(build.vars?.count).toBe(1);
+      expect(build.vars?.modelId).toBe('alpha/model');
+
+      // The created picture (illustration + prompt record) is attached to the
+      // assistant node via editAssistant (versioned — find the node carrying
+      // the new attachment).
+      const versioned = chatService.nodes().find(n => n.role === 'assistant'
+        && n.attachments?.some(a => a.name === 'illustration-1.png'));
+      expect(versioned).toBeDefined();
+      expect(versioned!.attachments!.some(a => a.name === 'prompt-1.txt')).toBe(true);
+      expect(emitted).toContain(versioned!.id);
+    });
+
+    it('does nothing when the dialog is cancelled', async () => {
+      const a1 = node({
+        id: 'a1', chatId: 'chat-1', role: 'assistant', content: 'The hero enters the old tower.',
+      });
+      const q1 = node({ id: 'q1', content: 'Chapter' });
+      await openChat([q1, a1]);
+      seedImageModel();
+      createFixture(a1);
+      fixture.detectChanges();
+
+      const readEl = fixture.nativeElement.querySelector('.node-content') as HTMLElement;
+      vi.spyOn(window, 'getSelection').mockReturnValue({
+        isCollapsed: false,
+        rangeCount: 1,
+        anchorNode: readEl,
+        focusNode: readEl,
+        toString: () => 'the old tower',
+      } as unknown as Selection);
+
+      (createImageDialog.open as ReturnType<typeof vi.fn>).mockResolvedValueOnce(null);
+      await component.openReadCreateImageDialog();
+      fixture.detectChanges();
+
+      expect(runner.run).not.toHaveBeenCalled();
+      const chapter = chatService.nodes().find(n => n.role === 'assistant' && n.content === 'The hero enters the old tower.')!;
+      expect(chapter.attachments?.length ?? 0).toBe(0);
     });
   });
 
@@ -3346,6 +3504,7 @@ describe('ChatNodeComponent', () => {
         'Regenerate',
         'Rewrite in place',
         'Illustrate',
+        'Create image of selection…',
         'Remove section',
         'Delete section & following',
       ]);

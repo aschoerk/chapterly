@@ -1342,6 +1342,146 @@ describe('LLM orchestration — image-generation (explicit single picture)', () 
   });
 });
 
+describe('LLM orchestration — image-send (create image from text, occasional reference images)', () => {
+  let api: InMemoryChatApi;
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    localStorage.clear();
+    api = new InMemoryChatApi();
+    seedApi(api, {
+      providers: [{ id: 'prov-1' }],
+      models: [
+        { id: 'img', displayName: 'Image', modelId: 'vendor/image', architecture: { input_modalities: [], output_modalities: ['image'] } }
+      ]
+    });
+    fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    TestBed.resetTestingModule();
+  });
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  function completionImage(n: number): Response {
+    return {
+      ok: true, status: 200,
+      json: async () => ({ choices: [{ message: { images: Array.from({ length: n }).map((_, i) => ({ type: 'image_url', image_url: { url: `data:image/png;base64,IMG${i}` } })) } }] })
+    } as unknown as Response;
+  }
+
+  async function setup() {
+    await TestBed.configureTestingModule({
+      providers: [
+        provideZonelessChangeDetection(),
+        provideHttpClient(),
+        { provide: CHAT_API, useValue: api }
+      ]
+    }).compileComponents();
+    TestBed.inject(I18nService).setLocale('en');
+    const settings = TestBed.inject(SettingsService);
+    await settings.loadAll();
+    const generation = TestBed.inject(GenerationSettingsService);
+    generation.update('image-create', { providerId: 'prov-1', modelId: 'vendor/image' });
+
+    const chatService = TestBed.inject(ChatService);
+    const uid = 'u1';
+    const aid = 'a1';
+    const now = new Date().toISOString();
+    api.chats.push({ id: 'chat-1', title: 'Story', projectId: null, node_number: 2, created_at: now, updated_at: now });
+    api.nodes = [
+      makeNode({ id: uid, chatId: 'chat-1', parentId: null, role: 'user', content: 'A direction.' }),
+      makeNode({ id: aid, chatId: 'chat-1', parentId: uid, role: 'assistant', content: 'A chapter.', isCurrent: true })
+    ];
+    await chatService.loadChats();
+    await chatService.selectChat('chat-1');
+    return { aid, uid, now, runner: TestBed.inject(LlmUseCaseRunner) };
+  }
+
+  it('sends the combined constant + marked text AS-IS (no drawing instruction, no refs)', async () => {
+    fetchMock.mockResolvedValueOnce(completionImage(1));
+    const { aid, uid, now, runner } = await setup();
+
+    const prompt = 'noir ink drawing\n\nthe hero climbs the tower';
+    const slots = await runner.run({
+      chat: { id: 'chat-1', title: 'Story', projectId: null, node_number: 2, created_at: now, updated_at: now },
+      node: makeNode({ id: aid, chatId: 'chat-1', parentId: uid, role: 'assistant', content: 'A chapter.', isCurrent: true }),
+      usecase: 'image-send',
+      vars: { promptText: prompt, count: 1 }
+    });
+
+    // Exactly one image-model call — no planning, no drawing-instruction
+    // template prepended. The message content is the EXACT user text.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const body = JSON.parse((fetchMock.mock.calls[0][1] as { body: string }).body) as {
+      messages: { role: string; content: unknown }[];
+    };
+    expect(body.messages).toHaveLength(1);
+    expect(body.messages[0].content).toBe(prompt);
+    expect(JSON.stringify(body)).not.toContain('image_url'); // no refs → text only
+
+    const storyboard = slots.storyboard?.value ?? [];
+    expect(storyboard).toHaveLength(1);
+    expect(storyboard[0].prompt).toBe(prompt);
+    expect(storyboard[0].prompt).not.toContain('Illustrate this beat');
+    expect(storyboard[0].refused).toBe(false);
+    expect(slots.images?.value).toHaveLength(1);
+
+    // Postprocess → illustration-1 + prompt-1 records.
+    const post = TestBed.inject(LlmPostprocessorService);
+    const plan = post.plan(slots, { chat: { id: 'chat-1' } as never, node: makeNode({ id: aid, role: 'assistant' }) as never, usecase: 'image-send', vars: {} });
+    expect(plan).not.toBeNull();
+    expect(plan?.attachments.some(a => a.name === 'illustration-1.png')).toBe(true);
+    expect(plan?.attachments.some(a => a.name === 'prompt-1.txt')).toBe(true);
+  });
+
+  it('forwards reference images as image_url parts when attached', async () => {
+    fetchMock.mockResolvedValueOnce(completionImage(1));
+    const { aid, uid, now, runner } = await setup();
+
+    const ref = makeAttachment({
+      id: 'ref1', name: 'memo.png', mimeType: 'image/png',
+      dataUrl: 'data:image/png;base64,REFIMAGE'
+    });
+    const slots = await runner.run({
+      chat: { id: 'chat-1', title: 'Story', projectId: null, node_number: 2, created_at: now, updated_at: now },
+      node: makeNode({ id: aid, chatId: 'chat-1', parentId: uid, role: 'assistant', content: 'A chapter.', isCurrent: true }),
+      usecase: 'image-send',
+      vars: { promptText: 'make a variant of this', count: 1, attachments: [ref] as never }
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const body = JSON.parse((fetchMock.mock.calls[0][1] as { body: string }).body) as {
+      messages: { content: unknown }[];
+    };
+    const serialized = JSON.stringify(body.messages);
+    expect(serialized).toContain('image_url');
+    expect(serialized).toContain('REFIMAGE');
+    expect(serialized).toContain('make a variant of this');
+
+    expect(slots.images?.value).toHaveLength(1);
+  });
+
+  it('turns a moderation refusal into a refused scene with the reason', async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: true, status: 200, json: async () => ({ choices: [{ message: { refusal: 'I cannot draw that' } }] })
+    } as unknown as Response);
+    const { aid, uid, now, runner } = await setup();
+
+    const slots = await runner.run({
+      chat: { id: 'chat-1', title: 'Story', projectId: null, node_number: 2, created_at: now, updated_at: now },
+      node: makeNode({ id: aid, chatId: 'chat-1', parentId: uid, role: 'assistant', content: 'A chapter.', isCurrent: true }),
+      usecase: 'image-send',
+      vars: { promptText: 'something the model refuses', count: 1 }
+    });
+
+    const storyboard = slots.storyboard?.value ?? [];
+    expect(storyboard[0].refused).toBe(true);
+    expect((storyboard[0].content ?? '').toLowerCase()).toContain('cannot draw');
+    expect(slots.images?.status).toBe('refused');
+    expect(slots.images?.value).toBeNull();
+  });
+});
+
 describe('LLM orchestration — orchestrator does not throw (error → slots)', () => {
   let orch: LlmOrchestratorService;
   let fetchMock: ReturnType<typeof vi.fn>;
