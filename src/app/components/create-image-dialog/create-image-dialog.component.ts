@@ -54,8 +54,21 @@ export class CreateImageDialogComponent {
       this.constant.set(s.constant);
       this.script.set(s.script);
       this.images.set(s.images ?? []);
-      this.modelId.set(s.modelId);
-      this.providerId.set(s.providerId);
+      // The remembered model (from the last dialog use) is pre-selected; when
+      // it is no longer enabled, fall back to the caller-provided default
+      // (settings task model) — also skipping it when that is unavailable.
+      const available = this.imageModels();
+      const remembered = s.modelId
+        && available.some(m => m.modelId === s.modelId || m.id === s.modelId);
+      if (remembered) {
+        this.modelId.set(s.modelId);
+        this.providerId.set(s.providerId);
+        return;
+      }
+      const fallback = s.defaultModelId
+        && available.some(m => m.modelId === s.defaultModelId || m.id === s.defaultModelId);
+      this.modelId.set(fallback ? s.defaultModelId : '');
+      this.providerId.set(fallback ? s.defaultProviderId : '');
     });
   }
 

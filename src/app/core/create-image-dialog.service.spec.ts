@@ -10,10 +10,12 @@ import { NodeAttachment } from '../models/chat';
 
 const LS_CONSTANT = 'chat.createImage.constantByChatId';
 const LS_IMAGES = 'chat.createImage.imagesByChatId';
+const LS_MODEL = 'chat.createImage.model.v1';
 
 function clearStorage(): void {
   localStorage.removeItem(LS_CONSTANT);
   localStorage.removeItem(LS_IMAGES);
+  localStorage.removeItem(LS_MODEL);
 }
 
 function makeImage(partial: Partial<NodeAttachment> = {}): NodeAttachment {
@@ -143,5 +145,46 @@ describe('CreateImageDialogService', () => {
     });
     await promise;
     expect(JSON.parse(localStorage.getItem(LS_IMAGES)!)).toEqual({});
+  });
+
+  it('remembers the last-selected model and prefers it on the next open', async () => {
+    // The caller passes the settings default; the user then picks another model.
+    const p1 = service.open({
+      chatId: 'chat-1', chat: null, node: makeNode({ role: 'assistant' }), script: 'x',
+      modelId: 'alpha/image', providerId: 'prov-1'
+    });
+    service.submit({
+      constant: 'c', script: 'x', images: [], modelId: 'beta/image', providerId: 'prov-2'
+    });
+    await p1;
+
+    // The chosen model is stored.
+    expect(JSON.parse(localStorage.getItem(LS_MODEL)!)).toEqual({
+      modelId: 'beta/image', providerId: 'prov-2'
+    });
+
+    // The next open (even with a different caller default) uses the remembered
+    // model; the caller default is kept as the fallback.
+    const p2 = service.open({
+      chatId: 'chat-1', chat: null, node: makeNode({ role: 'assistant' }), script: 'y',
+      modelId: 'alpha/image', providerId: 'prov-1'
+    });
+    expect(service.current()?.modelId).toBe('beta/image');
+    expect(service.current()?.providerId).toBe('prov-2');
+    expect(service.current()?.defaultModelId).toBe('alpha/image');
+    expect(service.current()?.defaultProviderId).toBe('prov-1');
+    service.cancel();
+    await p2;
+  });
+
+  it('falls back to the caller default when no model was remembered yet', async () => {
+    const promise = service.open({
+      chatId: 'chat-1', chat: null, node: makeNode({ role: 'assistant' }), script: 'x',
+      modelId: 'alpha/image', providerId: 'prov-1'
+    });
+    expect(service.current()?.modelId).toBe('alpha/image');
+    expect(service.current()?.defaultModelId).toBe('alpha/image');
+    service.cancel();
+    await promise;
   });
 });

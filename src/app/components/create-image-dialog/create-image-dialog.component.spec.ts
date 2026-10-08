@@ -37,6 +37,10 @@ describe('CreateImageDialogComponent', () => {
           architecture: { input_modalities: ['text'], output_modalities: ['image'] }
         },
         {
+          id: 'm-img2', displayName: 'Second Image', modelId: 'beta/image',
+          architecture: { input_modalities: ['text'], output_modalities: ['image'] }
+        },
+        {
           id: 'm-txt', displayName: 'Texter', modelId: 'beta/text',
           architecture: { input_modalities: ['text'], output_modalities: ['text'] }
         }
@@ -151,5 +155,68 @@ describe('CreateImageDialogComponent', () => {
     dialog.cancel();
     await expect(p).resolves.toBeNull();
     expect(component.images()).toHaveLength(0);
+  });
+
+  it('preselects the remembered model over the caller default', async () => {
+    // A previous dialog run picked beta/image; the caller default is alpha/image.
+    localStorage.setItem('chat.createImage.model.v1', JSON.stringify({
+      modelId: 'beta/image', providerId: 'prov-1'
+    }));
+
+    const p = dialog.open({
+      chatId: 'chat-1',
+      chat: { id: 'chat-1', title: 'Story', projectId: null, node_number: 1, created_at: '', updated_at: '' },
+      node: makeNode({ id: 'a1', role: 'assistant', content: 'A chapter.' }),
+      script: 'the old tower',
+      modelId: 'alpha/image',
+      providerId: 'prov-1'
+    });
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    // beta/image is still enabled → preselected even though the caller passed
+    // alpha/image as the default.
+    expect(component.modelId()).toBe('beta/image');
+    const select = fixture.nativeElement.querySelector('select') as HTMLSelectElement;
+    expect(select.value).toBe('beta/image');
+    dialog.cancel();
+    await p;
+  });
+
+  it('falls back to the caller default when the remembered model is no longer enabled', async () => {
+    // The remembered model is not in the enabled image models anymore.
+    localStorage.setItem('chat.createImage.model.v1', JSON.stringify({
+      modelId: 'gone/image', providerId: 'prov-9'
+    }));
+
+    const p = openState(); // caller default alpha/image, which IS enabled
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(component.modelId()).toBe('alpha/image');
+    const select = fixture.nativeElement.querySelector('select') as HTMLSelectElement;
+    expect(select.value).toBe('alpha/image');
+    dialog.cancel();
+    await p;
+  });
+
+  it('submit() persists the selected model for the next dialog', async () => {
+    const p = openState();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    // The user picks a different image model.
+    component.onModelChange('alpha/image');
+    component.script.set('a ruined keep');
+    component.submit();
+    await p;
+
+    expect(JSON.parse(localStorage.getItem('chat.createImage.model.v1')!)).toEqual({
+      modelId: 'alpha/image',
+      providerId: 'prov-1'
+    });
   });
 });

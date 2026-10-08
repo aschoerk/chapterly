@@ -10,12 +10,42 @@ import { estimateDataUrlBytes } from './llm/llm-message';
  */
 const LS_CONSTANT = 'chat.createImage.constantByChatId';
 const LS_IMAGES = 'chat.createImage.imagesByChatId';
+/** Last image-producing model selected in the dialog (remembered for the next run). */
+const LS_MODEL = 'chat.createImage.model.v1';
 /**
  * Safety cap for the reference images persisted PER CHAT (localStorage quota).
  * Images attached beyond this byte total still work for the current send —
  * they are simply not remembered for the next dialog open.
  */
 const MAX_PERSISTED_BYTES = 3_000_000;
+
+/** A remembered model choice (id + provider). */
+interface RememberedModel {
+  modelId: string;
+  providerId: string;
+}
+
+function readModel(): RememberedModel {
+  try {
+    const raw = localStorage.getItem(LS_MODEL);
+    const parsed = raw ? JSON.parse(raw) : null;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return { modelId: '', providerId: '' };
+    return {
+      modelId: typeof parsed.modelId === 'string' ? parsed.modelId : '',
+      providerId: typeof parsed.providerId === 'string' ? parsed.providerId : ''
+    };
+  } catch {
+    return { modelId: '', providerId: '' };
+  }
+}
+
+function writeModel(model: RememberedModel): void {
+  try {
+    localStorage.setItem(LS_MODEL, JSON.stringify(model));
+  } catch {
+    // storage may be unavailable (private mode / quota) — best-effort.
+  }
+}
 
 /** What the user confirms in the "Create image of a selection" dialog. */
 export interface CreateImageResult {
@@ -37,6 +67,10 @@ export interface CreateImageState extends CreateImageResult {
   chat: Chat | null;
   /** The assistant node the picture will be attached to. */
   node: ChatNode;
+  /** The caller-provided default model (settings task) — used when the
+   *  remembered model is no longer enabled. */
+  defaultModelId: string;
+  defaultProviderId: string;
   /** Collect the modal result. Resolves null when the user cancels. */
   resolve: (value: CreateImageResult | null) => void;
 }
@@ -119,8 +153,10 @@ export class CreateImageDialogService {
   /**
    * Open the dialog for the marked text of an assistant node. The chat-specific
    * constant (and the previously attached reference images) of that chat are
-   * loaded from localStorage and pre-filled. Resolves with the confirmed
-   * result, or null when the user cancels.
+   * loaded from localStorage and pre-filled. The last image model selected in
+   * the dialog is remembered (localStorage) and wins over the caller-provided
+   * default (the settings task model) — so repeated calls need no reselection.
+   * Resolves with the confirmed result, or null when the user cancels.
    */
   open(opts: {
     chatId: string;
@@ -132,6 +168,7 @@ export class CreateImageDialogService {
   }): Promise<CreateImageResult | null> {
     const constants = readConstantMap();
     const imagesMap = readImagesMap();
+    const remembered = readModel();
     return new Promise(resolve => {
       this.current.set({
         chatId: opts.chatId,
@@ -140,14 +177,19 @@ export class CreateImageDialogService {
         script: opts.script,
         constant: typeof constants[opts.chatId] === 'string' ? constants[opts.chatId] : '',
         images: imagesMap[opts.chatId] ?? [],
-        modelId: opts.modelId,
-        providerId: opts.providerId,
+        // Remembered model wins; the caller default stays available as the
+        // fallback when the remembered model is no longer enabled.
+        modelId: remembered.modelId || opts.modelId,
+        providerId: remembered.providerId || opts.providerId,
+        defaultModelId: opts.modelId,
+        defaultProviderId: opts.providerId,
         resolve
       });
     });
   }
 
-  /** Confirm: remember the constant + reference images for this chat and resolve. */
+  /** Confirm: remember the constant + reference images + the model for this
+   *  chat and resolve. */
   submit(result: CreateImageResult): void {
     const cur = this.current();
     if (!cur) return; // no dialog open — the values are just not resolved
@@ -165,6 +207,12 @@ export class CreateImageDialogService {
       delete imagesMap[cur.chatId];
     }
     writeImagesMap(imagesMap);
+
+    // Remember the selected image model for the next dialog run.
+    writeModel({
+      modelId: (result.modelId ?? '').trim(),
+      providerId: (result.providerId ?? '').trim()
+    });
 
     this.current.set(null);
     cur.resolve(result);
