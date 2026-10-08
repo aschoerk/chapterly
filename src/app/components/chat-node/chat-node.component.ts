@@ -1,5 +1,5 @@
 import {
-  Component, inject, input, output, signal, effect, afterRenderEffect,
+  Component, HostListener, OnDestroy, inject, input, output, signal, effect, afterRenderEffect,
   viewChild, ElementRef, Provider, computed
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
@@ -58,6 +58,20 @@ function locateFragmentInSource(source: string, fragment: string): { index: numb
   return null;
 }
 
+/** A single command shown in the node right-click (context) menu. */
+interface CtxMenuItem {
+  /** Translated display text. */
+  label: string;
+  /** Invoked when the item is chosen (the menu closes first). */
+  action: () => void;
+  /** Destructive styling (remove / delete). */
+  danger?: boolean;
+  /** Shown greyed-out and not clickable. */
+  disabled?: boolean;
+  /** Separator row, not an action. */
+  divider?: boolean;
+}
+
 @Component({
   selector: 'app-chat-node',
   standalone: true,
@@ -65,7 +79,7 @@ function locateFragmentInSource(source: string, fragment: string): { index: numb
   templateUrl: './chat-node.component.html',
   styleUrl: './chat-node.component.css'
 })
-export class ChatNodeComponent {
+export class ChatNodeComponent implements OnDestroy {
   private readonly settings = inject(SettingsService);
   public readonly markdownService = inject(MarkdownService);
   readonly chatService = inject(ChatService);
@@ -114,6 +128,17 @@ export class ChatNodeComponent {
   private readonly editArea = viewChild<ElementRef<HTMLTextAreaElement>>('editArea');
   private readonly streamEnd = viewChild<ElementRef<HTMLElement>>('streamEnd');
   private readonly readContent = viewChild<ElementRef<HTMLElement>>('readContent');
+  private readonly ctxMenuEl = viewChild<ElementRef<HTMLElement>>('ctxMenu');
+
+  /** Viewport coordinates of the open right-click menu, or null when closed. */
+  readonly ctxMenu = signal<{ x: number; y: number } | null>(null);
+  /** Measured size of the open menu, used to clamp it into the viewport. */
+  private readonly ctxSize = signal<{ w: number; h: number } | null>(null);
+  /**
+   * The chat-node whose context menu is currently open. Only one menu is open
+   * at a time — opening a new one closes the previous (keeps the DOM clean).
+   */
+  private static openMenu: ChatNodeComponent | null = null;
 
   readonly isEditing = computed(() =>
     this.editSession.editingNodeId() === this.node().id
@@ -1730,6 +1755,163 @@ export class ChatNodeComponent {
     this.activate.emit(next.id);
   }
 
+  // ------------------------------------------------------------------
+  // Right-click context menu (browser right-click)
+  // ------------------------------------------------------------------
+
+  /**
+   * Open the in-app context menu at the pointer position. The browser native
+   * menu is suppressed for the node; right-clicking inside the editor
+   * (cut/copy/paste) or on rendered links/images keeps the native menu.
+   */
+  openNodeMenu(event: MouseEvent): void {
+    if (this.isNativeContextTarget(event.target as HTMLElement | null)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    // Only one node menu at a time: close the previously open one (if any)
+    // before opening this node's menu.
+    if (ChatNodeComponent.openMenu && ChatNodeComponent.openMenu !== this) {
+      ChatNodeComponent.openMenu.closeCtxMenu();
+    }
+    ChatNodeComponent.openMenu = this;
+    this.ctxMenu.set({ x: event.clientX, y: event.clientY });
+    this.ctxSize.set(null); // re-measure once the menu renders
+  }
+
+  /** Suppress the native menu on the custom menu itself. */
+  preventCtxDefault(event: MouseEvent): void {
+    event.preventDefault();
+    event.stopPropagation();
+  }
+
+  closeCtxMenu(): void {
+    if (ChatNodeComponent.openMenu === this) {
+      ChatNodeComponent.openMenu = null;
+    }
+    this.ctxMenu.set(null);
+    this.ctxSize.set(null);
+  }
+
+  private isNativeContextTarget(el: HTMLElement | null): boolean {
+    if (!el) return false;
+    // Editor internals (cut/copy/paste) and rendered links / images have no
+    // equivalent in the custom menu — keep the browser menu for them.
+    return !!el.closest('textarea, input, select, a, img, .file-link');
+  }
+
+  /** Position the menu at the pointer (left), clamped inside the viewport. */
+  ctxMenuLeftPx(): number {
+    const menu = this.ctxMenu();
+    if (!menu) return 0;
+    const w = this.ctxSize()?.w ?? 220;
+    return Math.max(8, Math.min(menu.x, window.innerWidth - w - 8));
+  }
+
+  /** Position the menu at the pointer (top), clamped inside the viewport. */
+  ctxMenuTopPx(): number {
+    const menu = this.ctxMenu();
+    if (!menu) return 0;
+    const h = this.ctxSize()?.h ?? 320;
+    return Math.max(8, Math.min(menu.y, window.innerHeight - h - 8));
+  }
+
+  /** Build the menu rows for the current node (role- and state-aware). */
+  ctxMenuItems(): CtxMenuItem[] {
+    const n = this.node();
+    const busy = this.isLoading() || this.chatService.isGenerating(n.id);
+
+    // Common: every node can be copied / edited.
+    const common: CtxMenuItem[] = [
+      { label: this.i18n.t('node.ctxCopy'), action: () => void this.copyContent() },
+      { label: this.i18n.t('node.ctxEdit'), action: () => void this.startEdit() }
+    ];
+    if (n.content?.trim()) {
+      common.push({
+        label: this.i18n.t('node.ctxRewriteSelection'),
+        action: () => void this.openReadRewriteDialog()
+      });
+    }
+    if (this.priorVersions().length) {
+      common.push({
+        label: this.i18n.t('node.ctxPriorVersions'),
+        action: () => this.showPriorVersions.set(!this.showPriorVersions())
+      });
+    }
+
+    // Role-specific actions — mirror the toolbar buttons' availability.
+    const roleItems: CtxMenuItem[] = [];
+    if (n.role === 'assistant') {
+      roleItems.push(
+        { label: this.i18n.t('node.ctxHeading'), action: () => void this.generateHeading(), disabled: busy },
+        { label: this.i18n.t('node.ctxRegenerate'), action: () => void this.regenerateAnswer(), disabled: busy },
+        { label: this.i18n.t('node.ctxRegenerateInPlace'), action: () => void this.regenerateInPlace(), disabled: busy },
+        { label: this.i18n.t('node.ctxIllustrate'), action: () => void this.illustrate(), disabled: busy || !this.canIllustrate() }
+      );
+    } else if (n.role === 'user') {
+      if (this.showClosedContinue()) {
+        roleItems.push({
+          label: this.i18n.t('node.ctxContinue'),
+          action: () => void this.continueDraft(),
+          disabled: this.isLoading()
+        });
+      }
+      if (!this.isUnsentQuestion()) {
+        roleItems.push({
+          label: this.i18n.t('node.ctxPrepend'),
+          action: () => void this.openPrependDialog(),
+          disabled: this.isLoading()
+        });
+      }
+      roleItems.push({
+        label: this.i18n.t('node.ctxIllustrate'),
+        action: () => void this.illustrate(),
+        disabled: busy || !this.canIllustrate()
+      });
+    }
+
+    // Destructive actions, always last.
+    const dangerItems: CtxMenuItem[] = [
+      { label: this.i18n.t('node.ctxRemove'), action: () => void this.deleteNodeOnly(), danger: true, disabled: busy },
+      { label: this.i18n.t('node.ctxDelete'), action: () => void this.deleteNode(), danger: true, disabled: busy }
+    ];
+
+    const result: CtxMenuItem[] = [];
+    const pushGroup = (items: CtxMenuItem[]) => {
+      if (!items.length) return;
+      if (result.length) {
+        result.push({ label: '', action: () => undefined, divider: true });
+      }
+      result.push(...items);
+    };
+    pushGroup(common);
+    pushGroup(roleItems);
+    pushGroup(dangerItems);
+    return result;
+  }
+
+  /** Close the menu, then run the chosen action (if it is enabled). */
+  runCtxAction(item: CtxMenuItem): void {
+    if (item.divider || item.disabled) return;
+    this.closeCtxMenu();
+    item.action();
+  }
+
+  @HostListener('document:keydown.escape')
+  onCtxEscape(): void {
+    this.closeCtxMenu();
+  }
+
+  @HostListener('window:resize')
+  onCtxResize(): void {
+    this.closeCtxMenu();
+  }
+
+  // The page scrolled under the open menu (wheel, keyboard, live scroll) — close it.
+  @HostListener('document:scroll')
+  onCtxScroll(): void {
+    this.closeCtxMenu();
+  }
+
 
   private buildContextMessagesUpTo(parentId: string | null): ChatMessage[] {
     if (!parentId) return [];
@@ -1774,6 +1956,27 @@ export class ChatNodeComponent {
         this.followLive();
       }
     });
+
+    // Measure the open context menu so it can be clamped into the viewport.
+    afterRenderEffect(() => {
+      const menu = this.ctxMenu();
+      const el = this.ctxMenuEl()?.nativeElement;
+      if (menu && el) {
+        const w = el.offsetWidth;
+        const h = el.offsetHeight;
+        const size = this.ctxSize();
+        if (!size || size.w !== w || size.h !== h) {
+          this.ctxSize.set({ w, h });
+        }
+      }
+    });
+  }
+
+  ngOnDestroy(): void {
+    // Release the shared open-menu handle when this node unmounts.
+    if (ChatNodeComponent.openMenu === this) {
+      ChatNodeComponent.openMenu = null;
+    }
   }
 
   /**

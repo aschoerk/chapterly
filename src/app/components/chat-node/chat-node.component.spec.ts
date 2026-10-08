@@ -3270,4 +3270,154 @@ describe('ChatNodeComponent', () => {
       expect(chapter.attachments?.some(a => a.name.startsWith('illustration-'))).toBe(true);
     });
   });
+
+  // ------------------------------------------------------------------
+  // Right-click context menu
+  // ------------------------------------------------------------------
+
+  describe('right-click context menu', () => {
+    /** A minimal right-click event with viewport coordinates + a target. */
+    function ctxEvent(el: HTMLElement | null = null, x = 120, y = 90) {
+      return {
+        preventDefault: vi.fn(),
+        stopPropagation: vi.fn(),
+        clientX: x,
+        clientY: y,
+        target: el ?? fixture.nativeElement.querySelector('.node'),
+      } as unknown as MouseEvent;
+    }
+
+    it('opens the menu at the pointer and suppresses the native menu', () => {
+      createFixture(node({ role: 'assistant', content: 'Chapter' }));
+      const ev = ctxEvent();
+      component.openNodeMenu(ev);
+
+      expect(ev.preventDefault).toHaveBeenCalled();
+      expect(component.ctxMenu()).toEqual({ x: 120, y: 90 });
+      fixture.detectChanges();
+      expect(fixture.nativeElement.querySelector('.context-menu')).not.toBeNull();
+    });
+
+    it('keeps the native menu for editor internals and links/images', () => {
+      createFixture(node({ role: 'assistant', content: 'Chapter' }));
+      const targets: HTMLElement[] = [];
+      for (const sel of ['textarea', 'input', 'select', 'a', 'img']) {
+        targets.push(document.createElement(sel));
+      }
+      const link = document.createElement('a');
+      link.className = 'file-link';
+      targets.push(link);
+
+      for (const el of targets) {
+        const ev = { preventDefault: vi.fn(), clientX: 10, clientY: 10, target: el } as unknown as MouseEvent;
+        component.openNodeMenu(ev);
+        expect(ev.preventDefault).not.toHaveBeenCalled();
+        expect(component.ctxMenu()).toBeNull();
+      }
+    });
+
+    it('lists the common + destructive actions for a structure node', () => {
+      createFixture(node({ role: 'structural', content: '' }));
+      const items = component.ctxMenuItems();
+      expect(items.filter((i) => !i.divider).map((i) => i.label)).toEqual([
+        'Copy',
+        'Edit',
+        'Remove section',
+        'Delete section & following',
+      ]);
+      expect(items.filter((i) => i.divider).length).toBe(1);
+    });
+
+    it('lists the assistant actions (heading, regenerate, illustrate) grouped with separators', async () => {
+      const q1 = node({ id: 'q1', content: 'Question' });
+      const a1 = node({
+        id: 'a1', chatId: 'chat-1', parentId: 'q1', role: 'assistant', content: 'Chapter',
+        modelId: 'alpha/model', providerId: 'prov-1',
+      });
+      await openChat([q1, a1]);
+      createFixture(a1);
+
+      const items = component.ctxMenuItems();
+      expect(items.filter((i) => !i.divider).map((i) => i.label)).toEqual([
+        'Copy',
+        'Edit',
+        'Rewrite selection…',
+        'Add heading',
+        'Regenerate',
+        'Rewrite in place',
+        'Illustrate',
+        'Remove section',
+        'Delete section & following',
+      ]);
+      expect(items.filter((i) => i.divider).length).toBe(2);
+      // The regenerate action is enabled (nothing is generating).
+      expect(items.find((i) => i.label === 'Regenerate')?.disabled).toBe(false);
+    });
+
+    it('gives an unsent question the Continue item and no Prepend', async () => {
+      const q1 = node({ id: 'q1', content: '' });
+      await openChat([q1]);
+      createFixture(q1);
+
+      const labels = component.ctxMenuItems().filter((i) => !i.divider).map((i) => i.label);
+      expect(labels).toContain('Continue');
+      expect(labels).not.toContain('Prepend director');
+    });
+
+    it('runs an item action and closes the menu', () => {
+      createFixture(node({ role: 'assistant', content: 'Copy me' }));
+      component.openNodeMenu(ctxEvent());
+      fixture.detectChanges();
+      expect(component.ctxMenu()).not.toBeNull();
+
+      const copyItem = component.ctxMenuItems().find((i) => i.label === 'Copy')!;
+      const copySpy = vi
+        .spyOn(component, 'copyContent')
+        .mockResolvedValue(undefined);
+      component.runCtxAction(copyItem);
+      fixture.detectChanges();
+
+      expect(copySpy).toHaveBeenCalled();
+      expect(component.ctxMenu()).toBeNull();
+    });
+
+    it('ignores disabled and divider items', () => {
+      createFixture(node({ role: 'user', content: 'x' }));
+      const copyItem = component.ctxMenuItems().find((i) => i.label === 'Copy')!;
+      copyItem.disabled = true;
+      const copySpy = vi
+        .spyOn(component, 'copyContent')
+        .mockResolvedValue(undefined);
+      const dividerAction = vi.fn();
+
+      component.runCtxAction(copyItem);
+      component.runCtxAction({ label: '', action: dividerAction, divider: true });
+
+      expect(copySpy).not.toHaveBeenCalled();
+      expect(dividerAction).not.toHaveBeenCalled();
+    });
+
+    it('closes on Escape', () => {
+      createFixture(node({ content: 'x' }));
+      component.openNodeMenu(ctxEvent());
+      fixture.detectChanges();
+      expect(component.ctxMenu()).not.toBeNull();
+
+      component.onCtxEscape();
+      expect(component.ctxMenu()).toBeNull();
+    });
+
+    it('clamps the position into the viewport', () => {
+      createFixture(node({ role: 'assistant', content: 'Chapter' }));
+      component.openNodeMenu(ctxEvent(undefined, 10_000, 10_000));
+      fixture.detectChanges();
+
+      const left = component.ctxMenuLeftPx();
+      const top = component.ctxMenuTopPx();
+      expect(left).toBeLessThan(window.innerWidth);
+      expect(top).toBeLessThan(window.innerHeight);
+      expect(left).toBeGreaterThanOrEqual(8);
+      expect(top).toBeGreaterThanOrEqual(8);
+    });
+  });
 });

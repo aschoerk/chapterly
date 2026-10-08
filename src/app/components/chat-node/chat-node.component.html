@@ -5,7 +5,8 @@
   [class.structural-node]="node().role === 'structural'"
   [class.editing]="isEditing()"
   [class.draft]="isUnsentQuestion()"
-  [attr.data-node-id]="node().id">
+  [attr.data-node-id]="node().id"
+  (contextmenu)="openNodeMenu($event)">
 
   <!-- Header stays visible while editing -->
   <div class="node-header">
@@ -579,6 +580,32 @@
         </svg>
         <span>{{ i18n.t('node.edit') }}</span>
       </button>
+    </div>
+  }
+
+  @if (ctxMenu(); as menu) {
+    <div class="ctx-backdrop" (mousedown)="closeCtxMenu()"></div>
+    <div #ctxMenu
+         class="context-menu"
+         role="menu"
+         [style.left.px]="ctxMenuLeftPx()"
+         [style.top.px]="ctxMenuTopPx()"
+         (contextmenu)="preventCtxDefault($event)"
+         (wheel)="$event.preventDefault()">
+      @for (item of ctxMenuItems(); track $index) {
+        @if (item.divider) {
+          <div class="ctx-separator"></div>
+        } @else {
+          <button type="button"
+                  class="ctx-item"
+                  [class.danger]="item.danger"
+                  [disabled]="item.disabled"
+                  role="menuitem"
+                  (click)="runCtxAction(item)">
+            {{ item.label }}
+          </button>
+        }
+      }
     </div>
   }
 </div>
