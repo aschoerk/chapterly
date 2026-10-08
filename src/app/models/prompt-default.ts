@@ -65,8 +65,9 @@ export const PROMPT_DEFAULTS: PromptDefaultDef[] = [
     category: 'structure',
     label: 'Elaborate chapter (no characters)',
     description: 'One generic elaboration prompt per chapter. `{{chapter}}` is the 1-based chapter number, `{{hints}}` the hints from the Elaborate dialog (empty when none given).',
-    default:
-      'elaborate on chapter {{chapter}}{{hints}}'
+    default: `elaborate on chapter {{chapter}}
+Expand chapter {{chapter}} in detail. Use only material that belongs in chapter {{chapter}}; do not incorporate any events, details, or information from chapters that come after it.
+ {{hints}}`
   },
   {
     id: 'structure.elaborate-view',
@@ -74,7 +75,9 @@ export const PROMPT_DEFAULTS: PromptDefaultDef[] = [
     label: 'Elaborate chapter (from a character)',
     description: 'One elaboration prompt per named character, first person. `{{chapter}}`, `{{name}}` and `{{hints}}` (Elaborate-dialog hints, empty when none given) are replaced at call time.',
     default:
-      'elaborate on chapter {{chapter}} out of the view of {{name}} in first person. Do never repeat text verbatim from previous views in the same chapter.{{hints}}'
+      `Expand chapter {{chapter}} in detail. Use only material that belongs in chapter {{chapter}}; do not incorporate any events, details, or information from chapters that come after it.
+Elaborate the chapter this time out of the view of {{name}} in first person. Do never repeat content verbatim from previously generated views of the same chapter.
+{{hints}}`
   },
   {
     id: 'structure.prepend',
