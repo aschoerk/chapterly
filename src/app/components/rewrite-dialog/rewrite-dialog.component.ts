@@ -6,6 +6,13 @@ import { LlmUseCaseRunner, parseSuggestionVariants } from '../../core/llm/orches
 import type { RewriteContextMode } from '../../core/llm/orchestration';
 import { RewriteDialogService } from '../../core/rewrite-dialog.service';
 
+/**
+ * Suggestions longer than this (characters) are shown only as a short
+ * beginning with a “read full text” toggle, so a huge proposal cannot blow up
+ * the dialog.
+ */
+const REWRITE_PREVIEW_LIMIT = 180;
+
 @Component({
   selector: 'app-rewrite-dialog',
   standalone: true,
@@ -32,6 +39,11 @@ export class RewriteDialogComponent {
   readonly loading = signal(false);
   /** The 3 suggested variants returned by the model (null until run). */
   readonly suggestions = signal<string[] | null>(null);
+  /**
+   * Index of the suggestion whose FULL text is currently expanded so it can be
+   * read separately; -1 when every suggestion shows only its preview.
+   */
+  readonly expandedVariant = signal(-1);
 
   readonly enabledModels = computed(() => this.settings.enabledModels());
 
@@ -45,6 +57,7 @@ export class RewriteDialogComponent {
       this.modelId.set(s.modelId);
       this.providerId.set(s.providerId);
       this.suggestions.set(null);
+      this.expandedVariant.set(-1);
       this.loading.set(false);
     });
   }
@@ -69,6 +82,16 @@ export class RewriteDialogComponent {
     return this.i18n.t(
       ['rewriteDialog.suggestionMinimal', 'rewriteDialog.suggestionClearer', 'rewriteDialog.suggestionRewritten'][index]
     );
+  }
+
+  /** Whether a suggestion is long enough that only its beginning should be shown. */
+  isLongSuggestion(text: string): boolean {
+    return text.length > REWRITE_PREVIEW_LIMIT;
+  }
+
+  /** Expand a suggestion to read it in full, or collapse it back to the preview. */
+  toggleVariant(index: number): void {
+    this.expandedVariant.set(this.expandedVariant() === index ? -1 : index);
   }
 
   /** Run the rewrite use case for the current fragment + directions + context. */

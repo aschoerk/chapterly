@@ -76,9 +76,26 @@
             }
           </div>
           @for (v of variants; track $index) {
-            <div class="rewrite-suggestion">
-              <span class="rewrite-suggestion-tag">{{ suggestionTag($index) }}</span>
-              <span class="rewrite-suggestion-text">{{ v }}</span>
+            <div class="rewrite-suggestion" [class.expanded]="expandedVariant() === $index">
+              <div class="rewrite-suggestion-main">
+                <div class="rewrite-suggestion-head">
+                  <span class="rewrite-suggestion-tag">{{ suggestionTag($index) }}</span>
+                  @if (isLongSuggestion(v)) {
+                    <button class="rewrite-suggestion-toggle" type="button"
+                            [disabled]="loading()"
+                            [attr.aria-expanded]="expandedVariant() === $index"
+                            [attr.aria-controls]="'rewrite-suggestion-text-' + $index"
+                            (click)="toggleVariant($index)">
+                      {{ expandedVariant() === $index ? i18n.t('rewriteDialog.readLess') : i18n.t('rewriteDialog.readMore') }}
+                    </button>
+                  }
+                </div>
+                <div [id]="'rewrite-suggestion-text-' + $index"
+                     class="rewrite-suggestion-text"
+                     [class.preview]="isLongSuggestion(v) && expandedVariant() !== $index">
+                  {{ v }}
+                </div>
+              </div>
               <button class="btn small primary" type="button"
                       [disabled]="loading()"
                       (click)="useVariant(v)">

@@ -8,6 +8,7 @@ import { ChatService } from '../../core/chat.service';
 import { SettingsService } from '../../core/settings.service';
 import { ChatNode, NodeAttachment, ChatMessage, Chat } from '../../models/chat';
 import { MarkdownService } from '../../core/markdown.service';
+import { markFragmentInSource } from '../../core/mark-fragment';
 import { NodeEditSession} from '../../core/node-edit-session';
 import {ConfirmService} from '../../core/confirm.service';
 import { ChatParametersService } from '../../core/chat-parameters.service';
@@ -42,21 +43,13 @@ import { parseSuggestionVariants } from '../../core/llm/orchestration/evaluators
 import { type LlmImagePart } from '../../core/llm/llm-message';
 
 /**
- * Locate a DOM-selected fragment inside the markdown source. Rendering
- * collapses whitespace (newlines → space, multiple spaces → one), so a plain
- * indexOf can miss a selection that spans a line break. Fall back to a
- * whitespace-tolerant regex. Returns the flat index/length of the first match,
- * or null when the fragment cannot be found.
+ * Fallback when a rewrite's original range cannot be mapped back to the
+ * source: keep the rewrite instead of losing it by appending it at the end of
+ * the content as a new paragraph.
  */
-function locateFragmentInSource(source: string, fragment: string): { index: number; length: number } | null {
-  if (!fragment.trim()) return null;
-  const plain = source.indexOf(fragment);
-  if (plain >= 0) return { index: plain, length: fragment.length };
-  const escaped = fragment.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const re = new RegExp(escaped.replace(/\s+/g, '\\s+'));
-  const m = source.match(re);
-  if (m && m.index != null && m[0].length > 0) return { index: m.index, length: m[0].length };
-  return null;
+function appendRewriteFallback(source: string, rewrite: string): string {
+  const tail = source.trimEnd();
+  return tail.length ? tail + '\n\n' + rewrite : rewrite;
 }
 
 /** A single command shown in the node right-click (context) menu. */
@@ -1481,8 +1474,10 @@ export class ChatNodeComponent implements OnDestroy {
    * dialog (editable fragment + directions + context scope + model), and when
    * the dialog returns a text, persists a new version of the node with the
    * marked range replaced. The marked text is located in the markdown source
-   * whitespace-tolerantly (rendering collapses whitespace), so the rest of the
-   * source — including surrounding markdown formatting — is preserved.
+   * via a marker map (markdown syntax removed, whitespace collapsed), so the
+   * rest of the source — including surrounding markdown formatting — is
+   * preserved. If the range cannot be mapped back at all, the rewrite is
+   * appended at the end of the node instead of being lost.
    */
   async openReadRewriteDialog(): Promise<void> {
     if (this.isEditing() || this.isLoading()) return;
@@ -1504,7 +1499,7 @@ export class ChatNodeComponent implements OnDestroy {
 
     const node = this.node();
     const source = node.content || '';
-    const loc = locateFragmentInSource(source, fragment);
+    const loc = markFragmentInSource(source, fragment);
     const chatId = this.chatService.currentChatId();
     const chat = chatId
       ? this.chatService.chats().find(c => c.id === chatId) ?? null
@@ -1522,11 +1517,13 @@ export class ChatNodeComponent implements OnDestroy {
     });
     if (result == null) return; // cancelled
 
-    if (!loc) {
-      alert(this.i18n.t('node.rewriteNoSourceMatch'));
-      return;
-    }
-    const newContent = source.slice(0, loc.index) + result + source.slice(loc.index + loc.length);
+    // Never lose the created rewrite: when the marked range cannot be mapped
+    // back to the source (formatting/rendering differences), append the
+    // rewrite at the end of the node instead of discarding it.
+    const newContent = loc
+      ? source.slice(0, loc.index) + result + source.slice(loc.index + loc.length)
+      : appendRewriteFallback(source, result);
+    if (!loc) alert(this.i18n.t('node.rewriteAppended'));
 
     this.isLoading.set(true);
     this.pendingAction.set('version');

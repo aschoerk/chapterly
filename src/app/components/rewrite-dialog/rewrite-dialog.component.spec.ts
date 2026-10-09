@@ -149,6 +149,66 @@ describe('RewriteDialogComponent', () => {
     expect(fixture.nativeElement.querySelector('.rewrite-dialog')).toBeNull();
   });
 
+  it('clamps long suggestions to a preview with a read-full-text toggle', async () => {
+    const long = 'A very long suggested rewrite. '.repeat(30);
+    const short = 'short rewrite.';
+    runner.run.mockResolvedValueOnce({
+      text: { status: 'ok', value: JSON.stringify([long, short, 'another short one.']) }
+    });
+    const p = openState();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    await component.rewrite();
+    fixture.detectChanges();
+
+    const texts = [...fixture.nativeElement.querySelectorAll('.rewrite-suggestion-text')] as HTMLElement[];
+    // Long suggestion is shown only as a preview (clamped)…
+    expect(texts[0].classList.contains('preview')).toBe(true);
+    // …short ones are not clamped.
+    expect(texts[1].classList.contains('preview')).toBe(false);
+
+    // Only the long suggestion offers a toggle.
+    const toggles = [...fixture.nativeElement.querySelectorAll('.rewrite-suggestion-toggle')] as HTMLElement[];
+    expect(toggles.length).toBe(1);
+    expect(toggles[0].textContent).toContain('Read full text');
+
+    dialog.cancel();
+    await p;
+  });
+
+  it('expands a long suggestion to read it in full and collapses it again', async () => {
+    const long = 'A very long suggested rewrite. '.repeat(30);
+    runner.run.mockResolvedValueOnce({ text: { status: 'ok', value: JSON.stringify([long]) } });
+    const p = openState();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    await component.rewrite();
+    fixture.detectChanges();
+
+    const texts = () => [...fixture.nativeElement.querySelectorAll('.rewrite-suggestion-text')] as HTMLElement[];
+    expect(texts()[0].classList.contains('preview')).toBe(true);
+
+    const toggle = fixture.nativeElement.querySelector('.rewrite-suggestion-toggle') as HTMLElement;
+    toggle.click();
+    fixture.detectChanges();
+
+    // Expanded: full text is shown (no clamp) and the label switches.
+    expect(texts()[0].classList.contains('preview')).toBe(false);
+    expect(toggle.textContent).toContain('Show less');
+    expect(fixture.nativeElement.querySelector('.rewrite-suggestion')?.classList.contains('expanded')).toBe(true);
+
+    toggle.click();
+    fixture.detectChanges();
+    expect(texts()[0].classList.contains('preview')).toBe(true);
+
+    dialog.cancel();
+    await p;
+  });
+
   it('applyEdited resolves with the edited fragment as-is (no model call)', async () => {
     const p = openState();
     fixture.detectChanges();

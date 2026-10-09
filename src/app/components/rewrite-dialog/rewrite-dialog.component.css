@@ -148,11 +148,28 @@
   display: flex;
   align-items: flex-start;
   gap: 0.55rem;
-  padding: 0.4rem 0;
+  padding: 0.5rem 0;
 }
 
 .rewrite-suggestion:not(:last-child) {
   border-bottom: 1px dashed var(--border, #e5e5e5);
+}
+
+.rewrite-suggestion.expanded {
+  background: var(--bg-selected, rgba(37, 99, 235, 0.06));
+  border-radius: 6px;
+}
+
+.rewrite-suggestion-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.rewrite-suggestion-head {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-wrap: wrap;
 }
 
 .rewrite-suggestion-tag {
@@ -162,12 +179,42 @@
   color: var(--accent, #2563eb);
 }
 
+.rewrite-suggestion-toggle {
+  border: none;
+  background: none;
+  padding: 0;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--accent, #2563eb);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.rewrite-suggestion-toggle:hover:not(:disabled) {
+  color: var(--accent-hover, #1d4ed8);
+}
+
+.rewrite-suggestion-toggle:disabled {
+  color: var(--text-muted, #666);
+  cursor: default;
+}
+
 .rewrite-suggestion-text {
-  flex: 1;
+  display: block;
   font-size: 0.87rem;
   color: var(--text);
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+/* A long proposal shows only its beginning; “read full text” expands it. */
+.rewrite-suggestion-text.preview {
+  max-height: 4.5em;
+  overflow: hidden;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  display: -webkit-box;
 }
 
 .rewrite-actions {

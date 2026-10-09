@@ -1040,6 +1040,69 @@ describe('ChatNodeComponent', () => {
       expect(rewriteDialog.open).not.toHaveBeenCalled();
       expect(window.alert).toHaveBeenCalledWith(expect.stringContaining('Mark the text'));
     });
+
+    it('rewrites a multi-paragraph selection whose rendering differs from the source', async () => {
+      // Bold markers and a paragraph break separate the rendered text from
+      // the markdown source — a raw text-search used to fail here.
+      const a1 = node({
+        id: 'a1', chatId: 'chat-1', role: 'assistant',
+        content: 'The hero enters **the old tower** and rests.\n\nThen he climbs the stairs.',
+        modelId: 'alpha/model', providerId: 'prov-1',
+      });
+      const q1 = node({ id: 'q1', content: 'Chapter' });
+      await openChat([q1, a1]);
+      createFixture(a1);
+      fixture.detectChanges();
+
+      const readEl = fixture.nativeElement.querySelector('.node-content') as HTMLElement;
+      vi.spyOn(window, 'getSelection').mockReturnValue({
+        isCollapsed: false,
+        rangeCount: 1,
+        anchorNode: readEl,
+        focusNode: readEl,
+        toString: () => 'the old tower and rests. Then he climbs the stairs',
+      } as unknown as Selection);
+
+      (rewriteDialog.open as ReturnType<typeof vi.fn>).mockResolvedValue('a ruined keep');
+      await component.openReadRewriteDialog();
+      fixture.detectChanges();
+
+      const saved = chatService.nodes()
+        .find(n => n.role === 'assistant' && n.content === 'The hero enters a ruined keep.');
+      expect(saved).toBeDefined();
+    });
+
+    it('never loses the rewrite — appends it at the end when the marked text cannot be mapped back', async () => {
+      const a1 = node({
+        id: 'a1', chatId: 'chat-1', role: 'assistant',
+        content: 'The hero enters the old tower.',
+        modelId: 'alpha/model', providerId: 'prov-1',
+      });
+      const q1 = node({ id: 'q1', content: 'Chapter' });
+      await openChat([q1, a1]);
+      createFixture(a1);
+      fixture.detectChanges();
+
+      // The selection text does NOT appear in the markdown source, so the
+      // marker map cannot locate it — the rewrite must not be thrown away.
+      const readEl = fixture.nativeElement.querySelector('.node-content') as HTMLElement;
+      vi.spyOn(window, 'getSelection').mockReturnValue({
+        isCollapsed: false,
+        rangeCount: 1,
+        anchorNode: readEl,
+        focusNode: readEl,
+        toString: () => 'a scent of the forest',
+      } as unknown as Selection);
+
+      (rewriteDialog.open as ReturnType<typeof vi.fn>).mockResolvedValue('a ruined keep');
+      await component.openReadRewriteDialog();
+      fixture.detectChanges();
+
+      const saved = chatService.nodes()
+        .find(n => n.role === 'assistant' && n.content === 'The hero enters the old tower.\n\na ruined keep');
+      expect(saved).toBeDefined();
+      expect(window.alert).toHaveBeenCalledWith(expect.stringContaining('appended'));
+    });
   });
 
   // ------------------------------------------------------------------
