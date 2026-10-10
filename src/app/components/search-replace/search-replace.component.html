@@ -1,0 +1,96 @@
+@if (search.open()) {
+  <div class="sr-dialog" role="dialog" aria-label="{{ i18n.t('search.title') }}">
+    <div class="sr-scopes">
+      @for (scope of search.scopes(); track scope.id) {
+        <button
+          type="button"
+          class="sr-scope"
+          [class.active]="isScopeActive(scope.id)"
+          (click)="selectScope(scope.id)">
+          {{ i18n.t(scope.labelKey) }}
+        </button>
+      }
+    </div>
+
+    <div class="sr-row">
+      <input
+        #termInput
+        type="text"
+        class="sr-input"
+        [placeholder]="i18n.t('search.placeholder')"
+        [ngModel]="search.term()"
+        (ngModelChange)="search.setTerm($event)"
+        (keydown.enter)="findNextInput($event)"
+        (keydown.shift.enter)="findPrevInput($event)"
+        (keydown.escape)="search.close()"/>
+      <span class="sr-count">{{ counter() }}</span>
+    </div>
+
+    <div class="sr-row">
+      <input
+        type="text"
+        class="sr-input sr-replace"
+        [placeholder]="i18n.t('search.replacePlaceholder')"
+        [ngModel]="search.replaceTerm()"
+        (ngModelChange)="search.setReplaceTerm($event)"
+        (keydown.enter)="replaceAndFindNext()"/>
+      <div class="sr-options" role="group" [attr.aria-label]="i18n.t('search.options')">
+        <button
+          type="button"
+          class="sr-opt"
+          [class.active]="search.caseSensitive()"
+          (click)="search.setCaseSensitive(!search.caseSensitive())"
+          [title]="i18n.t('search.case')"
+          [attr.aria-pressed]="search.caseSensitive()">Aa</button>
+        <button
+          type="button"
+          class="sr-opt"
+          [class.active]="search.wholeWord()"
+          (click)="search.setWholeWord(!search.wholeWord())"
+          [title]="i18n.t('search.word')"
+          [attr.aria-pressed]="search.wholeWord()">\b</button>
+        <button
+          type="button"
+          class="sr-opt"
+          [class.active]="search.useRegex()"
+          (click)="search.setUseRegex(!search.useRegex())"
+          [title]="i18n.t('search.regex')"
+          [attr.aria-pressed]="search.useRegex()">.*</button>
+      </div>
+    </div>
+
+    @if (search.invalidRegex()) {
+      <div class="sr-error">{{ i18n.t('search.regexError') }}</div>
+    }
+
+    <div class="sr-actions">
+      <button type="button" class="sr-btn" (click)="search.findPrev()"
+              [disabled]="search.total() === 0"
+              [title]="i18n.t('search.prevTitle')">
+        {{ i18n.t('search.prev') }}
+      </button>
+      <button type="button" class="sr-btn" (click)="search.findNext()"
+              [disabled]="search.total() === 0"
+              [title]="i18n.t('search.nextTitle')">
+        {{ i18n.t('search.next') }}
+      </button>
+      <button type="button" class="sr-btn" (click)="replaceCurrent()"
+              [disabled]="!search.current()"
+              [title]="i18n.t('search.replaceTitle')">
+        {{ i18n.t('search.replace') }}
+      </button>
+      <button type="button" class="sr-btn" (click)="replaceAndFindNext()"
+              [disabled]="!search.current()"
+              [title]="i18n.t('search.replaceNextTitle')">
+        {{ i18n.t('search.replaceNext') }}
+      </button>
+      <button type="button" class="sr-btn sr-btn-danger" (click)="replaceAll()"
+              [disabled]="search.total() === 0"
+              [title]="i18n.t('search.replaceAllTitle')">
+        {{ i18n.t('search.replaceAll') }}
+      </button>
+      <button type="button" class="sr-btn sr-close" (click)="search.close()"
+              [title]="i18n.t('common.close')">×</button>
+    </div>
+  </div>
+}

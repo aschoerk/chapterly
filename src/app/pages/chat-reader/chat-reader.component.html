@@ -64,6 +64,20 @@
         }
       </svg>
     </button>
+    <button class="btn-icon"
+            type="button"
+            [class.active]="search.open()"
+            (click)="search.open() ? search.close() : openSearch()"
+            [attr.aria-pressed]="search.open()"
+            [title]="i18n.t('search.openTitle')">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+           stroke="currentColor" stroke-width="2"
+           stroke-linecap="round" stroke-linejoin="round"
+           aria-hidden="true">
+        <circle cx="11" cy="11" r="7"/>
+        <path d="m21 21-4.3-4.3"/>
+      </svg>
+    </button>
     <div class="pager">
       <button class="btn-icon" type="button"
               [disabled]="page() === 0"
@@ -167,3 +181,5 @@
     </div>
   </div>
 }
+
+<app-search-replace />

@@ -20,6 +20,9 @@ import { ChatNode } from '../../models/chat';
 import { I18nService } from '../../core/i18n/i18n.service';
 import { enumerateStoryDocuments, isUsableNode, storyNodeTimestamp } from '../../core/story-paths';
 import { isPromptRecordAttachment } from '../../core/llm/llm-message';
+import { SearchReplaceComponent } from '../../components/search-replace/search-replace.component';
+import { SearchReplaceService, SearchReplaceSession } from '../../core/search-replace/search-replace.service';
+import { highlightMatchesIn } from '../../core/search-replace/search-utils';
 
 export interface ReaderFont {
   id: string;
@@ -31,7 +34,7 @@ export interface ReaderFont {
 @Component({
   selector: 'app-chat-reader',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, SearchReplaceComponent],
   templateUrl: './chat-reader.component.html',
   styleUrl: './chat-reader.component.css',
 })
@@ -40,6 +43,7 @@ export class ChatReaderComponent implements OnInit, OnDestroy {
   readonly i18n = inject(I18nService);
   private readonly markdown = inject(MarkdownService);
   private readonly router = inject(Router);
+  readonly search = inject(SearchReplaceService);
 
   readonly reader = viewChild<ElementRef<HTMLElement>>('reader');
 
@@ -348,6 +352,7 @@ export class ChatReaderComponent implements OnInit, OnDestroy {
   }
 
   async ngOnInit() {
+    this.search.setSession(this.readerSearchSession);
     await this.chatService.loadChats();
     if (!this.currentChatId()) {
       await this.router.navigate(['/chat']);
@@ -356,6 +361,67 @@ export class ChatReaderComponent implements OnInit, OnDestroy {
 
   ngOnDestroy() {
     this.resizeObserver?.disconnect();
+    this.search.setSession(null);
+  }
+
+  /** Adapter that lets the shared search dialog search inside the reader. */
+  private readonly readerSearchSession: SearchReplaceSession = {
+    scopes: () => [{ id: 'reader', labelKey: 'search.scope.reader' }],
+    unitsFor: () => this.readerUnits(),
+    navigate: (occ) => this.readerNavigate(occ),
+    apply: (updates) => this.readerApply(updates),
+  };
+
+  private readerUnits(): { key: string; text: string }[] {
+    return this.renderedDocNodes()
+      .filter((n) => (n.content ?? '').length > 0)
+      .map((n) => ({ key: n.id, text: n.content ?? '' }));
+  }
+
+  /** The nodes that make up the current document, in render order. */
+  private renderedDocNodes(): ChatNode[] {
+    const hideQ = this.hideQuestions();
+    return this.currentDoc().filter((n) => !(hideQ && n.role === 'user'));
+  }
+
+  private readerNavigate(occ: {
+    unit: { key: string };
+    match: { start: number; length: number };
+    localNth: number;
+  }): void {
+    const root = this.reader()?.nativeElement;
+    if (!root) return;
+    // The book is one `<section class="book-node">` per rendered node, in the
+    // same order as `renderedDocNodes()` (innerHTML strips custom attributes,
+    // so locate by index, not by a data attribute).
+    const visible = this.renderedDocNodes();
+    const idx = visible.findIndex((n) => n.id === occ.unit.key);
+    if (idx < 0) return;
+    const section = root.querySelectorAll<HTMLElement>('.book-node')[idx] ?? null;
+    if (!section) return;
+    const body = section.querySelector<HTMLElement>('.book-body');
+    if (body) {
+      highlightMatchesIn(body, this.search.term(), this.search.options(), occ.localNth);
+      const current = body.querySelector('mark.sr-current');
+      if (current) {
+        const left = current.getBoundingClientRect().left - root.getBoundingClientRect().left + root.scrollLeft;
+        const advance = this.spreadWidth(root);
+        const page = Math.max(0, Math.round(left / advance));
+        this.goTo(page);
+      }
+    }
+  }
+
+  private async readerApply(updates: { key: string; text: string }[]): Promise<void> {
+    const chatId = this.chatService.currentChatId();
+    if (!chatId) return;
+    for (const u of updates) {
+      await this.chatService.patchNode(chatId, u.key, { content: u.text });
+    }
+  }
+
+  openSearch(): void {
+    this.search.openDialog();
   }
 
   async backToTree() {
@@ -460,6 +526,18 @@ export class ChatReaderComponent implements OnInit, OnDestroy {
   onKey(event: KeyboardEvent) {
     if (this.isTyping(event)) return;
 
+    // While the search dialog is open, let it own F3 / Ctrl+F / Escape.
+    if (this.search.open()) {
+      if (
+        event.key === 'F3' ||
+        event.key === 'Escape' ||
+        (event.ctrlKey && event.key === 'f') ||
+        (event.metaKey && event.key === 'F')
+      ) {
+        return;
+      }
+    }
+
     if (this.typeModalOpen()) {
       if (event.key === 'Escape' || event.key === 'f' || event.key === 'F') {
         event.preventDefault();
@@ -471,6 +549,7 @@ export class ChatReaderComponent implements OnInit, OnDestroy {
     switch (event.key) {
       case 'f':
       case 'F':
+        if (event.ctrlKey || event.metaKey) break;
         event.preventDefault();
         this.openTypeModal();
         break;

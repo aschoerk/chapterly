@@ -107,6 +107,12 @@
               {{ isElaborating() ? i18n.t('chat.generating') : i18n.t('chat.elaborate') }}
             </button>
 
+            <button class="btn small" type="button"
+                    (click)="openSearch()"
+                    [title]="i18n.t('search.openTitle')">
+              {{ i18n.t('search.open') }}
+            </button>
+
             @if (clipboard.hasContent()) {
               <button class="btn small" type="button"
                       (click)="pasteAtTop()"
@@ -364,4 +370,5 @@
     }
   </main>
 
+  <app-search-replace />
 </div>

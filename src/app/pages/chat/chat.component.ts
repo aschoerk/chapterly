@@ -22,11 +22,14 @@ import { ConfirmService } from '../../core/confirm.service';
 import { NodeClipboardService } from '../../core/node-clipboard.service';
 import { NodeEditSession } from '../../core/node-edit-session';
 import { LlmUseCaseRunner } from '../../core/llm/orchestration';
+import { SearchReplaceComponent } from '../../components/search-replace/search-replace.component';
+import { SearchReplaceService, SearchReplaceSession } from '../../core/search-replace/search-replace.service';
+import { highlightMatchesIn } from '../../core/search-replace/search-utils';
 
 @Component({
   selector: 'app-chat',
   standalone: true,
-  imports: [CommonModule, FormsModule, ChatTitleEditorComponent, ChatNodeComponent, SideBarComponent, ChatParametersEditorComponent],
+  imports: [CommonModule, FormsModule, ChatTitleEditorComponent, ChatNodeComponent, SideBarComponent, ChatParametersEditorComponent, SearchReplaceComponent],
   templateUrl: './chat.component.html',
   styleUrl: './chat.component.css'
 })
@@ -44,6 +47,7 @@ export class ChatComponent implements OnInit {
   private readonly promptDefaults = inject(PromptDefaultsService);
   private readonly confirm = inject(ConfirmService);
   private readonly editSession = inject(NodeEditSession);
+  private readonly search = inject(SearchReplaceService);
 
   readonly chats = this.chatService.chats;
   readonly currentChatId = this.chatService.currentChatId;
@@ -463,6 +467,81 @@ export class ChatComponent implements OnInit {
     // otherwise re-entering a node editor later would start out "dirty" even
     // though nothing was changed.
     this.editSession.abandon();
+    // Stop the shared search dialog from using this page's nodes.
+    this.search.setSession(null);
+  }
+
+  /** Adapter that turns the search dialog into a chat-page search. */
+  private readonly searchSession: SearchReplaceSession = {
+    scopes: () => [
+      { id: 'node', labelKey: 'search.scope.node' },
+      { id: 'chat', labelKey: 'search.scope.chat' },
+    ],
+    unitsFor: (scope) => this.searchUnits(scope),
+    navigate: (occ) => this.searchNavigate(occ),
+    apply: (updates) => this.searchApply(updates),
+  };
+
+  private searchUnits(scope: 'node' | 'chat' | 'reader'): { key: string; text: string }[] {
+    if (scope === 'node') {
+      const node = this.activeSearchNode();
+      if (!node) return [];
+      return [{ key: node.id, text: node.content ?? '' }];
+    }
+    // chat scope → all nodes on the active path
+    return this.getActivePath()
+      .map((n) => ({ key: n.id, text: n.content ?? '' }))
+      .filter((u) => u.text.length > 0);
+  }
+
+  /** The node the "node" scope searches against (editing / visible / leaf). */
+  private activeSearchNode(): ChatNode | null {
+    const editingId = this.editSession.editingNodeId();
+    if (editingId) {
+      const editing = this.chatService.currentNodes().find((n) => n.id === editingId);
+      if (editing) return editing;
+    }
+    const visibleId = this.visibleNodeId();
+    if (visibleId) {
+      const visible = this.getActivePath().find((n) => n.id === visibleId);
+      if (visible) return visible;
+    }
+    return this.getCurrentLeaf();
+  }
+
+  private searchNavigate(occ: {
+    unit: { key: string };
+    match: { start: number; length: number };
+    localNth: number;
+  }): void {
+    const el = document.querySelector(`[data-node-id="${occ.unit.key}"]`);
+    if (!el) return;
+    (el as HTMLElement).scrollIntoView({ behavior: 'smooth', block: 'center' });
+    // An open editor shows a textarea — select the range there. Otherwise
+    // highlight the rendered markdown.
+    const ta = el.querySelector<HTMLTextAreaElement>('textarea.editor-textarea');
+    if (ta) {
+      ta.focus();
+      ta.setSelectionRange(occ.match.start, occ.match.start + occ.match.length);
+      return;
+    }
+    const content = el.querySelector<HTMLElement>('.node-content');
+    if (content) {
+      highlightMatchesIn(content, this.search.term(), this.search.options(), occ.localNth);
+      content.querySelector('mark.sr-current')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }
+
+  private async searchApply(updates: { key: string; text: string }[]): Promise<void> {
+    const chatId = this.chatService.currentChatId();
+    if (!chatId) return;
+    for (const u of updates) {
+      await this.chatService.patchNode(chatId, u.key, { content: u.text });
+    }
+  }
+
+  openSearch(): void {
+    this.search.openDialog();
   }
 
 
@@ -471,6 +550,7 @@ export class ChatComponent implements OnInit {
   }
 
   async ngOnInit() {
+    this.search.setSession(this.searchSession);
     await this.chatService.loadChats();
     await this.projectService.loadTopics();
     await this.projectService.loadProjects();
