@@ -33,6 +33,7 @@ import { IllustrateDialogService } from '../../core/illustrate-dialog.service';
 import { PrependDialogService } from '../../core/prepend-dialog.service';
 import { RewriteDialogService } from '../../core/rewrite-dialog.service';
 import { CreateImageDialogService } from '../../core/create-image-dialog.service';
+import { ChapterDescriptionsDialogService } from '../../core/chapter-descriptions-dialog.service';
 import { IllustrateOptions } from '../../models/illustrate-options';
 import { LightboxService } from '../../core/lightbox.service';
 import { LlmUseCaseRunner } from '../../core/llm/orchestration';
@@ -88,6 +89,7 @@ export class ChatNodeComponent implements OnDestroy {
   private readonly lightbox = inject(LightboxService);
   private readonly rewriteDialog = inject(RewriteDialogService);
   private readonly createImageDialog = inject(CreateImageDialogService);
+  private readonly chapterDescriptionsDialog = inject(ChapterDescriptionsDialogService);
 
   private readonly confirm = inject(ConfirmService);
   readonly i18n = inject(I18nService);
@@ -103,7 +105,7 @@ export class ChatNodeComponent implements OnDestroy {
   readonly contentDraft = signal('');
   readonly branchModelId = signal('');
   readonly isLoading = signal(false);
-  readonly pendingAction = signal<'version' | 'branch' | 'insert' | 'send' | 'continue' | 'structure' | 'prepend' | 'image' | null>(null);
+  readonly pendingAction = signal<'version' | 'branch' | 'insert' | 'send' | 'continue' | 'structure' | 'prepend' | 'image' | 'chapterDescriptions' | null>(null);
   /** Check-my-English (direction) feature state. */
   readonly checkingEnglish = signal(false);
   readonly englishSuggestions = signal<string[] | null>(null);
@@ -1195,8 +1197,8 @@ export class ChatNodeComponent implements OnDestroy {
    * …); `pending` is the UI spinner label.
    */
   private async runFlow(
-    usecase: 'send-branch' | 'send-insert' | 'send-regenerate' | 'send-rewrite' | 'send-prepend',
-    pending: 'branch' | 'insert' | 'send' | 'prepend',
+    usecase: 'send-branch' | 'send-insert' | 'send-regenerate' | 'send-rewrite' | 'send-prepend' | 'send-chapter-descriptions',
+    pending: 'branch' | 'insert' | 'send' | 'prepend' | 'chapterDescriptions',
     builder?: (build: { vars: Record<string, unknown> }) => void
   ): Promise<boolean> {
     const node = this.node();
@@ -2001,6 +2003,11 @@ export class ChatNodeComponent implements OnDestroy {
           action: () => void this.continueDraft(),
           disabled: this.isLoading()
         });
+        roleItems.push({
+          label: this.i18n.t('node.ctxChapterDescriptions'),
+          action: () => void this.openChapterDescriptionsDialog(),
+          disabled: this.isLoading()
+        });
       }
       if (!this.isUnsentQuestion()) {
         roleItems.push({
@@ -2222,6 +2229,44 @@ export class ChatNodeComponent implements OnDestroy {
       this.prependEnabled.set(false);
       this.prependText.set('');
     }
+  }
+
+  /**
+   * Open the "Create chapter descriptions" dialog (available on the last
+   * node, next to Continue). On confirm, the chapter description list is
+   * generated as ANOTHER branch to the first one: a new sibling question
+   * carries the request (previous visible chat content + the dialog
+   * parameters + goal) and the answer streams under it. The last input
+   * parameters are remembered per chat, so the next press of the button
+   * provides them again (first chapter continues after the last generated).
+   */
+  async openChapterDescriptionsDialog(): Promise<void> {
+    const node = this.node();
+    if (node.role !== 'user' || this.isLoading()) return;
+    const chatId = this.chatService.currentChatId();
+    if (!chatId) return;
+    const chat = this.chatService.chats().find(c => c.id === chatId) ?? null;
+
+    const defaultModelId = node.modelId || this.resolvePreferredModelId(node);
+    const result = await this.chapterDescriptionsDialog.open({
+      chatId,
+      chat,
+      node,
+      defaultModelId,
+      defaultProviderId: node.providerId ?? ''
+    });
+    if (result == null) return; // cancelled
+
+    await this.runFlow('send-chapter-descriptions', 'chapterDescriptions', build => {
+      build.vars['chapterCount'] = result.chapterCount;
+      build.vars['sentencesPerChapter'] = result.sentencesPerChapter;
+      build.vars['firstChapter'] = result.firstChapter;
+      build.vars['goal'] = result.goal;
+      // The model chosen in the dialog wins — the new branch must use the
+      // freshly chosen model, not the node's (its draft is left untouched).
+      build.vars['modelId'] = result.modelId;
+      build.vars['providerId'] = result.providerId;
+    });
   }
 
   private followLive(): void {

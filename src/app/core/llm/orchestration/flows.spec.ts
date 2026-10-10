@@ -93,7 +93,7 @@ describe('LLM orchestration — structural flows (branch / insert / regenerate /
   afterEach(() => vi.unstubAllGlobals());
 
   it('isFlowUsecase recognizes the structural kinds', () => {
-    for (const k of ['send-branch', 'send-insert', 'send-regenerate', 'send-rewrite', 'send-prepend', 'send-elaborate', 'structure-title', 'structure-overview', 'structure-heading', 'structure-headings', 'language-check']) {
+    for (const k of ['send-branch', 'send-insert', 'send-regenerate', 'send-rewrite', 'send-prepend', 'send-elaborate', 'send-chapter-descriptions', 'structure-title', 'structure-overview', 'structure-heading', 'structure-headings', 'language-check']) {
       expect(isFlowUsecase(k as never)).toBe(true);
     }
     expect(isFlowUsecase('append' as never)).toBe(false);
@@ -335,6 +335,45 @@ describe('LLM orchestration — structural flows (branch / insert / regenerate /
     const answer = chatService.nodes().find(n => n.id === answerId)!;
     expect(answer.parentId).toBe('draft');
     expect(answer.content).toBe('Elaborated chapter.');
+  });
+
+  it('send-chapter-descriptions: branches a sibling question with the request and streams the list (previous chat content as history)', async () => {
+    fetchMock.mockResolvedValueOnce(sseResponse(['1. ', 'One — start.\n2. Two — continue.']));
+    const chatService = await openChat([
+      makeNode({ id: 'q1', role: 'user', content: 'Write a story' }),
+      makeNode({ id: 'a1', parentId: 'q1', role: 'assistant', content: 'Chapter one.', isCurrent: true }),
+      makeNode({ id: 'draft', parentId: 'a1', role: 'user', content: '', isCurrent: true })
+    ]);
+    const draft = chatService.nodes().find(n => n.id === 'draft')!;
+
+    const runner = TestBed.inject(LlmFlowRunner);
+    const slots = await runner.run({
+      chat: api.chats[0],
+      node: draft,
+      usecase: 'send-chapter-descriptions',
+      vars: { chapterCount: 3, sentencesPerChapter: 2, firstChapter: 4, goal: 'Make it a detective story' }
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1); // the streamed answer only
+    // The draft stays untouched — the list is generated as ANOTHER branch.
+    expect(chatService.nodes().find(n => n.id === 'draft')!.content).toBe('');
+    // A sibling question under the same parent carries the chapter request,
+    // including every dialog parameter + goal.
+    const question = chatService.nodes().find(n =>
+      n.role === 'user' && n.content?.includes('Number of chapters to plan: 3'));
+    expect(question).toBeDefined();
+    expect(question!.parentId).toBe('a1');
+    expect(question!.id).not.toBe('draft');
+    expect(question!.content).toContain('Sentences per chapter description: 2');
+    expect(question!.content).toContain('First chapter number: 4');
+    expect(question!.content).toContain('Make it a detective story');
+    // The streamed answer hangs under the branch question.
+    const answerId = slots.flow!.value!.answerNodeId;
+    const answer = chatService.nodes().find(n => n.id === answerId)!;
+    expect(answer.parentId).toBe(question!.id);
+    expect(answer.content).toBe('1. One — start.\n2. Two — continue.');
+    expect(chatService.getActiveChild('a1')?.id).toBe(question!.id);
+    expect(slots.flow?.value?.activateId).toBe(answerId);
   });
 });
 

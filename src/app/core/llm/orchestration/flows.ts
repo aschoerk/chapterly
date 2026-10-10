@@ -466,6 +466,52 @@ async function getOrCreateElaborateQuestion(
 }
 
 // ---------------------------------------------------------------------------
+// send-chapter-descriptions — plan a chapter description list as ANOTHER
+// branch (sibling question + streamed answer). The empty leaf question (where
+// Continue lives) stays untouched; the branch request carries the parameters
+// (chapter count, sentences per description, first chapter number, goal) and
+// the FULL previous chat content arrives as history via buildSendMessagesEx.
+// ---------------------------------------------------------------------------
+const sendChapterDescriptions: FlowController = async env => {
+  const node = env.cx.node;
+  const chatId = env.cx.chat.id;
+  const count = Math.max(1, Math.floor(Number(env.cx.vars.chapterCount) || 1));
+  const sentences = Math.max(1, Math.floor(Number(env.cx.vars.sentencesPerChapter) || 1));
+  const first = Math.max(1, Math.floor(Number(env.cx.vars.firstChapter) || 1));
+  const goal = (env.cx.vars.goal ?? '').trim();
+  const instruction = env.factory.chapterDescriptionsInstruction();
+
+  const lines: string[] = [instruction];
+  lines.push(`Number of chapters to plan: ${count}`);
+  lines.push(`Sentences per chapter description: ${sentences}`);
+  lines.push(`First chapter number: ${first}`);
+  if (goal) {
+    lines.push('What the chapters are meant to achieve:');
+    lines.push(goal);
+  }
+  lines.push(`Return only the chapter list, starting at chapter ${first}.`);
+  const request = lines.filter(Boolean).join('\n');
+
+  // "Another branch to the first one": branch a NEW sibling question off the
+  // current node (the empty leaf) — the previous chat content is the history,
+  // the final user message is the chapter-description request.
+  const newQuestion = await env.chatService.branchQuestion(
+    chatId, node.id, request, env.write.model.modelId, env.write.model.providerId, undefined
+  );
+  env.chatService.setActiveChild(newQuestion.parentId, newQuestion.id);
+
+  const prep = await prepareTextSend(env, chatId, newQuestion, { content: request });
+  await persistInterpretation(env, chatId, newQuestion, prep);
+  const { answerNodeId, slots } = await streamAnswerNode(env, chatId, newQuestion.id, prep.messages);
+  return flowResult(slots, {
+    questionNodeId: newQuestion.id,
+    answerNodeId,
+    activateId: answerNodeId,
+    branchNodeId: newQuestion.id
+  }, flowEmpty(slots));
+};
+
+// ---------------------------------------------------------------------------
 // Structure generation — non-streaming text completions that CREATE or PATCH
 // structural nodes around a plain text result (story title, introduction,
 // per-chapter headings) plus the language check. They reuse the shared
@@ -757,6 +803,7 @@ const FLOW_CONTROLLERS: Partial<Record<UsecaseKind, FlowController>> = {
   'send-rewrite': sendRewrite,
   'send-prepend': sendPrepend,
   'send-elaborate': sendElaborate,
+  'send-chapter-descriptions': sendChapterDescriptions,
   'structure-title': structureTitle,
   'structure-overview': structureOverview,
   'structure-heading': structureHeading,

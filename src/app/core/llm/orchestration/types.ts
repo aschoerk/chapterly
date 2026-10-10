@@ -94,6 +94,13 @@ import { ModelEntry, ProviderConfig } from '../../../models/chat-config';
  *                      question under the anchor (most recent assistant
  *                      answer) and stream the answer into a new assistant
  *                      node. `vars.content` is the rendered elaborate prompt.
+ *  send-chapter-descriptions — plan a chapter description list as another
+ *                      branch: branch a new sibling question off the empty
+ *                      leaf (the FULL previous chat content is the history)
+ *                      whose text requests the list with the parameters from
+ *                      `vars` (chapterCount, sentencesPerChapter,
+ *                      firstChapter, goal + modelId/providerId), then stream
+ *                      the answer under it.
  */
 export type UsecaseKind =
   | 'storyboard-direct'
@@ -116,7 +123,8 @@ export type UsecaseKind =
   | 'send-regenerate'
   | 'send-rewrite'
   | 'send-prepend'
-  | 'send-elaborate';
+  | 'send-elaborate'
+  | 'send-chapter-descriptions';
 
 /** Which provider endpoint a request intent targets. */
 export type LlmEndpoint = 'completion' | 'images';
@@ -299,6 +307,14 @@ export interface UsecaseVars {
   directorText?: string;
   /** Structural flows: pre-built following-chapters text for `send-prepend`. */
   followingText?: string;
+  /** `send-chapter-descriptions`: how many chapter headings to create. */
+  chapterCount?: number;
+  /** `send-chapter-descriptions`: sentences per chapter description. */
+  sentencesPerChapter?: number;
+  /** `send-chapter-descriptions`: number of the first chapter. */
+  firstChapter?: number;
+  /** `send-chapter-descriptions`: what the chapters are meant to achieve. */
+  goal?: string;
   /** Image use cases: explicit rendering model chosen in a dialog. */
   modelId?: string;
   /** Image use cases: provider of the chosen rendering model. */

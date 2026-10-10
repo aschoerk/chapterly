@@ -1,0 +1,73 @@
+@if (dialog.current(); as d) {
+  <div
+    class="cd-backdrop"
+    (click)="onBackdrop($event)"
+    (keydown)="onKey($event)"
+    tabindex="0"
+  >
+    <div
+      class="cd-dialog"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="cd-title"
+      (click)="$event.stopPropagation()"
+    >
+      <h3 id="cd-title">{{ i18n.t('chapterDescriptionsDialog.title') }}</h3>
+      <p class="cd-hint">{{ i18n.t('chapterDescriptionsDialog.hint') }}</p>
+
+      <div class="cd-params">
+        <label class="cd-field cd-compact">
+          <span class="cd-label">{{ i18n.t('chapterDescriptionsDialog.countLabel') }}</span>
+          <input type="number" min="1" step="1"
+                 [ngModel]="chapterCount()"
+                 (ngModelChange)="chapterCount.set(+$event)"
+                 [title]="i18n.t('chapterDescriptionsDialog.countTitle')" />
+        </label>
+
+        <label class="cd-field cd-compact">
+          <span class="cd-label">{{ i18n.t('chapterDescriptionsDialog.sentencesLabel') }}</span>
+          <input type="number" min="1" step="1"
+                 [ngModel]="sentencesPerChapter()"
+                 (ngModelChange)="sentencesPerChapter.set(+$event)"
+                 [title]="i18n.t('chapterDescriptionsDialog.sentencesTitle')" />
+        </label>
+
+        <label class="cd-field cd-compact">
+          <span class="cd-label">{{ i18n.t('chapterDescriptionsDialog.firstLabel') }}</span>
+          <input type="number" min="1" step="1"
+                 [ngModel]="firstChapter()"
+                 (ngModelChange)="firstChapter.set(+$event)"
+                 [title]="i18n.t('chapterDescriptionsDialog.firstTitle')" />
+        </label>
+      </div>
+
+      <label class="cd-field">
+        <span class="cd-label">{{ i18n.t('chapterDescriptionsDialog.modelLabel') }}</span>
+        <select [ngModel]="modelId()"
+                (ngModelChange)="onModelChange($event)"
+                [title]="i18n.t('chapterDescriptionsDialog.modelTitle')">
+          @for (m of enabledModels(); track m.id) {
+            <option [value]="m.modelId">{{ m.displayName }}</option>
+          }
+        </select>
+      </label>
+
+      <label class="cd-field">
+        <span class="cd-label">{{ i18n.t('chapterDescriptionsDialog.goalLabel') }}</span>
+        <textarea rows="5"
+                  [ngModel]="goal()"
+                  (ngModelChange)="goal.set($event)"
+                  [placeholder]="i18n.t('chapterDescriptionsDialog.goalPh')"></textarea>
+      </label>
+
+      <div class="cd-actions">
+        <button class="btn" type="button" (click)="dialog.cancel()">
+          {{ i18n.t('common.cancel') }}
+        </button>
+        <button class="btn primary" type="button" (click)="submit()">
+          {{ i18n.t('chapterDescriptionsDialog.send') }}
+        </button>
+      </div>
+    </div>
+  </div>
+}

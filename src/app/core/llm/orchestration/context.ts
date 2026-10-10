@@ -408,6 +408,16 @@ export class UsecaseContextFactory {
     return prompt || this.promptDefaults.effective('language.check');
   }
 
+  /**
+   * Instruction for the chapter-description-list task (editable prompt
+   * default). The concrete parameters (chapter count, sentences per
+   * description, first chapter number, goal) are appended by the flow as
+   * structured lines.
+   */
+  chapterDescriptionsInstruction(): string {
+    return this.promptDefaults.effective('structure.chapterDescriptions');
+  }
+
   /** The rewrite-selection instruction (editable prompt default). */
   rewriteInstruction(): string {
     return this.promptDefaults.effective('language.rewrite');

@@ -255,6 +255,17 @@
             }
           </button>
 
+          <button class="btn small" type="button"
+                  [disabled]="isLoading()"
+                  (click)="openChapterDescriptionsDialog()"
+                  [title]="i18n.t('node.chapterDescriptionsTitle')">
+            @if (isLoading() && pendingAction() === 'chapterDescriptions') {
+              {{ i18n.t('node.generatingStructure') }}
+            } @else {
+              {{ i18n.t('node.chapterDescriptions') }}
+            }
+          </button>
+
           @if (isDraftEmpty() || pendingAction() === 'continue') {
             <button class="btn small" type="button"
                     [disabled]="isLoading()"
@@ -366,6 +377,17 @@
               {{ i18n.t('node.continuing') }}
             } @else {
               {{ i18n.t('node.continue') }}
+            }
+          </button>
+          <button class="btn small continue-closed"
+                  type="button"
+                  [disabled]="isLoading()"
+                  (click)="openChapterDescriptionsDialog(); $event.stopPropagation()"
+                  [title]="i18n.t('node.chapterDescriptionsTitle')">
+            @if (isLoading() && pendingAction() === 'chapterDescriptions') {
+              {{ i18n.t('node.generatingStructure') }}
+            } @else {
+              {{ i18n.t('node.chapterDescriptions') }}
             }
           </button>
         }
