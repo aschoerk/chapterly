@@ -593,6 +593,23 @@
           }
         </button>
       }
+      @if (node().role === 'user') {
+        <button class="btn-icon" type="button"
+                [disabled]="isLoading()"
+                (click)="openChapterDescriptionsDialog(); $event.stopPropagation()"
+                [title]="i18n.t('node.chapterDescriptionsTitle')">
+          @if (isLoading() && pendingAction() === 'chapterDescriptions') {
+            <span class="spinner"></span>
+            <span>{{ i18n.t('node.generatingStructure') }}</span>
+          } @else {
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M4 6h16M4 10h16M4 14h10M4 18h6"/>
+            </svg>
+            <span>{{ i18n.t('node.chapterDescriptions') }}</span>
+          }
+        </button>
+      }
+
       @if (node().role === 'user' && !isUnsentQuestion()) {
         <button class="btn-icon"
               type="button"

@@ -2003,12 +2003,12 @@ export class ChatNodeComponent implements OnDestroy {
           action: () => void this.continueDraft(),
           disabled: this.isLoading()
         });
-        roleItems.push({
-          label: this.i18n.t('node.ctxChapterDescriptions'),
-          action: () => void this.openChapterDescriptionsDialog(),
-          disabled: this.isLoading()
-        });
       }
+      roleItems.push({
+        label: this.i18n.t('node.ctxChapterDescriptions'),
+        action: () => void this.openChapterDescriptionsDialog(),
+        disabled: this.isLoading()
+      });
       if (!this.isUnsentQuestion()) {
         roleItems.push({
           label: this.i18n.t('node.ctxPrepend'),
