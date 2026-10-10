@@ -173,6 +173,9 @@ describe('RewriteDialogComponent', () => {
       };
       node?: { id?: string };
     };
+    // rewrite() registers an onChunk streaming callback (for live progress).
+    const opts = runner.run.mock.calls[0][1] as { onChunk?: (c: { content?: string }) => void };
+    expect(typeof opts.onChunk).toBe('function');
     expect(build.usecase).toBe('rewrite-selection');
     expect(build.vars?.content).toBe('the old tower');
     expect(build.vars?.directions).toBe('make it scary');
@@ -202,6 +205,54 @@ describe('RewriteDialogComponent', () => {
 
     await expect(p).resolves.toBe('a scary keep.');
     expect(fixture.nativeElement.querySelector('.rewrite-dialog')).toBeNull();
+  });
+
+  it('shows a spinner + the last received word while thinking, then hides it', async () => {
+    // Keep the rewrite in flight so we can observe the streaming progress.
+    let release: (() => void) | undefined;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    (runner.run as ReturnType<typeof vi.fn>).mockImplementationOnce(
+      async (_build: unknown, _opts?: { onChunk?: (c: { content?: string }) => void }) => {
+        await gate;
+        return { text: { status: 'ok', value: '["a tower.","a keep."]' } };
+      }
+    );
+
+    const p = openState();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const pending = component.rewrite();
+    fixture.detectChanges();
+
+    // While thinking: the progress row (spinner + label) is visible.
+    const progress = () => fixture.nativeElement.querySelector('.rewrite-progress');
+    expect(component.loading()).toBe(true);
+    expect(progress()).not.toBeNull();
+    expect(component.receivedTail()).toBe('');
+
+    // The model streams → the dialog exposes the last word received.
+    const opts = (runner.run as ReturnType<typeof vi.fn>).mock.calls[0][1] as {
+      onChunk: (c: { content?: string }) => void;
+    };
+    opts.onChunk({ content: 'A ' });
+    opts.onChunk({ content: 'dark ' });
+    opts.onChunk({ content: 'tower.' });
+    fixture.detectChanges();
+    expect(component.receivedTail()).toBe('tower.');
+    const word = fixture.nativeElement.querySelector('.rewrite-progress-word') as HTMLElement;
+    expect(word.textContent).toBe('…tower.');
+
+    // Finished → the progress row disappears.
+    release!();
+    await pending;
+    fixture.detectChanges();
+    expect(component.loading()).toBe(false);
+    expect(progress()).toBeNull();
+
+    dialog.cancel();
+    await p;
   });
 
   it('clamps long suggestions to a preview with a read-full-text toggle', async () => {

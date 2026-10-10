@@ -70,7 +70,14 @@
       </div>
 
       <div class="card-body log-summary">
+        @let usage = usageLine(entry);
         <code>{{ entry.summary }}</code>
+        @if (usage !== '') {
+          <div class="log-usage">
+            <span class="log-usage-label">{{ i18n.t('logs.usage') }}:</span>
+            <code>{{ usage }}</code>
+          </div>
+        }
       </div>
 
       @if (isExpanded(entry.seq)) {

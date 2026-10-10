@@ -473,15 +473,18 @@ async function getOrCreateElaborateQuestion(
 // placement goes through ChatService (create structural node + reparent).
 // ---------------------------------------------------------------------------
 
-/** One non-streaming text completion (title/overview/heading/language check). */
-async function textCompletion(env: FlowEnv, userContent: string): Promise<EvalSlots> {
+/** One text completion (title/overview/heading/language check default to
+ *  non-streaming; `stream: true` streams and forwards `env.onChunk` so a
+ *  caller can show live progress — used by rewrite-selection). */
+async function textCompletion(env: FlowEnv, userContent: string, opts: { stream?: boolean } = {}): Promise<EvalSlots> {
+  const stream = opts.stream === true;
   return env.orch.completion(env.cx, {
     model: env.write.model,
     provider: env.write.provider,
     messages: [{ role: 'user', content: userContent }],
     extras: env.textExtras,
-    stream: false
-  }, { expect: 'text', signal: env.signal });
+    stream
+  }, { expect: 'text', onChunk: stream ? env.onChunk : undefined, signal: env.signal });
 }
 
 /** Create a structural node (title/overview/heading) under `parentId`. */
@@ -715,7 +718,8 @@ const rewriteSelection: FlowController = async env => {
   if (directions) parts.push(`User directions — the rewrite MUST follow these:\n${directions}`);
   if (contextText) parts.push(`Context the marked text appears in:\n${contextText}`);
   parts.push(`Marked text to rewrite:\n${text}`);
-  return textCompletion(env, parts.join('\n\n'));
+  // Streamed so the rewrite dialog can show live progress (last word received).
+  return textCompletion(env, parts.join('\n\n'), { stream: true });
 };
 
 // ---------------------------------------------------------------------------

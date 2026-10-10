@@ -107,6 +107,13 @@ export class LlmTransportService {
     };
     if (req.imageCapable) payload['modalities'] = req.imageOnlyModalities ? ['image'] : defaultModalities(req.model);
     payload['stream'] = stream;
+    if (stream) {
+      // Ask OpenAI-compatible providers to emit a final chunk carrying the
+      // whole-request usage block (tokens + cost) BEFORE [DONE], so streamed
+      // calls show usage in the log too. A caller-provided stream_options
+      // (e.g. to opt out) wins over this default.
+      payload['stream_options'] = req.extras?.['stream_options'] ?? { include_usage: true };
+    }
 
     const logEntry = this.llmLog.record({
       kind: 'chat',
@@ -151,15 +158,18 @@ export class LlmTransportService {
         const assembled = await readSseStream(response.body, req.onChunk).then(r => ({
           content: r.content.trim(),
           thinking: r.thinking.trim(),
-          images: r.images
+          images: r.images,
+          usage: r.usage
         }));
         // The log must show what the model actually returned — including any
-        // generated images an image-capable model streamed back.
+        // generated images an image-capable model streamed back, and the
+        // provider's final usage block (OpenAI include_usage) when present.
         this.llmLog.complete(logEntry, {
           response: {
             content: assembled.content,
             thinking: assembled.thinking,
-            ...(assembled.images.length ? { images: assembled.images } : {})
+            ...(assembled.images.length ? { images: assembled.images } : {}),
+            ...(assembled.usage ? { usage: assembled.usage } : {})
           }
         });
         const raw = {

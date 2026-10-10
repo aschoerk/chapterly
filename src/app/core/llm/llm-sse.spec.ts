@@ -195,6 +195,30 @@ describe('LlmSseParser — encoding and content shapes', () => {
       `data: ${JSON.stringify({ output: { text } })}\n\n`;
     expect(feed(parser, [snap('Ner'), snap('Nervous')])).toBe('Nervous');
   });
+
+  it('captures the final streamed usage chunk (include_usage)', () => {
+    const parser = new LlmSseParser();
+    const usage = { prompt_tokens: 12, completion_tokens: 30, total_tokens: 42 };
+    const body = [
+      openaiData('Done.'),
+      `data: ${JSON.stringify({ choices: [], usage })}`,
+      'data: [DONE]'
+    ].join('\n\n') + '\n\n';
+
+    feed(parser, [body]);
+    const result = parser.result();
+    // The usage-only chunk was NOT dropped: content streamed normally…
+    expect(result.content).toBe('Done.');
+    // …and the whole-request usage block was captured.
+    expect(result.usage).toEqual(usage);
+  });
+
+  it('keeps the LAST usage block when several events carry one', () => {
+    const parser = new LlmSseParser();
+    const usage = (u: unknown) => `data: ${JSON.stringify({ choices: [], usage: u })}\n\n`;
+    feed(parser, [usage({ prompt_tokens: 1 }), usage({ prompt_tokens: 2, total_tokens: 5 })], true);
+    expect(parser.result().usage).toEqual({ prompt_tokens: 2, total_tokens: 5 });
+  });
 });
 
 describe('naive parser vs robust parser — the missing-letter demo', () => {

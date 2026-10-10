@@ -20,6 +20,17 @@ const REWRITE_PREVIEW_LIMIT = 180;
  */
 export const REWRITE_MODEL_KEY = 'rewriteDialog.lastModelId';
 
+/**
+ * Last word of a streamed (JSON-ish) rewrite response — used as a live
+ * liveness hint in the dialog. JSON punctuation is stripped so the word reads
+ * naturally even while the model streams a variant array.
+ */
+function lastWordOfStream(s: string): string {
+  const cleaned = s.replace(/[\[\]"\\{}:]/g, ' ').replace(/\s+/g, ' ').trim();
+  const words = cleaned ? cleaned.split(' ') : [];
+  return words.length ? words[words.length - 1] : '';
+}
+
 @Component({
   selector: 'app-rewrite-dialog',
   standalone: true,
@@ -52,6 +63,14 @@ export class RewriteDialogComponent {
    */
   readonly expandedVariant = signal(-1);
 
+  /**
+   * Live progress: the last word received from the streaming rewrite while the
+   * model is generating (shown next to the spinner as a liveness hint).
+   */
+  readonly receivedTail = signal('');
+  /** Streamed content accumulated during the current rewrite run. */
+  private streamedUntil = '';
+
   readonly enabledModels = computed(() => this.settings.enabledModels());
 
   constructor() {
@@ -63,6 +82,8 @@ export class RewriteDialogComponent {
       this.contextMode.set(s.contextMode);
       this.suggestions.set(null);
       this.expandedVariant.set(-1);
+      this.receivedTail.set('');
+      this.streamedUntil = '';
       this.loading.set(false);
       // Default: the model that generated the node — unless a previously
       // remembered model choice (still enabled) should be restored.
@@ -115,6 +136,13 @@ export class RewriteDialogComponent {
     this.rememberModel(this.modelId());
   }
 
+  /** Accumulate a streamed chunk and expose its last word for live progress. */
+  private onRewriteChunk(content: string): void {
+    if (!content) return;
+    this.streamedUntil += content;
+    this.receivedTail.set(lastWordOfStream(this.streamedUntil));
+  }
+
   /** The selectable context scopes with labels + hints. */
   contextOptions(): { mode: RewriteContextMode; label: string; hint: string }[] {
     return [
@@ -157,6 +185,8 @@ export class RewriteDialogComponent {
     }
 
     this.loading.set(true);
+    this.receivedTail.set('');
+    this.streamedUntil = '';
     try {
       const slots = await this.runner.run({
         chat: d.chat,
@@ -170,6 +200,8 @@ export class RewriteDialogComponent {
           modelId: model.modelId,
           providerId: model.providerId
         }
+      }, {
+        onChunk: c => this.onRewriteChunk(c?.content ?? '')
       });
       if (slots.error?.status === 'error') {
         const reason = (slots.error.reason ?? '').trim();

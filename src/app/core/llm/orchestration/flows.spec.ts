@@ -674,7 +674,7 @@ describe('LLM orchestration — rewrite-selection (marked text → variants)', (
   });
 
   it('no context: sends only instructions + directions + the marked text', async () => {
-    fetchMock.mockResolvedValueOnce(textResponse('["short fix.","clearer keep.","scary restate."]'));
+    fetchMock.mockResolvedValueOnce(sseResponse(['["short fix.",', '"clearer keep.",', '"scary restate."]']));
     const chatService = await openRewriteStory();
     const runner = TestBed.inject(LlmFlowRunner);
 
@@ -707,7 +707,7 @@ describe('LLM orchestration — rewrite-selection (marked text → variants)', (
   });
 
   it('current-node context: the whole node content is included', async () => {
-    fetchMock.mockResolvedValueOnce(textResponse('["a."]'));
+    fetchMock.mockResolvedValueOnce(sseResponse(['["a."]']));
     const chatService = await openRewriteStory();
     const runner = TestBed.inject(LlmFlowRunner);
 
@@ -724,7 +724,7 @@ describe('LLM orchestration — rewrite-selection (marked text → variants)', (
   });
 
   it('upto context: only the node text up to and including the marked part', async () => {
-    fetchMock.mockResolvedValueOnce(textResponse('["a.","b.","c."]'));
+    fetchMock.mockResolvedValueOnce(sseResponse(['["a.","b.","c."]']));
     const chatService = await openRewriteStory();
     const runner = TestBed.inject(LlmFlowRunner);
 
@@ -752,7 +752,7 @@ describe('LLM orchestration — rewrite-selection (marked text → variants)', (
   });
 
   it('whole-text context: the entire thread up to the node is included', async () => {
-    fetchMock.mockResolvedValueOnce(textResponse('["a.","b.","c."]'));
+    fetchMock.mockResolvedValueOnce(sseResponse(['["a.","b.","c."]']));
     const chatService = await openRewriteStory();
     const runner = TestBed.inject(LlmFlowRunner);
 
@@ -770,6 +770,27 @@ describe('LLM orchestration — rewrite-selection (marked text → variants)', (
     expect(content).toContain('Make the tower scary and short.');
     expect(content).toContain('Marked text to rewrite:');
     expect(content).toContain('scary');
+  });
+
+  it('streams chunks through onChunk so the caller can show live progress', async () => {
+    fetchMock.mockResolvedValueOnce(sseResponse(['["a dark ', 'tower looms.",', '"a calm shore."]']));
+    const chatService = await openRewriteStory();
+    const runner = TestBed.inject(LlmFlowRunner);
+
+    const chunks: string[] = [];
+    const slots = await runner.run({
+      chat: api.chats[0],
+      node: chatService.nodes().find(n => n.id === 'a1')!,
+      usecase: 'rewrite-selection',
+      vars: { content: 'the old tower', contextMode: 'none', modelId: 'alpha/model', providerId: 'prov-1' }
+    }, {
+      onChunk: c => { if (c.content) chunks.push(c.content); }
+    });
+
+    // Chunks reach the caller as they arrive (the dialog updates the last
+    // word per chunk); the final slot still holds the whole answer.
+    expect(chunks.join('')).toBe('["a dark tower looms.","a calm shore."]');
+    expect(slots.text?.value).toBe('["a dark tower looms.","a calm shore."]');
   });
 });
 

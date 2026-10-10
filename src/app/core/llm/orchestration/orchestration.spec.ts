@@ -306,6 +306,48 @@ describe('LLM orchestration — transport fallbacks (the retries stay in transpo
     expect(response?.images).toHaveLength(1);
     logRecordSpy.mockRestore();
   });
+
+  it('requests streamed usage and attaches it to the log entry (include_usage)', async () => {
+    const enc = new TextEncoder();
+    const frame = (o: unknown) => `data: ${JSON.stringify(o)}\n\n`;
+    const usage = { prompt_tokens: 12, completion_tokens: 30, total_tokens: 42, total_cost: 0.0001 };
+    const body = frame({ choices: [{ delta: { content: 'Streamed ' } }] })
+      + frame({ choices: [{ delta: { content: 'answer.' } }] })
+      + frame({ choices: [], usage })
+      + 'data: [DONE]\n\n';
+    fetchMock.mockResolvedValueOnce({
+      ok: true, status: 200,
+      headers: { get: () => 'text/event-stream' },
+      body: new ReadableStream<Uint8Array>({
+        start(controller) { controller.enqueue(enc.encode(body)); controller.close(); }
+      })
+    } as unknown as Response);
+
+    const textModel = makeModel({ modelId: 'alpha/model' });
+    const logRecordSpy = vi.spyOn(TestBed.inject(LlmLogService), 'record');
+    const completion = await transport.complete({
+      provider, model: textModel,
+      messages: [{ role: 'user', content: 'Hello' }],
+      extras: { stream: true },
+      chat: { id: 'c', title: 't', usecase: 'append' }
+    });
+
+    // Assembled stream text is untouched.
+    expect(completion.content).toBe('Streamed answer.');
+
+    // The request asks the provider to stream usage back.
+    const sent = JSON.parse((fetchMock.mock.calls[0][1] as { body: string }).body) as {
+      stream?: boolean;
+      stream_options?: { include_usage?: boolean };
+    };
+    expect(sent.stream).toBe(true);
+    expect(sent.stream_options).toEqual({ include_usage: true });
+
+    // The final usage chunk reached the persisted log entry's response.
+    const entry = logRecordSpy.mock.results[0].value as LlmLogEntry;
+    expect((entry.response as { usage?: unknown }).usage).toEqual(usage);
+    logRecordSpy.mockRestore();
+  });
 });
 
 describe('LLM orchestration — planned-scenes pipeline (use case 3)', () => {

@@ -115,6 +115,76 @@ export class LlmLogsComponent implements OnDestroy {
   }
 
   /**
+   * Normalized token-usage figures extracted from a completed response — or
+   * null when there is no response yet, the call errored, or the provider
+   * returned no usage at all. Covers the OpenAI-style `usage` block
+   * (`prompt_tokens` / `completion_tokens` / `total_tokens` incl. reasoning
+   * tokens), Anthropic (`input_tokens` / `output_tokens`) and the Gemini SDK
+   * `usageMetadata` (`promptTokenCount` / `candidatesTokenCount` /
+   * `totalTokenCount`). Cost is picked up from the same response when the
+   * provider reports it — OpenRouter's `usage.total_cost`, plain `usage.cost`.
+   */
+  usageOf(e: LlmLogEntry): { input?: number; output?: number; total?: number; reasoning?: number; cost?: number } | null {
+    if (!e.completed || e.response == null || !!e.error) return null;
+    if (typeof e.response !== 'object') return null;
+    const u = (e.response as Record<string, unknown>)['usage']
+      ?? (e.response as Record<string, unknown>)['usageMetadata'];
+    if (u == null || typeof u !== 'object') return null;
+    const o = u as Record<string, unknown>;
+    const num = (v: unknown): number | undefined => {
+      const n = typeof v === 'number' ? v : (typeof v === 'string' ? Number(v) : NaN);
+      return Number.isFinite(n) && n >= 0 ? Math.round(n) : undefined;
+    };
+    // Cost is a small USD fraction — keep full decimal precision.
+    const decimal = (v: unknown): number | undefined => {
+      const n = typeof v === 'number' ? v : (typeof v === 'string' ? Number(v) : NaN);
+      return Number.isFinite(n) && n >= 0 ? n : undefined;
+    };
+    const details = o['completion_tokens_details'];
+    return {
+      input: num(o['prompt_tokens']) ?? num(o['input_tokens']) ?? num(o['promptTokenCount']),
+      output: num(o['completion_tokens']) ?? num(o['output_tokens']) ?? num(o['candidatesTokenCount']),
+      total: num(o['total_tokens']) ?? num(o['totalTokenCount']),
+      reasoning: (details && typeof details === 'object')
+        ? num((details as Record<string, unknown>)['reasoning_tokens'])
+        : undefined,
+      cost: decimal(o['total_cost']) ?? decimal(o['cost']),
+    };
+  }
+
+  /**
+   * One-line usage summary rendered as the entry's second line, e.g.
+   * `in 128 · out 342 · total 470 · cost $0.000418`. Empty when the response
+   * carries no usage data (or no finished response yet).
+   */
+  usageLine(e: LlmLogEntry): string {
+    const u = this.usageOf(e);
+    if (!u) return '';
+    const parts: string[] = [];
+    if (u.input !== undefined) parts.push(`${this.i18n.t('logs.usageIn')} ${u.input}`);
+    if (u.output !== undefined) parts.push(`${this.i18n.t('logs.usageOut')} ${u.output}`);
+    if (u.total !== undefined) parts.push(`${this.i18n.t('logs.usageTotal')} ${u.total}`);
+    if (u.reasoning !== undefined) parts.push(`${this.i18n.t('logs.usageReasoning')} ${u.reasoning}`);
+    if (u.cost !== undefined) parts.push(`${this.i18n.t('logs.usageCost')} ${this.formatCost(u.cost)}`);
+    return parts.join(' · ');
+  }
+
+  /**
+   * USD cost label with adaptive precision — a typical call costs fractions
+   * of a cent (e.g. `$0.000418`), so more than the usual 2 decimals are kept
+   * when the amount is small.
+   */
+  formatCost(cost: number): string {
+    const digits = cost >= 1 ? 2 : cost >= 0.01 ? 4 : 6;
+    return this.i18n.formatNumber(cost, {
+      style: 'currency',
+      currency: 'USD',
+      minimumFractionDigits: digits,
+      maximumFractionDigits: digits
+    });
+  }
+
+  /**
    * Human-readable size label for a stored entry (e.g. "1.2 KB"). Tolerates
    * entries recorded before the size field existed (`undefined` -> '').
    */

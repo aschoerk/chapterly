@@ -381,6 +381,7 @@ export const DE = {
     contextAllHint: 'Die gesamte bisherige Geschichte / Kapitel-Historie.',
     rewrite: 'Umschreiben',
     rewriting: 'Wird umgeschrieben…',
+    thinking: 'Denkt nach…',
     applyEdited: 'Meinen bearbeiteten Text verwenden',
     applyEditedTitle: 'Auswahl durch den bearbeiteten Text ersetzen (ohne Modellaufruf)',
     suggestionsIntro: 'Vorschläge – einen auswählen oder Hinweise anpassen und erneut umschreiben',
@@ -527,6 +528,12 @@ export const DE = {
     sizeLimitUnit: 'MB',
     sizeLimitHint: 'Sobald das gespeicherte Protokoll das konfigurierte Größenlimit überschreitet (Standard 50 MB), werden die ältesten Einträge entfernt, bis es wieder hineinpasst. Als Sicherheitsnetz gilt zusätzlich ein hartes Limit für die Eintragsanzahl.',
     sizeUsageTitle: 'Gespeichert: {{used}} von {{limit}}',
+    usage: 'Nutzung',
+    usageIn: 'rein',
+    usageOut: 'raus',
+    usageTotal: 'gesamt',
+    usageReasoning: 'Denken',
+    usageCost: 'Kosten',
   },
   config: {
     nav: {

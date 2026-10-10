@@ -418,4 +418,125 @@ describe('LlmLogsComponent', () => {
     // No generated (response) image exists yet → received stays empty.
     expect(component.receivedImages(entry)).toEqual([]);
   });
+
+  // ------------------------------------------------------------------
+  // Token usage reported by the provider (second line under the summary)
+  // ------------------------------------------------------------------
+
+  it('shows an OpenAI-style usage block as the entry’s second line', async () => {
+    const entry = logs.record({
+      kind: 'chat', modelId: 'm/1', provider: 'https://p',
+      messages: [{ role: 'user', content: 'hi' }],
+    });
+    logs.complete(entry, {
+      response: {
+        choices: [{ message: { role: 'assistant', content: 'Hello!' } }],
+        usage: {
+          prompt_tokens: 128,
+          completion_tokens: 342,
+          total_tokens: 470,
+          completion_tokens_details: { reasoning_tokens: 40 },
+        },
+      },
+    });
+    await logs.flush();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    // Rendered as a second line, directly under the summary.
+    const usage = fixture.nativeElement.querySelector('.log-usage');
+    expect(usage).not.toBeNull();
+    const text = usage?.textContent ?? '';
+    expect(text).toContain('128');
+    expect(text).toContain('342');
+    expect(text).toContain('470');
+    expect(text).toContain('40'); // reasoning tokens
+    // Structured accessor agrees.
+    expect(component.usageLine(entry)).toContain('reasoning 40');
+  });
+
+  it('shows Anthropic-style usage (input_tokens / output_tokens)', async () => {
+    const entry = logs.record({
+      kind: 'chat', modelId: 'anthropic/claude-3-5-sonnet', provider: 'https://p',
+      messages: [{ role: 'user', content: 'hi' }],
+    });
+    logs.complete(entry, {
+      response: {
+        content: [{ type: 'text', text: 'Hi!' }],
+        usage: { input_tokens: 25, output_tokens: 30 },
+      },
+    });
+    await logs.flush();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const text = fixture.nativeElement.querySelector('.log-usage')?.textContent ?? '';
+    expect(text).toContain('25');
+    expect(text).toContain('30');
+  });
+
+  it('shows Gemini-style usage (usageMetadata token counts)', async () => {
+    const entry = logs.record({
+      kind: 'chat', modelId: 'gemini/2.0-flash', provider: 'https://p',
+      messages: [{ role: 'user', content: 'hi' }],
+    });
+    logs.complete(entry, {
+      response: {
+        candidates: [{ content: { parts: [{ text: 'Hi!' }] } }],
+        usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 42, totalTokenCount: 52 },
+      },
+    });
+    await logs.flush();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const text = fixture.nativeElement.querySelector('.log-usage')?.textContent ?? '';
+    expect(text).toContain('10');
+    expect(text).toContain('42');
+    expect(text).toContain('52');
+  });
+
+  it('adds no usage second line when the response has no usage data', async () => {
+    const entry = logs.record({
+      kind: 'chat', modelId: 'm/1', provider: 'https://p',
+      messages: [{ role: 'user', content: 'hi' }],
+    });
+    logs.complete(entry, { response: { choices: [{ message: { content: 'Hi!' } }] } });
+    await logs.flush();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('.log-usage')).toBeNull();
+    expect(component.usageLine(entry)).toBe('');
+  });
+
+  it('appends the provider-reported cost to the usage line', async () => {
+    const entry = logs.record({
+      kind: 'chat', modelId: 'm/1', provider: 'https://p',
+      messages: [{ role: 'user', content: 'hi' }],
+    });
+    logs.complete(entry, {
+      response: {
+        choices: [{ message: { role: 'assistant', content: 'Hello!' } }],
+        usage: {
+          prompt_tokens: 128,
+          completion_tokens: 342,
+          total_tokens: 470,
+          total_cost: 0.000418,
+        },
+      },
+    });
+    await logs.flush();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const text = fixture.nativeElement.querySelector('.log-usage')?.textContent ?? '';
+    expect(text).toContain('0.000418');
+  });
+
+  it('formats the cost with adaptive precision (fractions of a cent)', () => {
+    expect(component.formatCost(12.5)).toContain('12.50');
+    expect(component.formatCost(0.05)).toContain('0.0500');
+    expect(component.formatCost(0.000418)).toContain('0.000418');
+  });
 });

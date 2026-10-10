@@ -379,6 +379,7 @@ export const EN = {
     contextAllHint: 'The whole story / chapter history so far.',
     rewrite: 'Rewrite',
     rewriting: 'Rewriting…',
+    thinking: 'Thinking…',
     applyEdited: 'Use my edited text',
     applyEditedTitle: 'Replace the selection with the edited text as-is (no model call)',
     suggestionsIntro: 'Suggestions — pick one, or adjust directions and rewrite again',
@@ -525,6 +526,12 @@ export const EN = {
     sizeLimitUnit: 'MB',
     sizeLimitHint: 'When the stored log exceeds the configured size (default 50 MB), the oldest entries are removed first until it fits again. A hard entry-count cap still applies as a safety net.',
     sizeUsageTitle: 'Stored: {{used}} of {{limit}}',
+    usage: 'Usage',
+    usageIn: 'in',
+    usageOut: 'out',
+    usageTotal: 'total',
+    usageReasoning: 'reasoning',
+    usageCost: 'cost',
   },
   config: {
     nav: {

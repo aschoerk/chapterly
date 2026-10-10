@@ -67,13 +67,20 @@
         }
       </fieldset>
 
+      @if (loading()) {
+        <div class="rewrite-progress" role="status" aria-live="polite">
+          <span class="spinner" aria-hidden="true"></span>
+          <span class="rewrite-progress-label">{{ i18n.t('rewriteDialog.thinking') }}</span>
+          @if (receivedTail(); as word) {
+            <span class="rewrite-progress-word">…{{ word }}</span>
+          }
+        </div>
+      }
+
       @if (suggestions(); as variants) {
         <div class="rewrite-suggestions">
           <div class="rewrite-suggestions-head">
             <span>{{ i18n.t('rewriteDialog.suggestionsIntro') }}</span>
-            @if (loading()) {
-              <span class="spinner"></span>
-            }
           </div>
           @for (v of variants; track $index) {
             <div class="rewrite-suggestion" [class.expanded]="expandedVariant() === $index">

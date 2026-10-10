@@ -19,6 +19,12 @@ export interface LlmSseResult {
   content: string;
   thinking: string;
   images: LlmImagePart[];
+  /**
+   * The whole-request usage block streamed back by the provider on a final
+   * chunk (OpenAI `stream_options.include_usage`). Undefined when the stream
+   * carried none.
+   */
+  usage?: unknown;
   skippedEvents: number;
   parseErrors: number;
 }
@@ -36,6 +42,7 @@ export class LlmSseParser {
   private content = '';
   private thinking = '';
   private images: LlmImagePart[] = [];
+  private usage: unknown = undefined;
   private skippedEvents = 0;
   private parseErrors = 0;
   private lastSnapshotContent = '';
@@ -72,6 +79,7 @@ export class LlmSseParser {
       content: this.content,
       thinking: this.thinking,
       images: this.images,
+      usage: this.usage,
       skippedEvents: this.skippedEvents,
       parseErrors: this.parseErrors
     };
@@ -142,6 +150,14 @@ export class LlmSseParser {
     const contentBit = this.normalizePiece(extracted.content, 'content');
     const thinkingBit = this.normalizePiece(extracted.thinking, 'thinking');
     const images = extractStreamImages(json);
+    // The final streamed usage chunk (requested via stream_options
+    // include_usage) has an empty `choices` array but carries the whole-
+    // request usage block — keep the LAST one so the log can show tokens /
+    // cost for streamed calls too.
+    if (json && typeof json === 'object') {
+      const usage = (json as Record<string, unknown>)['usage'];
+      if (usage && typeof usage === 'object') this.usage = usage;
+    }
     if (!contentBit && !thinkingBit && images.length === 0) {
       this.skippedEvents += 1;
       return null;
