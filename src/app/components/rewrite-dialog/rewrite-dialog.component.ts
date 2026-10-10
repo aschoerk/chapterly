@@ -13,6 +13,13 @@ import { RewriteDialogService } from '../../core/rewrite-dialog.service';
  */
 const REWRITE_PREVIEW_LIMIT = 180;
 
+/**
+ * localStorage key remembering the model the user last chose in this dialog.
+ * When set (and the model is still enabled) it takes precedence over the node
+ * default; otherwise the model that generated the node is pre-selected.
+ */
+export const REWRITE_MODEL_KEY = 'rewriteDialog.lastModelId';
+
 @Component({
   selector: 'app-rewrite-dialog',
   standalone: true,
@@ -54,18 +61,58 @@ export class RewriteDialogComponent {
       this.fragment.set(s.fragment);
       this.directions.set(s.directions);
       this.contextMode.set(s.contextMode);
-      this.modelId.set(s.modelId);
-      this.providerId.set(s.providerId);
       this.suggestions.set(null);
       this.expandedVariant.set(-1);
       this.loading.set(false);
+      // Default: the model that generated the node — unless a previously
+      // remembered model choice (still enabled) should be restored.
+      this.applyModelSelection(this.initialModelId(s.modelId), s.providerId);
     });
   }
 
+  /**
+   * The model to pre-select when the dialog opens: the remembered choice when
+   * it is still enabled, otherwise the model that generated the node.
+   */
+  initialModelId(nodeModelId: string): string {
+    const remembered = this.rememberedModelId();
+    const rememberedEnabled = this.enabledModels().some(
+      m => m.modelId === remembered || m.id === remembered
+    );
+    return rememberedEnabled ? remembered : nodeModelId;
+  }
+
+  /**
+   * Set modelId + providerId from a model id, resolving the provider for the
+   * matched (or first) enabled model.
+   */
+  applyModelSelection(modelId: string, fallbackProvider = ''): void {
+    const model = this.enabledModels().find(m => m.modelId === modelId || m.id === modelId)
+      ?? (!modelId ? this.enabledModels()[0] : undefined);
+    this.modelId.set(model ? model.modelId : modelId);
+    this.providerId.set(model?.providerId ?? fallbackProvider);
+  }
+
+  private rememberedModelId(): string {
+    try {
+      return localStorage.getItem(REWRITE_MODEL_KEY) ?? '';
+    } catch {
+      return '';
+    }
+  }
+
+  private rememberModel(modelId: string): void {
+    if (!modelId) return;
+    try {
+      localStorage.setItem(REWRITE_MODEL_KEY, modelId);
+    } catch {
+      /* non-fatal — memory is best-effort */
+    }
+  }
+
   onModelChange(v: string): void {
-    this.modelId.set(v);
-    const model = this.enabledModels().find(m => m.modelId === v || m.id === v);
-    this.providerId.set(model?.providerId ?? '');
+    this.applyModelSelection(v);
+    this.rememberModel(this.modelId());
   }
 
   /** The selectable context scopes with labels + hints. */

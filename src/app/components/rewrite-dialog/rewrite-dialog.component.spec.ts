@@ -9,7 +9,7 @@ import { I18nService } from '../../core/i18n/i18n.service';
 import { SettingsService } from '../../core/settings.service';
 import { LlmUseCaseRunner } from '../../core/llm/orchestration';
 import { RewriteDialogService } from '../../core/rewrite-dialog.service';
-import { RewriteDialogComponent } from './rewrite-dialog.component';
+import { RewriteDialogComponent, REWRITE_MODEL_KEY } from './rewrite-dialog.component';
 
 describe('RewriteDialogComponent', () => {
   let fixture: ComponentFixture<RewriteDialogComponent>;
@@ -60,6 +60,8 @@ describe('RewriteDialogComponent', () => {
     TestBed.inject(I18nService).setLocale('en');
     const settings = TestBed.inject(SettingsService);
     await settings.loadAll();
+    // The dialog remembers the chosen model; keep tests isolated.
+    localStorage.removeItem(REWRITE_MODEL_KEY);
     dialog = TestBed.inject(RewriteDialogService);
     runner = TestBed.inject(LlmUseCaseRunner) as unknown as { run: ReturnType<typeof vi.fn> };
     fixture = TestBed.createComponent(RewriteDialogComponent);
@@ -83,6 +85,59 @@ describe('RewriteDialogComponent', () => {
     expect(component.modelId()).toBe('alpha/model');
     const textareas = fixture.nativeElement.querySelectorAll('textarea') as NodeListOf<HTMLTextAreaElement>;
     expect(textareas[0].value).toBe('the old tower');
+    dialog.cancel();
+    await p;
+  });
+
+  it('defaults to the node model when nothing was remembered', async () => {
+    localStorage.removeItem(REWRITE_MODEL_KEY);
+    const p = openState();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    // Same model that generated the node.
+    expect(component.modelId()).toBe('alpha/model');
+    dialog.cancel();
+    await p;
+  });
+
+  it('restores a remembered model when it is still enabled', async () => {
+    localStorage.setItem(REWRITE_MODEL_KEY, 'beta/model');
+    const p = openState();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(component.modelId()).toBe('beta/model');
+    expect(component.providerId()).toBe('prov-1');
+    dialog.cancel();
+    await p;
+  });
+
+  it('falls back to the node model when the remembered model is no longer enabled', async () => {
+    localStorage.setItem(REWRITE_MODEL_KEY, 'ghost/model');
+    const p = openState();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(component.modelId()).toBe('alpha/model');
+    dialog.cancel();
+    await p;
+  });
+
+  it('remembers the selected model in localStorage and restores it next time', async () => {
+    localStorage.removeItem(REWRITE_MODEL_KEY);
+    component.onModelChange('beta/model');
+    expect(localStorage.getItem(REWRITE_MODEL_KEY)).toBe('beta/model');
+
+    // A later dialog pre-selects the remembered model instead of the node's.
+    const p = openState();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    expect(component.modelId()).toBe('beta/model');
     dialog.cancel();
     await p;
   });
