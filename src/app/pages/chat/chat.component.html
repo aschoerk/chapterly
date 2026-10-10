@@ -312,7 +312,7 @@
                     }
                   </button>
 
-                  @if (clipboard.hasContent()) {
+                  @if (clipboard.hasContent() && canPasteAfter(node)) {
                     <button class="nav-paste-after" type="button"
                             (click)="pasteNavSelectionAfter(node.id); $event.stopPropagation()"
                             (contextmenu)="openNavPasteMenu($event, node); $event.stopPropagation()"

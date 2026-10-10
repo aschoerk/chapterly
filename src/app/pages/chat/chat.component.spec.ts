@@ -624,6 +624,32 @@ describe('Chat', () => {
     expect(component.navSelectedIds()).toEqual(['q1', 'a1']);
   });
 
+  it('never selects the empty terminal direction node in the navbar', async () => {
+    await openStory(); // path: q1 → a1 → [empty draft direction]
+    const q1 = chatService.nodes().find(n => n.id === 'q1')!;
+    const a1 = chatService.nodes().find(n => n.id === 'a1')!;
+    const draft = chatService.getActivePath().at(-1)!;
+    expect(chatService.isDraftQuestion(draft)).toBe(true);
+
+    // plain toggle on the empty terminal direction → ignored
+    component.toggleNavSelection(draft.id);
+    expect(component.navSelectedIds()).toEqual([]);
+
+    // Ctrl+click on it → no selection starts either
+    component.onNavPointerDown(ctrlPointerEvent(), draft);
+    expect(component.navSelectedIds()).toEqual([]);
+    component.onNavDocumentPointerUp(ctrlPointerEvent());
+    expect(component.navSelectedIds()).toEqual([]);
+
+    // Ctrl+drag down to the draft excludes the draft from the range
+    component.onNavPointerDown(ctrlPointerEvent(), q1);
+    component.onNavPointerEnter(draft);
+    expect(component.isNavNodeSelected(draft.id)).toBe(false);
+    expect(component.navSelectedIds()).toEqual(['q1', 'a1']);
+    component.onNavDocumentPointerUp(ctrlPointerEvent());
+    expect(component.navSelectedIds()).toEqual(['q1', 'a1']);
+  });
+
   it('copies the selected nodes as an ordered sequence', async () => {
     await openStory();
     const clipboard = TestBed.inject(NodeClipboardService);
@@ -659,32 +685,44 @@ describe('Chat', () => {
     expect(chatService.deletedNodes().some(n => n.id === 'a1')).toBe(true);
   });
 
-  it('pastes a copied chain behind a visible navbar node as its linear continuation', async () => {
-    await openStory(); // path: q1 → a1 → [auto draft]
+  it('does not paste left of the empty terminal direction node', async () => {
+    await openStory(); // path: q1 → a1 → [empty draft direction]
     const clipboard = TestBed.inject(NodeClipboardService);
     const q1 = chatService.nodes().find(n => n.id === 'q1')!;
     const a1 = chatService.nodes().find(n => n.id === 'a1')!;
-    // whatever followed a1 on the active path (here: the auto-created draft)
-    const rightId = chatService.getActivePath().find(n => n.parentId === a1.id)?.id ?? null;
+    const draft = chatService.getActivePath().at(-1)!;
+    expect(chatService.isDraftQuestion(draft)).toBe(true); // the empty terminal direction
     clipboard.copySequence([q1, a1]); // chain q1 (root) → a1 (child)
 
+    // The paste button after a1 would sit LEFT of the empty terminal direction
+    // (draft) — it is not offered, and clicking pastes nothing.
+    expect(component.canPasteAfter(a1)).toBe(false);
+    expect(component.canPasteAfter(draft)).toBe(true); // pasting at the very end stays allowed
     await component.pasteNavSelectionAfter('a1');
+    expect(chatService.nodes().filter(n => n.content === 'Question' && n.id !== 'q1')).toEqual([]);
+  });
+
+  it('pastes a copied chain at the very end, behind the empty terminal direction node', async () => {
+    await openStory(); // path: q1 → a1 → [empty draft direction]
+    const clipboard = TestBed.inject(NodeClipboardService);
+    const q1 = chatService.nodes().find(n => n.id === 'q1')!;
+    const a1 = chatService.nodes().find(n => n.id === 'a1')!;
+    const draft = chatService.getActivePath().at(-1)!;
+    clipboard.copySequence([q1, a1]); // chain q1 (root) → a1 (child)
+
+    // paste behind the empty terminal direction node → linear continuation
+    await component.pasteNavSelectionAfter(draft.id);
 
     const byContent = (c: string) =>
       chatService.nodes().filter(n => n.content === c && n.isCurrent);
     const pastedQ = byContent('Question').find(n => n.id !== 'q1')!;
     const pastedA = byContent('Answer one').find(n => n.id !== 'a1')!;
 
-    // the chain root hangs under the LEFT visible node, subtree kept
-    expect(pastedQ.parentId).toBe('a1');
+    // the chain root hangs under the empty terminal direction node, subtree kept
+    expect(pastedQ.parentId).toBe(draft.id);
     expect(pastedA.parentId).toBe(pastedQ.id);
-    // the node that used to follow a1 now continues behind the chain
-    if (rightId) {
-      expect(chatService.nodes().find(n => n.id === rightId)?.parentId).toBe(pastedA.id);
-    }
     const ids = chatService.getActivePath().map(n => n.id);
-    expect(ids.slice(0, 3)).toEqual(['q1', a1.id, pastedQ.id]);
-    expect(ids[3]).toBe(pastedA.id);
+    expect(ids.slice(0, 5)).toEqual(['q1', a1.id, draft.id, pastedQ.id, pastedA.id]);
   });
 
   it('pastes a copied chain between the two visible navbar nodes around the paste button', async () => {

@@ -94,8 +94,17 @@ export class ChatComponent implements OnInit {
     return this.getActivePath().findIndex(n => n.id === nodeId);
   }
 
+  /** The empty "direction" node at the very end of the active path — the
+   *  terminal draft question the user types into. It can never be selected in
+   *  the navbar and nothing may be pasted to its left. */
+  private isLastEmptyDirection(nodeId: string): boolean {
+    const last = this.getActivePath().at(-1);
+    return !!last && last.id === nodeId && this.chatService.isDraftQuestion(last);
+  }
+
   onNavPointerDown(event: PointerEvent, node: ChatNode): void {
     if (!(event.ctrlKey || event.metaKey)) return;
+    if (this.isLastEmptyDirection(node.id)) return;
     event.preventDefault();
     this.navDragActive = true;
     this.navDragMoved = false;
@@ -135,6 +144,7 @@ export class ChatComponent implements OnInit {
   }
 
   toggleNavSelection(id: string): void {
+    if (this.isLastEmptyDirection(id)) return;
     const cur = this.navSelectedIds();
     this.applyNavSelection(cur.includes(id) ? cur.filter(x => x !== id) : [...cur, id]);
   }
@@ -166,7 +176,12 @@ export class ChatComponent implements OnInit {
       this.navSelectedIds.set([]);
       return;
     }
-    this.navSelectedIds.set(path.slice(lo, hi + 1).map(n => n.id));
+    this.navSelectedIds.set(
+      path
+        .slice(lo, hi + 1)
+        .filter(n => !this.isLastEmptyDirection(n.id))
+        .map(n => n.id)
+    );
   }
 
   private selectedNavNodes(): ChatNode[] {
@@ -234,6 +249,12 @@ export class ChatComponent implements OnInit {
     await this.pasteChain('insert', targets.leftId, targets.rightId);
   }
 
+  /** The navbar paste button appears after this node only when pasting there
+   *  is allowed (never left of the empty terminal direction node). */
+  canPasteAfter(node: ChatNode): boolean {
+    return this.navPasteTargets(node.id) !== null;
+  }
+
   /** Append the clipboard chain as a PARALLEL BRANCH under the left visible
    *  node (sibling of the right visible node) instead of splicing it into the
    *  visible chain. Only made visible when pasted at the very end. */
@@ -250,7 +271,11 @@ export class ChatComponent implements OnInit {
     const path = this.getActivePath();
     const i = path.findIndex(n => n.id === nodeId);
     if (i < 0) return null; // no longer a visible nav node
-    return { leftId: nodeId, rightId: i + 1 < path.length ? path[i + 1].id : null };
+    const right = i + 1 < path.length ? path[i + 1] : null;
+    // Nothing may be pasted LEFT of the empty direction node at the very end
+    // of the path — the draft question stays the terminal input target.
+    if (right && this.isLastEmptyDirection(right.id)) return null;
+    return { leftId: nodeId, rightId: right?.id ?? null };
   }
 
   private async pasteChain(
