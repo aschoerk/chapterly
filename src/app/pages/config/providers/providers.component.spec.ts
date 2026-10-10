@@ -271,4 +271,72 @@ describe('ProvidersComponent', () => {
 
     expect(component.showFetchedParams()).toBe(false);
   });
+
+  const uuid = (prefix: string) => `${prefix}-e29b-41d4-a716-446655440000`;
+
+  it('flags duplicate provider names and extracts the uuid id prefix', async () => {
+    api.providers = [
+      { id: uuid('550e8400'), name: 'OR', type: 'openrouter', baseUrl: 'https://a', apiKey: 'k', enabled: true },
+      { id: uuid('6ba7b810'), name: 'OR', type: 'openrouter', baseUrl: 'https://b', apiKey: 'k', enabled: true }
+    ];
+    await settings.loadAll();
+    fixture.detectChanges();
+
+    expect(component.duplicateProviderNames()).toEqual(new Set(['OR']));
+    expect(component.providerIdPrefix(api.providers[0].id)).toBe('550e8400');
+    expect(component.providerIdPrefix(api.providers[1].id)).toBe('6ba7b810');
+    expect(component.needsDisambiguation(api.providers[0].id)).toBe(true);
+    expect(component.needsDisambiguation(api.providers[1].id)).toBe(true);
+  });
+
+  it('renders the uuid id prefix left of the provider name when names collide', async () => {
+    api.providers = [
+      { id: uuid('550e8400'), name: 'OR', type: 'openrouter', baseUrl: 'https://a', apiKey: 'k', enabled: true },
+      { id: uuid('6ba7b810'), name: 'OR', type: 'openrouter', baseUrl: 'https://b', apiKey: 'k', enabled: true }
+    ];
+    await settings.loadAll();
+    fixture.detectChanges();
+
+    const el = fixture.nativeElement as HTMLElement;
+    const prefixes = el.querySelectorAll('.provider-id-prefix');
+    expect(prefixes.length).toBe(2);
+    expect((prefixes[0] as HTMLElement).textContent).toBe('550e8400');
+    expect((prefixes[1] as HTMLElement).textContent).toBe('6ba7b810');
+    expect(el.textContent).toContain('OR');
+  });
+
+  it('shows a second line under the provider name in the models table when names collide', async () => {
+    api.providers = [
+      { id: uuid('550e8400'), name: 'OR', type: 'openrouter', baseUrl: 'https://a', apiKey: 'k', enabled: true },
+      { id: uuid('6ba7b810'), name: 'OR', type: 'openrouter', baseUrl: 'https://b', apiKey: 'k', enabled: true }
+    ];
+    api.models = [
+      { id: 'm1', displayName: 'Alpha', modelId: 'model/a', providerId: api.providers[0].id, type: 'preset', enabled: true },
+      { id: 'm2', displayName: 'Beta', modelId: 'model/b', providerId: api.providers[1].id, type: 'preset', enabled: true }
+    ];
+    await settings.loadAll();
+    fixture.detectChanges();
+
+    const el = fixture.nativeElement as HTMLElement;
+    const prefixes = el.querySelectorAll('.models-table .provider-prefix');
+    expect(prefixes.length).toBe(2);
+    expect((prefixes[0] as HTMLElement).textContent).toBe('550e8400');
+    expect((prefixes[1] as HTMLElement).textContent).toBe('6ba7b810');
+  });
+
+  it('does not show the id prefix when provider names are unique', async () => {
+    api.providers = [
+      { id: uuid('550e8400'), name: 'OR', type: 'openrouter', baseUrl: 'https://a', apiKey: 'k', enabled: true },
+      { id: uuid('6ba7b810'), name: 'Local', type: 'custom', baseUrl: 'https://b', apiKey: 'k', enabled: true }
+    ];
+    api.models = [
+      { id: 'm1', displayName: 'Alpha', modelId: 'model/a', providerId: api.providers[0].id, type: 'preset', enabled: true }
+    ];
+    await settings.loadAll();
+    fixture.detectChanges();
+
+    const el = fixture.nativeElement as HTMLElement;
+    expect(el.querySelectorAll('.provider-id-prefix').length).toBe(0);
+    expect(el.querySelectorAll('.models-table .provider-prefix').length).toBe(0);
+  });
 });

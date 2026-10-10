@@ -13,7 +13,12 @@
     @for (provider of providers(); track provider.id) {
       <div class="card provider-card">
         <div class="card-header">
-          <strong>{{ provider.name }}</strong>
+          <strong>
+            @if (needsDisambiguation(provider.id)) {
+              <span class="provider-id-prefix">{{ providerIdPrefix(provider.id) }}</span>
+            }
+            {{ provider.name }}
+          </strong>
           <div class="actions">
             <button
               class="btn small"
@@ -134,6 +139,9 @@
               </td>
               <td>
                 <span class="provider-name">{{ getProviderName(model.providerId) }}</span>
+                @if (needsDisambiguation(model.providerId)) {
+                  <div class="provider-prefix">{{ providerIdPrefix(model.providerId) }}</div>
+                }
               </td>
               <td>
                 <div class="model-name">{{ model.displayName }}</div>

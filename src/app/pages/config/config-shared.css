@@ -139,6 +139,24 @@
   font-size: 0.875rem;
 }
 
+.provider-prefix {
+  margin-top: 0.2rem;
+  font-size: 0.75rem;
+  font-family: monospace;
+  color: var(--text-muted, #999);
+}
+
+.provider-id-prefix {
+  display: inline-block;
+  margin-right: 0.4rem;
+  padding: 0 0.35rem;
+  border-radius: 4px;
+  font-family: monospace;
+  font-size: 0.75rem;
+  color: var(--text-muted, #666);
+  background: var(--bg-hover, #f0f0f0);
+}
+
 .model-name {
   font-weight: 500;
 }

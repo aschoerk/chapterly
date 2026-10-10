@@ -355,6 +355,27 @@ export class ProvidersComponent {
     return this.providers().find(p => p.id === providerId)?.name ?? this.i18n.t('config.models.unknownProvider');
   }
 
+  /** Provider names that are shared by more than one provider record — these need an id disambiguator. */
+  readonly duplicateProviderNames = computed(() => {
+    const counts = new Map<string, number>();
+    for (const p of this.providers()) {
+      counts.set(p.name, (counts.get(p.name) ?? 0) + 1);
+    }
+    return new Set([...counts].filter(([, count]) => count > 1).map(([name]) => name));
+  });
+
+  /** First part of a uuid provider id (text before the first '-'), e.g. '550e8400'. */
+  providerIdPrefix(id: string): string {
+    const dash = id.indexOf('-');
+    return dash > 0 ? id.slice(0, dash) : id;
+  }
+
+  /** True when the provider record must be disambiguated because its name is shared. */
+  needsDisambiguation(providerId: string): boolean {
+    const provider = this.providers().find(p => p.id === providerId);
+    return !!provider && this.duplicateProviderNames().has(provider.name);
+  }
+
   // ---------- Architecture helper methods ----------
 
   isInputModalitySelected(modality: string): boolean {
