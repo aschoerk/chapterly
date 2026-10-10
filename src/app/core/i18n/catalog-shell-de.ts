@@ -37,7 +37,7 @@ export const DE_SHELL = {
     topicsTitle: 'Themen',
     personas: 'Personas',
     personasTitle: 'Personas',
-    import: 'Import',
+    import: 'Import/\nExport',
     importTitle: 'Import & Export',
     claims: 'Berechtigungen',
     claimsTitle: 'Arbeitsbereich- und Wallet-Freigaben',

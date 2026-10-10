@@ -56,6 +56,12 @@
   font-weight: 600;
 }
 
+.nav-link .label {
+  white-space: pre-line;
+  line-height: 1.15;
+  text-align: left;
+}
+
 .icon {
   display: inline-flex;
   width: 16px;
